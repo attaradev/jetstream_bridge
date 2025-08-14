@@ -1,0 +1,49 @@
+# JetstreamBridge Installation Guide
+
+## ✅ Installation Complete
+
+The initializer has been created at:
+`config/initializers/jetstream_bridge.rb`
+
+If you passed flags, the following migrations were also created:
+- `--inbox`  → `db/migrate/*_create_jetstream_inbox_events.rb`
+- `--outbox` → `db/migrate/*_create_jetstream_outbox_events.rb`
+
+---
+
+## Next Steps
+
+1. **Run migrations:**
+   ```bash
+   bin/rails db:migrate
+   ```
+
+2. **Set your destination app** in your environment (e.g., `hw` or `pwas`).
+
+3. **Start publishing/consuming** using:
+   - `JetstreamBridge::Publisher`
+   - `JetstreamBridge::Consumer`
+
+---
+
+## Usage Examples
+
+### Initial setup with both migrations:
+```sh
+bundle exec rails jetstream_bridge:install --inbox --outbox
+```
+
+### Only inbox:
+```sh
+bundle exec rails jetstream_bridge:install --inbox
+```
+
+### Only outbox:
+```sh
+bundle exec rails jetstream_bridge:install --outbox
+```
+
+### Just the initializer:
+```sh
+bundle exec rails jetstream_bridge:install
+```
