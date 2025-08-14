@@ -1,0 +1,116 @@
+name: Release JetstreamBridge (on tag)
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    env:
+      RUBYGEMS_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+      # Force Bundler to ignore platform-specific precompiled variants (e.g., arm64-darwin)
+      BUNDLER_FORCE_RUBY_PLATFORM: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Derive version from tag
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          RAW="${GITHUB_REF_NAME}"    # e.g. v0.3.2
+          if [[ ! "$RAW" =~ ^v[0-9]+(\.[0-9]+){2}(-[0-9A-Za-z\.-]+)?$ ]]; then
+            echo "Tag must look like vX.Y.Z (optionally -rcN). Got: $RAW"
+            exit 1
+          fi
+          VERSION="${RAW#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Using version: $VERSION"
+
+      # Install Ruby BEFORE any `ruby -e` or bundler calls
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: false
+
+      - name: Read version.rb
+        id: file
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE_VERSION=$(ruby -e "puts(File.read('lib/jetstream_bridge/version.rb')[/VERSION\\s*=\\s*['\"]([^'\"]+)['\"]/,1])")
+          echo "file_version=$FILE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version.rb currently: $FILE_VERSION"
+
+      - name: Patch version.rb to match tag (no commit)
+        if: ${{ steps.ver.outputs.version != steps.file.outputs.file_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Patching version.rb from '${{ steps.file.outputs.file_version }}' to '${{ steps.ver.outputs.version }}' for this build…"
+          sed -i "s/VERSION\\s*=\\s*['\"][^'\"]\\+['\"]/VERSION = '${{ steps.ver.outputs.version }}'/" lib/jetstream_bridge/version.rb
+          grep VERSION lib/jetstream_bridge/version.rb
+
+      - name: Prepare Bundler (non-frozen; add Linux/Ruby platforms)
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .bundle/config || true
+          bundle config set --local frozen false
+          bundle config set --local deployment false
+          bundle config set --local path vendor/bundle
+          # Ensure lockfile contains platforms available on the runner
+          bundle lock --add-platform x86_64-linux || true
+          bundle lock --add-platform ruby || true
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle install --jobs 4
+
+      # Optional tests
+      # - name: Run tests
+      #   run: bundle exec rake
+
+      - name: Build gem
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          gem build jetstream_bridge.gemspec
+          GEMFILE=$(ls -1 *.gem | tail -n1)
+          echo "gemfile=${GEMFILE}" >> "$GITHUB_OUTPUT"
+          ls -l "$GEMFILE"
+
+      - name: Create/Update GitHub Release and upload .gem
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "JetstreamBridge ${{ github.ref_name }}"
+          files: ${{ steps.build.outputs.gemfile }}
+          draft: false
+          generate_release_notes: true
+          prerelease: ${{ contains(steps.ver.outputs.version, '-') }}
+
+        # Publish only if token present
+      - name: Push to RubyGems
+        if: ${{ env.RUBYGEMS_API_KEY != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.gem
+          printf -- "---\n:rubygems_api_key: $RUBYGEMS_API_KEY\n" > ~/.gem/credentials
+          chmod 0600 ~/.gem/credentials
+          gem push "${{ steps.build.outputs.gemfile }}"
