@@ -1,0 +1,52 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'bundler/setup'
+require 'jetstream_bridge'
+require 'optparse'
+
+opts = { source: nil, durable: nil, batch: 25 }
+
+parser = OptionParser.new do |o|
+  default_src = JetstreamBridge.config.destination_app || '(required)'
+  o.banner = "Usage: jetstream_bridge_consumer [--source APP] --durable <name> [--batch 25]\n" \
+    "       Default --source is JetstreamBridge.config.destination_app=#{default_src.inspect}"
+  o.on('--source APP', 'Source app to consume from (e.g., hw or pwas). Defaults to config.destination_app.') do |v|
+    opts[:source] = v
+  end
+  o.on('--durable NAME', 'Durable consumer name') { |v| opts[:durable] = v }
+  o.on('--batch N', Integer, 'Fetch batch size (default 25)') { |v| opts[:batch] = v }
+  o.on('-h', '--help', 'Show this help') do
+    puts o
+    exit 0
+  end
+end
+
+begin
+  parser.parse!
+rescue OptionParser::InvalidOption => e
+  warn e.message
+  warn parser
+  exit 64 # EX_USAGE
+end
+
+opts[:source] ||= JetstreamBridge.config.destination_app
+abort('Missing --source and config.destination_app is not set') unless opts[:source]
+abort('Missing --durable') unless opts[:durable]
+
+begin
+  JetstreamBridge::Consumer.new(
+    source_filter: opts[:source],
+    durable_name: opts[:durable],
+    batch_size: opts[:batch]
+  ) do |event, subject, deliveries|
+    puts "Processing #{subject} attempt=#{deliveries} event_id=#{event['event_id'] || 'unknown'}"
+    # TODO: your domain logic here
+  end.run!
+rescue Interrupt
+  puts "\nShutting down…"
+  exit 130
+rescue StandardError => e
+  warn "[jetstream_bridge_consumer] #{e.class}: #{e.message}"
+  exit 1
+end

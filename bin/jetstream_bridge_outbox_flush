@@ -1,0 +1,19 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'bundler/setup'
+require 'jetstream_bridge'
+
+unless JetstreamBridge.config.use_outbox
+  warn 'Outbox is disabled – enable Config.use_outbox in your initializer'
+  exit 78 # EX_CONFIG
+end
+
+begin
+  publisher = JetstreamBridge::Publisher.new(persistent: false)
+  publisher.flush_outbox
+  puts 'Outbox flush complete.'
+rescue StandardError => e
+  warn "[jetstream_bridge_outbox_flush] #{e.class}: #{e.message}"
+  exit 1
+end
