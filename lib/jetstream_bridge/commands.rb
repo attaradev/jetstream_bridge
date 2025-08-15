@@ -7,7 +7,7 @@ module JetstreamBridge
   # Rails commands for JetstreamBridge.
   module Commands
     # Register the command with Rails
-    Rails::Command::Base.subcommand(
+    Rails::Command::Base.add_command(
       'jetstream_bridge:install',
       JetstreamBridge::Commands::Install::InstallCommand
     )
