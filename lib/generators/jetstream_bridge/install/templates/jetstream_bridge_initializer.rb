@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 # JetstreamBridge initializer
-# Adjusts values via ENV or directly here.
 JetstreamBridge.configure do |config|
   config.nats_urls       = ENV['NATS_URLS'] || ENV['NATS_URL'] || 'nats://localhost:4222'
   config.env             = Rails.env
