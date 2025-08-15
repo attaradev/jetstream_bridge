@@ -4,6 +4,9 @@
       <w>activesupport</w>
       <w>backoffs</w>
       <w>msgs</w>
+      <w>psub</w>
+      <w>sname</w>
+      <w>softprops</w>
     </words>
   </dictionary>
 </component>
