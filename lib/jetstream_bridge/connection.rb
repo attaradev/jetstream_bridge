@@ -69,7 +69,7 @@ module JetstreamBridge
     # - "nats://user:pass@host:4222" -> "nats://user:***@host:4222"
     # - "nats://token@host:4222"     -> "nats://***@host:4222"
     def sanitize_urls(urls)
-      urls.map { |u| Logger.sanitize_url(u) }
+      urls.map { |u| Logging.sanitize_url(u) }
     end
   end
 end
