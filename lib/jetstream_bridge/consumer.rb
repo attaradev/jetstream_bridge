@@ -10,7 +10,7 @@ require_relative 'message_processor'
 require_relative 'config'
 
 module JetstreamBridge
-  # Subscribes to "{env}.data.sync.{dest}.{app}.>" and processes messages.
+  # Subscribes to "{env}.data.sync.{dest}.{app}" and processes messages.
   class Consumer
     DEFAULT_BATCH_SIZE = 25
     FETCH_TIMEOUT_SECS = 5
@@ -48,7 +48,7 @@ module JetstreamBridge
     end
 
     def filter_subject
-      JetstreamBridge.config.consumer_root # {env}.data.sync.{dest}.{app}.>
+      JetstreamBridge.config.destination_subject
     end
 
     def ensure_consumer!

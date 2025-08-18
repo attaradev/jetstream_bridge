@@ -7,7 +7,7 @@ require_relative 'logging'
 require_relative 'config'
 
 module JetstreamBridge
-  # Publishes to "{env}.data.sync.{app}.{dest}.{resource}.{event}".
+  # Publishes to "{env}.data.sync.{app}.{dest}".
   class Publisher
     DEFAULT_RETRIES = 2
     RETRY_BACKOFFS  = [0.25, 1.0].freeze
@@ -24,7 +24,7 @@ module JetstreamBridge
     def publish(resource_type:, event_type:, payload:, **options)
       ensure_destination!
       envelope = build_envelope(resource_type, event_type, payload, options)
-      subject  = subject_for(resource_type, event_type)
+      subject  = JetstreamBridge.config.source_subject
       with_retries { do_publish(subject, envelope) }
     rescue StandardError => e
       log_error(false, e)
@@ -35,10 +35,6 @@ module JetstreamBridge
     def ensure_destination!
       return unless JetstreamBridge.config.destination_app.to_s.empty?
       raise ArgumentError, 'destination_app must be configured'
-    end
-
-    def subject_for(resource_type, event_type)
-      "#{JetstreamBridge.config.source_subject}.#{resource_type}.#{event_type}"
     end
 
     def do_publish(subject, envelope)
