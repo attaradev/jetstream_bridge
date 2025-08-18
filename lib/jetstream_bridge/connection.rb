@@ -18,6 +18,16 @@ module JetstreamBridge
       connect_timeout: 5
     }.freeze
 
+    # --- class-level entrypoint expected by Publisher ---
+    class << self
+      # Thread-safe delegator to the singleton instance
+      def connect!
+        @__mutex ||= Mutex.new
+        @__mutex.synchronize { instance.connect! }
+      end
+    end
+
+    # Idempotent: returns an existing, healthy JetStream context or establishes one.
     def connect!
       return @jts if connected?
 
@@ -33,8 +43,10 @@ module JetstreamBridge
 
     private
 
+    # Prefer checking the underlying NATS client for connection health.
+    # Not all JetStream context objects expose `connected?`.
     def connected?
-      @jts&.connected?
+      @nc&.connected?
     end
 
     def nats_servers
