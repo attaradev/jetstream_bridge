@@ -10,7 +10,7 @@ require_relative 'message_processor'
 require_relative 'config'
 
 module JetstreamBridge
-  # Subscribes to "{env}.data.sync.{dest}.{app}.>" and processes messages.
+  # Subscribes to "{env}.data.sync.{dest}.{app}" and processes messages.
   class Consumer
     DEFAULT_BATCH_SIZE = 25
     FETCH_TIMEOUT_SECS = 5
@@ -30,7 +30,6 @@ module JetstreamBridge
       @processor = MessageProcessor.new(@jts, @handler)
     end
 
-    # Starts the consumer loop.
     def run!
       Logging.info("Consumer #{@durable} started…", tag: 'JetstreamBridge::Consumer')
       loop { process_batch }
@@ -48,7 +47,7 @@ module JetstreamBridge
     end
 
     def filter_subject
-      JetstreamBridge.config.consumer_root # {env}.data.sync.{dest}.{app}.>
+      JetstreamBridge.config.destination_subject
     end
 
     def ensure_consumer!
@@ -74,7 +73,7 @@ module JetstreamBridge
     def process_batch
       fetch_messages.each { |m| @processor.handle_message(m) }
     rescue NATS::Timeout
-      # No messages available within FETCH_TIMEOUT_SECS — loop continues
+      # nothing in this window
     end
 
     def fetch_messages

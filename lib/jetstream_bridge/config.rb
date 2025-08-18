@@ -25,27 +25,24 @@ module JetstreamBridge
     end
 
     # Single stream name per env
-    def stream_name = "#{env}-stream-bridge"
+    def stream_name
+      "#{env}-jetstream-bridge-stream"
+    end
 
-    # Base subjects (no trailing .>)
-    # Producer publishes to:   {env}.data.sync.{app}.{dest}.<resource>.<event>
-    # Consumer subscribes to:  {env}.data.sync.{dest}.{app}.>
-    def source_subject = "#{env}.data.sync.#{app_name}.#{destination_app}"
-    def dest_subject   = "#{env}.data.sync.#{destination_app}.#{app_name}"
+    # Base subjects
+    # Producer publishes to:   {env}.data.sync.{app}.{dest}
+    # Consumer subscribes to:  {env}.data.sync.{dest}.{app}
+    def source_subject
+      "#{env}.data.sync.#{app_name}.#{destination_app}"
+    end
 
-    # Subject roots with .>
-    def producer_root  = "#{source_subject}.>"
-    def consumer_root  = "#{dest_subject}.>"
+    def destination_subject
+      "#{env}.data.sync.#{destination_app}.#{app_name}"
+    end
 
     # DLQ
-    def dlq_subject    = "#{env}.data.sync.dlq"
-
-    # Pairing helpers (for docs/logs/tests)
-    # In the *other* system, APP_NAME and DESTINATION_APP swap.
-    # Therefore:
-    #   my_consumer_root == their_producer_root
-    #   my_producer_root == their_consumer_root
-    def counterpart_producer_root = consumer_root
-    def counterpart_consumer_root = producer_root
+    def dlq_subject
+      "#{env}.data.sync.dlq"
+    end
   end
 end

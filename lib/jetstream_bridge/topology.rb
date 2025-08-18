@@ -8,15 +8,13 @@ module JetstreamBridge
   class Topology
     def self.ensure!(jts)
       cfg = JetstreamBridge.config
-      subjects = [cfg.producer_root, cfg.consumer_root]
+      subjects = [cfg.source_subject, cfg.destination_subject]
       subjects << cfg.dlq_subject if cfg.use_dlq
       Stream.ensure!(jts, cfg.stream_name, subjects)
 
-      # Optional: log the cross-system pairing for clarity
       Logging.info(
-        "Subjects ready: producer=#{cfg.producer_root}, consumer=#{cfg.consumer_root}. "\
-          "Counterpart is expected to publish on #{cfg.counterpart_producer_root} and "\
-          "subscribe on #{cfg.counterpart_consumer_root}.",
+        "Subjects ready: producer=#{cfg.source_subject}, consumer=#{cfg.destination_subject}. " \
+          "Counterpart publishes on #{cfg.destination_subject} and subscribes on #{cfg.source_subject}.",
         tag: 'JetstreamBridge::Topology'
       )
     end

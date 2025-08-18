@@ -5,26 +5,29 @@ require 'securerandom'
 require_relative 'connection'
 require_relative 'logging'
 require_relative 'config'
+require_relative 'stream' # ensure subject exists
 
 module JetstreamBridge
-  # Publishes to "{env}.data.sync.{app}.{dest}.{resource}.{event}".
+  # Publishes to "{env}.data.sync.{app}.{dest}" (resource/event are in payload).
   class Publisher
     DEFAULT_RETRIES = 2
     RETRY_BACKOFFS  = [0.25, 1.0].freeze
-    TRANSIENT_ERRORS = [NATS::IO::Timeout,NATS::IO::SocketTimeoutError, NATS::IO::Error].freeze
+
+    TRANSIENT_ERRORS = begin
+                         errs = [NATS::IO::Timeout, NATS::IO::Error]
+                         errs << NATS::IO::SocketTimeoutError if defined?(NATS::IO::SocketTimeoutError)
+                         errs.freeze
+                       end
 
     def initialize
       @jts = Connection.connect!
     end
 
-    # @param resource_type [String] e.g., "user"
-    # @param event_type [String] e.g., "created"
-    # @param payload [Hash]
     # @return [Boolean]
     def publish(resource_type:, event_type:, payload:, **options)
       ensure_destination!
       envelope = build_envelope(resource_type, event_type, payload, options)
-      subject  = subject_for(resource_type, event_type)
+      subject  = subject_for
       with_retries { do_publish(subject, envelope) }
     rescue StandardError => e
       log_error(false, e)
@@ -37,8 +40,11 @@ module JetstreamBridge
       raise ArgumentError, 'destination_app must be configured'
     end
 
-    def subject_for(resource_type, event_type)
-      "#{JetstreamBridge.config.source_subject}.#{resource_type}.#{event_type}"
+    # Ensure the producer subject exists on the stream, then return it
+    def subject_for
+      subj = JetstreamBridge.config.source_subject
+      Stream.ensure!(@jts, JetstreamBridge.config.stream_name, [subj])
+      subj
     end
 
     def do_publish(subject, envelope)
