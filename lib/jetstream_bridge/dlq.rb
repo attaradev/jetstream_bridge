@@ -1,5 +1,9 @@
 # frozen_string_literal: true
 
+require_relative 'overlap_guard'
+require_relative 'logging'
+require_relative 'subject_matcher'
+
 module JetstreamBridge
   # Ensures the DLQ subject is added to the stream.
   class DLQ

@@ -1,13 +1,6 @@
 # frozen_string_literal: true
 
 module JetstreamBridge
-  # JetstreamBridge::Config
-  #
-  # Stream name and subjects are derived from env.
-  # Subjects (env-scoped):
-  #   Publish:   {env}.data.sync.{app}.{dest}.{resource}.{event}
-  #   Subscribe: {env}.data.sync.{dest}.{app}.>
-  #   DLQ:       {env}.data.sync.dlq
   class Config
     attr_accessor :destination_app, :nats_urls, :env, :app_name,
                   :max_deliver, :ack_wait, :backoff,
@@ -31,28 +24,25 @@ module JetstreamBridge
       @inbox_model  = 'JetstreamBridge::InboxEvent'
     end
 
-    # Derived
+    # Single stream name per env
     def stream_name
-      "#{env}-stream-bridge"
+      "#{env}-jetstream-bridge-stream"
     end
 
-    # {env}.data.sync.dlq
-    def dlq_subject
-      "#{env}.data.sync.dlq"
-    end
-
-    # {env}.data.sync.{dest}.{app}
-    def dest_subject
-      "#{env}.data.sync.#{destination_app}.#{app_name}"
-    end
-
-    # {env}.data.sync.{app}.{dest}
+    # Base subjects
+    # Producer publishes to:   {env}.data.sync.{app}.{dest}
+    # Consumer subscribes to:  {env}.data.sync.{dest}.{app}
     def source_subject
       "#{env}.data.sync.#{app_name}.#{destination_app}"
     end
 
-    def source_app
-      app_name
+    def destination_subject
+      "#{env}.data.sync.#{destination_app}.#{app_name}"
+    end
+
+    # DLQ
+    def dlq_subject
+      "#{env}.data.sync.dlq"
     end
   end
 end

@@ -70,7 +70,6 @@ jobs:
           bundle config set --local frozen false
           bundle config set --local deployment false
           bundle config set --local path vendor/bundle
-          # Ensure lockfile contains platforms available on the runner
           bundle lock --add-platform x86_64-linux || true
           bundle lock --add-platform ruby || true
 
@@ -94,17 +93,52 @@ jobs:
           echo "gemfile=${GEMFILE}" >> "$GITHUB_OUTPUT"
           ls -l "$GEMFILE"
 
+      - name: Generate CHANGELOG for this release
+        id: changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+
+          # Find previous tag (semantic aware); fallback to first commit
+          PREV_TAG=$(git tag --sort=-v:refname | sed -n '2p' || true)
+          if [[ -z "$PREV_TAG" ]]; then
+            FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
+            RANGE="$FIRST_COMMIT..$TAG"
+          else
+            RANGE="$PREV_TAG..$TAG"
+          fi
+
+          DATE=$(date -u +'%Y-%m-%d')
+          {
+            echo "## $TAG — $DATE"
+            echo
+            echo "### Changes"
+            # Exclude merge commits, show subject, short sha, author
+            if ! git log --no-merges --format='- %s (%h) — %an' "$RANGE"; then
+              echo "- Initial release"
+            fi
+            echo
+          } > CHANGELOG.md
+
+          echo "prev_tag=${PREV_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Generated CHANGELOG for range: $RANGE"
+          sed -n '1,200p' CHANGELOG.md
+
       - name: Create/Update GitHub Release and upload .gem
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: "JetstreamBridge ${{ github.ref_name }}"
-          files: ${{ steps.build.outputs.gemfile }}
+          files: |
+            ${{ steps.build.outputs.gemfile }}
+            CHANGELOG.md
           draft: false
-          generate_release_notes: true
+          generate_release_notes: false
+          body_path: CHANGELOG.md
           prerelease: ${{ contains(steps.ver.outputs.version, '-') }}
 
-        # Publish only if token present
+      # Publish only if token present
       - name: Push to RubyGems
         if: ${{ env.RUBYGEMS_API_KEY != '' }}
         shell: bash

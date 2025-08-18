@@ -7,12 +7,14 @@ require_relative 'duration'
 require_relative 'logging'
 require_relative 'consumer_config'
 require_relative 'message_processor'
+require_relative 'config'
 
 module JetstreamBridge
-  # Subscribes to {env}.data.sync.{dest}.{app}.> and processes messages.
+  # Subscribes to "{env}.data.sync.{dest}.{app}" and processes messages.
   class Consumer
-    DEFAULT_BATCH_SIZE = 25
-    FETCH_TIMEOUT_SECS = 5
+    DEFAULT_BATCH_SIZE   = 25
+    FETCH_TIMEOUT_SECS   = 5
+    IDLE_SLEEP_SECS      = 0.05
 
     # @param durable_name [String] Consumer name
     # @param batch_size [Integer] Max messages per fetch
@@ -32,14 +34,16 @@ module JetstreamBridge
     # Starts the consumer loop.
     def run!
       Logging.info("Consumer #{@durable} started…", tag: 'JetstreamBridge::Consumer')
-      loop { process_batch }
+      loop do
+        processed = process_batch
+        sleep(IDLE_SLEEP_SECS) if processed.zero?
+      end
     end
 
     private
 
     def ensure_destination!
       return unless JetstreamBridge.config.destination_app.to_s.empty?
-
       raise ArgumentError, 'destination_app must be configured'
     end
 
@@ -48,7 +52,7 @@ module JetstreamBridge
     end
 
     def filter_subject
-      "#{JetstreamBridge.config.dest_subject}.>"
+      JetstreamBridge.config.destination_subject
     end
 
     def ensure_consumer!
@@ -71,14 +75,32 @@ module JetstreamBridge
                    tag: 'JetstreamBridge::Consumer')
     end
 
+    # Returns number of messages processed; 0 on timeout/idle or after recovery.
     def process_batch
-      fetch_messages.each { |m| @processor.handle_message(m) }
-    rescue NATS::Timeout
-      # No messages available within FETCH_TIMEOUT_SECS — loop continues
+      msgs = @psub.fetch(@batch_size, timeout: FETCH_TIMEOUT_SECS)
+      msgs.each { |m| @processor.handle_message(m) }
+      msgs.size
+    rescue NATS::Timeout, NATS::IO::Timeout
+      0
+    rescue NATS::JetStream::Error => e
+      # Handle common recoverable states by re-ensuring consumer & subscription.
+      if recoverable_consumer_error?(e)
+        Logging.warn("Recovering subscription after error: #{e.class} #{e.message}",
+                     tag: 'JetstreamBridge::Consumer')
+        ensure_consumer!
+        subscribe!
+        0
+      else
+        Logging.error("Fetch failed: #{e.class} #{e.message}",
+                      tag: 'JetstreamBridge::Consumer')
+        0
+      end
     end
 
-    def fetch_messages
-      @psub.fetch(@batch_size, timeout: FETCH_TIMEOUT_SECS)
+    def recoverable_consumer_error?(error)
+      msg = error.message.to_s
+      msg =~ /consumer.*(not\s+found|deleted)/i ||
+        msg =~ /no\s+responders/i
     end
   end
 end
