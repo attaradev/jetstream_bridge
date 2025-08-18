@@ -1,13 +1,6 @@
 # frozen_string_literal: true
 
 module JetstreamBridge
-  # JetstreamBridge::Config
-  #
-  # Stream name and subjects are derived from env.
-  # Subjects (env-scoped):
-  #   Publish:   {env}.data.sync.{app}.{dest}.{resource}.{event}
-  #   Subscribe: {env}.data.sync.{dest}.{app}.>
-  #   DLQ:       {env}.data.sync.dlq
   class Config
     attr_accessor :destination_app, :nats_urls, :env, :app_name,
                   :max_deliver, :ack_wait, :backoff,
@@ -31,28 +24,28 @@ module JetstreamBridge
       @inbox_model  = 'JetstreamBridge::InboxEvent'
     end
 
-    # Derived
-    def stream_name
-      "#{env}-stream-bridge"
-    end
+    # Single stream name per env
+    def stream_name = "#{env}-stream-bridge"
 
-    # {env}.data.sync.dlq
-    def dlq_subject
-      "#{env}.data.sync.dlq"
-    end
+    # Base subjects (no trailing .>)
+    # Producer publishes to:   {env}.data.sync.{app}.{dest}.<resource>.<event>
+    # Consumer subscribes to:  {env}.data.sync.{dest}.{app}.>
+    def source_subject = "#{env}.data.sync.#{app_name}.#{destination_app}"
+    def dest_subject   = "#{env}.data.sync.#{destination_app}.#{app_name}"
 
-    # {env}.data.sync.{dest}.{app}
-    def dest_subject
-      "#{env}.data.sync.#{destination_app}.#{app_name}"
-    end
+    # Subject roots with .>
+    def producer_root  = "#{source_subject}.>"
+    def consumer_root  = "#{dest_subject}.>"
 
-    # {env}.data.sync.{app}.{dest}
-    def source_subject
-      "#{env}.data.sync.#{app_name}.#{destination_app}"
-    end
+    # DLQ
+    def dlq_subject    = "#{env}.data.sync.dlq"
 
-    def source_app
-      app_name
-    end
+    # Pairing helpers (for docs/logs/tests)
+    # In the *other* system, APP_NAME and DESTINATION_APP swap.
+    # Therefore:
+    #   my_consumer_root == their_producer_root
+    #   my_producer_root == their_consumer_root
+    def counterpart_producer_root = consumer_root
+    def counterpart_consumer_root = producer_root
   end
 end

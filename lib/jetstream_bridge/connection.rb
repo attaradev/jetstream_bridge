@@ -20,7 +20,6 @@ module JetstreamBridge
       connect_timeout: 5
     }.freeze
 
-    # --- class-level entrypoint expected by Publisher ---
     class << self
       # Thread-safe delegator to the singleton instance
       def connect!
@@ -37,7 +36,10 @@ module JetstreamBridge
       raise 'No NATS URLs configured' if servers.empty?
 
       establish_connection(servers)
-      Logging.info("Connected to NATS: #{servers.join(',')}", tag: 'JetstreamBridge::Connection')
+      Logging.info(
+        "Connected to NATS (#{servers.size} server#{servers.size == 1 ? '' : 's'}): #{sanitize_urls(servers).join(',')}",
+        tag: 'JetstreamBridge::Connection'
+      )
 
       Topology.ensure!(@jts)
       @jts
@@ -45,8 +47,6 @@ module JetstreamBridge
 
     private
 
-    # Prefer checking the underlying NATS client for connection health.
-    # Not all JetStream context objects expose `connected?`.
     def connected?
       @nc&.connected?
     end
@@ -63,6 +63,13 @@ module JetstreamBridge
       @nc = NATS::IO::Client.new
       @nc.connect({ servers: servers }.merge(DEFAULT_CONN_OPTS))
       @jts = @nc.jetstream
+    end
+
+    # Mask credentials in NATS URLs:
+    # - "nats://user:pass@host:4222" -> "nats://user:***@host:4222"
+    # - "nats://token@host:4222"     -> "nats://***@host:4222"
+    def sanitize_urls(urls)
+      urls.map { |u| Logging.sanitize_url(u) }
     end
   end
 end
