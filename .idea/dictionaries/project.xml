@@ -3,6 +3,7 @@
     <words>
       <w>activesupport</w>
       <w>backoffs</w>
+      <w>esub</w>
       <w>msgs</w>
       <w>pipefail</w>
       <w>psub</w>

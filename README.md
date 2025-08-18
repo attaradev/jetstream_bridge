@@ -64,14 +64,17 @@ end
 
 ## 📡 Subject Conventions
 
-| Direction     | Subject Pattern                             |
-|---------------|---------------------------------------------|
-| **Publish**   | `data.sync.{app}.{dest}.{resource}.{event}` |
-| **Subscribe** | `data.sync.{dest}.{app}.>`                  |
-| **DLQ**       | `data.sync.dlq`                             |
+| Direction     | Subject Pattern                                   |
+|---------------|---------------------------------------------------|
+| **Publish**   | `{env}.data.sync.{app}.{dest}.{resource}.{event}` |
+| **Subscribe** | `{env}.data.sync.{dest}.{app}.>`                  |
+| **DLQ**       | `{env}.data.sync.dlq`                             |
 
 - `{app}`: Your `app_name`
 - `{dest}`: Your `destination_app`
+- `{resource}`: The resource type (e.g. `user`)
+- `{event}`: The event type (e.g. `created`)
+- `{env}`: Your `env``
 
 ---
 

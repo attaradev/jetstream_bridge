@@ -3,10 +3,11 @@
 module JetstreamBridge
   # JetstreamBridge::Config
   #
-  # Stream name and DLQ subject are derived from env
-  # Subjects:
-  #   Publish:   data.sync.{app}.{dest}.{resource}.{event}
-  #   Subscribe: data.sync.{dest}.{app}.>
+  # Stream name and subjects are derived from env.
+  # Subjects (env-scoped):
+  #   Publish:   {env}.data.sync.{app}.{dest}.{resource}.{event}
+  #   Subscribe: {env}.data.sync.{dest}.{app}.>
+  #   DLQ:       {env}.data.sync.dlq
   class Config
     attr_accessor :destination_app, :nats_urls, :env, :app_name,
                   :max_deliver, :ack_wait, :backoff,
@@ -35,18 +36,19 @@ module JetstreamBridge
       "#{env}-stream-bridge"
     end
 
+    # {env}.data.sync.dlq
     def dlq_subject
-      'data.sync.dlq'
+      "#{env}.data.sync.dlq"
     end
 
-    # data.sync.{dest}.{app}
+    # {env}.data.sync.{dest}.{app}
     def dest_subject
-      "data.sync.#{destination_app}.#{app_name}"
+      "#{env}.data.sync.#{destination_app}.#{app_name}"
     end
 
-    # data.sync.{app}.{dest}
+    # {env}.data.sync.{app}.{dest}
     def source_subject
-      "data.sync.#{app_name}.#{destination_app}"
+      "#{env}.data.sync.#{app_name}.#{destination_app}"
     end
 
     def source_app
