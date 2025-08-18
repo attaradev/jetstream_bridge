@@ -7,6 +7,7 @@ require_relative 'duration'
 require_relative 'logging'
 require_relative 'consumer_config'
 require_relative 'message_processor'
+require_relative 'config'
 
 module JetstreamBridge
   # Subscribes to {env}.data.sync.{dest}.{app}.> and processes messages.

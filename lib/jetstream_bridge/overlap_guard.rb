@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'json'
+
 module JetstreamBridge
   # Checks for overlapping subjects.
   class OverlapGuard

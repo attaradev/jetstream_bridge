@@ -4,6 +4,8 @@ require 'json'
 require 'securerandom'
 require_relative 'connection'
 require_relative 'logging'
+require_relative 'duration'
+require_relative 'config'
 
 module JetstreamBridge
   # Publishes to `{env}.data.sync.{app}.{dest}.{resource}.{event}`.

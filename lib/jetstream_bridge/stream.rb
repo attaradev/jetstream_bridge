@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require_relative 'overlap_guard'
+require_relative 'logging'
+
 module JetstreamBridge
   # Ensures a stream exists.
   class Stream
