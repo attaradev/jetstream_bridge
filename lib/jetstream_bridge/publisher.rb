@@ -12,7 +12,7 @@ module JetstreamBridge
     RETRY_BACKOFFS   = [0.25, 1.0].freeze
     TRANSIENT_ERRORS = [
       NATS::IO::Timeout,
-      NATS::IO::SocketError,
+      NATS::IO::SocketTimeoutError,
       NATS::IO::Error
     ].freeze
 
@@ -29,6 +29,8 @@ module JetstreamBridge
       envelope = build_envelope(resource_type, event_type, payload, options)
       subject  = subject_for(resource_type, event_type)
       with_retries { do_publish(subject, envelope) }
+    rescue StandardError => e
+      log_error(false, e)
     end
 
     private
@@ -53,7 +55,7 @@ module JetstreamBridge
       true
     end
 
-    # Generic retry wrapper for transient NATS errors
+    # Retry only on transient NATS errors (≤10 lines)
     def with_retries(retries = DEFAULT_RETRIES)
       attempts = 0
       begin
@@ -64,8 +66,6 @@ module JetstreamBridge
 
         backoff(attempts, e)
         retry
-      rescue StandardError => e
-        log_error(false, e)
       end
     end
 
@@ -77,7 +77,8 @@ module JetstreamBridge
     end
 
     def log_error(val, exc)
-      Logging.error("Publish failed: #{exc.class} #{exc.message}", tag: 'JetstreamBridge::Publisher')
+      Logging.error("Publish failed: #{exc.class} #{exc.message}",
+                    tag: 'JetstreamBridge::Publisher')
       val
     end
 
@@ -89,7 +90,8 @@ module JetstreamBridge
         'resource_id' => (payload['id'] || payload[:id]).to_s,
         'occurred_at' => (options[:occurred_at] || Time.now.utc).iso8601,
         'trace_id' => options[:trace_id] || SecureRandom.hex(8),
-        'resource_type' => resource_type, 'payload' => payload
+        'resource_type' => resource_type,
+        'payload' => payload
       }
     end
   end
