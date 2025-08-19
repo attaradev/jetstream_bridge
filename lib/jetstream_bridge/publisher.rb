@@ -5,6 +5,7 @@ require 'securerandom'
 require_relative 'connection'
 require_relative 'logging'
 require_relative 'config'
+require_relative 'model_utils'
 
 module JetstreamBridge
   # Publishes to "{env}.data.sync.{app}.{dest}".
@@ -27,7 +28,12 @@ module JetstreamBridge
       ensure_destination!
       envelope = build_envelope(resource_type, event_type, payload, options)
       subject  = JetstreamBridge.config.source_subject
-      with_retries { do_publish(subject, envelope) }
+
+      if JetstreamBridge.config.use_outbox
+        publish_via_outbox(subject, envelope)
+      else
+        with_retries { do_publish(subject, envelope) }
+      end
     rescue StandardError => e
       log_error(false, e)
     end
@@ -46,6 +52,85 @@ module JetstreamBridge
                    tag: 'JetstreamBridge::Publisher')
       true
     end
+
+    # ---- Outbox path ----
+    def publish_via_outbox(subject, envelope)
+      klass = ModelUtils.constantize(JetstreamBridge.config.outbox_model)
+
+      unless ModelUtils.ar_class?(klass)
+        Logging.warn("Outbox model #{klass} is not an ActiveRecord model; publishing directly.",
+                     tag: 'JetstreamBridge::Publisher')
+        return with_retries { do_publish(subject, envelope) }
+      end
+
+      now = Time.now.utc
+      event_id = envelope['event_id'].to_s
+
+      record = ModelUtils.find_or_init_by_best(
+        klass,
+        { event_id: event_id },
+        # Fallback key if app uses a different unique column:
+        { dedup_key: event_id }
+      )
+
+      # If already sent, do nothing
+      if record.respond_to?(:sent_at) && record.sent_at
+        Logging.info("Outbox already sent event_id=#{event_id}; skipping publish.",
+                     tag: 'JetstreamBridge::Publisher')
+        return true
+      end
+
+      # populate / update
+      ModelUtils.assign_known_attrs(record, {
+        event_id:      event_id,
+        subject:       subject,
+        payload:       ModelUtils.json_dump(envelope),
+        headers:       ModelUtils.json_dump({ 'Nats-Msg-Id' => event_id }),
+        status:        'publishing',
+        attempts:      (record.respond_to?(:attempts) ? (record.attempts || 0) + 1 : nil),
+        last_error:    nil,
+        enqueued_at:   (record.respond_to?(:enqueued_at) ? (record.enqueued_at || now) : nil),
+        updated_at:    (record.respond_to?(:updated_at) ? now : nil)
+      })
+      record.save!
+
+      ok = with_retries { do_publish(subject, envelope) }
+
+      if ok
+        ModelUtils.assign_known_attrs(record, {
+          status:   'sent',
+          sent_at:  (record.respond_to?(:sent_at) ? now : nil),
+          updated_at: (record.respond_to?(:updated_at) ? now : nil)
+        })
+        record.save!
+      else
+        ModelUtils.assign_known_attrs(record, {
+          status:     'failed',
+          last_error: 'Publish returned false',
+          updated_at: (record.respond_to?(:updated_at) ? now : nil)
+        })
+        record.save!
+      end
+
+      ok
+    rescue => e
+      # Persist the failure on the outbox row as best as we can
+      begin
+        if record
+          ModelUtils.assign_known_attrs(record, {
+            status:     'failed',
+            last_error: "#{e.class}: #{e.message}",
+            updated_at: (record.respond_to?(:updated_at) ? Time.now.utc : nil)
+          })
+          record.save!
+        end
+      rescue => e2
+        Logging.warn("Failed to persist outbox failure: #{e2.class}: #{e2.message}",
+                     tag: 'JetstreamBridge::Publisher')
+      end
+      log_error(false, e)
+    end
+    # ---- /Outbox path ----
 
     # Retry only on transient NATS IO errors
     def with_retries(retries = DEFAULT_RETRIES)

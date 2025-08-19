@@ -3,6 +3,7 @@
     <words>
       <w>activesupport</w>
       <w>backoffs</w>
+      <w>dedup</w>
       <w>esub</w>
       <w>msgs</w>
       <w>pipefail</w>
