@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
+require_relative '../core/config'
+require_relative '../core/logging'
 require_relative 'stream'
-require_relative 'config'
-require_relative 'logging'
 
 module JetstreamBridge
   class Topology

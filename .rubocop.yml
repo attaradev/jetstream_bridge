@@ -1,0 +1,98 @@
+# .rubocop.yml — JetstreamBridge gem
+# Focused for a Ruby gem: Packaging, Bundler, Rake, Performance, RSpec.
+
+plugins:
+  - rubocop-performance
+  - rubocop-packaging
+
+AllCops:
+  NewCops: enable
+  TargetRubyVersion: 2.7   # match gemspec minimum to avoid false positives
+  Exclude:
+    - 'bin/*'
+    - 'pkg/**/*'
+    - 'tmp/**/*'
+    - 'vendor/**/*'
+    - 'spec/fixtures/**/*'
+
+# ---------- Layout & Style ----------
+Layout/LineLength:
+  Max: 100
+  Exclude:
+    - 'spec/**/*'   # allow longer expectation/setup lines
+
+Style/Documentation:
+  Enabled: false    # don’t force top-level docs for every class/module in a gem
+
+Style/FrozenStringLiteralComment:
+  Enabled: true
+
+Style/StringLiterals:
+  EnforcedStyle: single_quotes
+  ConsistentQuotesInMultiline: true
+
+Style/SymbolArray:
+  EnforcedStyle: brackets
+
+Style/HashSyntax:
+  EnforcedShorthandSyntax: either
+
+# ---------- Metrics (balanced for libs) ----------
+Metrics/BlockLength:
+  Exclude:
+    - 'spec/**/*'
+    - 'Rakefile'
+    - 'tasks/**/*.rake'
+
+Metrics/MethodLength:
+  Max: 20
+  Exclude:
+    - 'lib/jetstream_bridge/**/publisher*.rb'
+    - 'lib/jetstream_bridge/**/consumer*.rb'
+
+Metrics/AbcSize:
+  Max: 25
+  Exclude:
+    - 'lib/jetstream_bridge/**/publisher*.rb'
+    - 'lib/jetstream_bridge/**/consumer*.rb'
+
+Metrics/CyclomaticComplexity:
+  Max: 10
+
+Metrics/PerceivedComplexity:
+  Max: 10
+
+# Optional: relax just for low-level I/O integration code
+# (you can delete this once you refactor)
+
+# ---------- Packaging / Gemspec ----------
+# These ship with RuboCop core and rubocop-packaging
+Gemspec/RequiredRubyVersion:
+  Enabled: true   # aligns with your gemspec `required_ruby_version`
+
+Gemspec/DevelopmentDependencies:
+  Enabled: true
+
+Packaging/BundlerSetupInTests:
+  Enabled: true
+
+Packaging/RequireRelativeHardcodingLib:
+  Enabled: true
+
+# ---------- Bundler ----------
+Bundler/DuplicatedGem:
+  Enabled: true
+
+Bundler/InsecureProtocolSource:
+  Enabled: true
+
+Bundler/GemComment:
+  Enabled: false
+
+# ---------- Performance ----------
+Performance/Detect:
+  Enabled: true
+Performance/RedundantMerge:
+  Enabled: true
+Performance/FixedSize:
+  Enabled: true
