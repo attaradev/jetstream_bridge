@@ -1,18 +1,21 @@
 # Jetstream Bridge
 
 **Production-safe realtime data bridge** between systems using **NATS JetStream**.
-Includes durable consumers, backpressure, retries, **DLQ**, and optional **Inbox/Outbox** for end-to-end reliability.
+Includes durable consumers, backpressure, retries, **DLQ**, optional **Inbox/Outbox**, and **overlap-safe stream provisioning**.
 
 ---
 
 ## ✨ Features
 
-- 🔌 Simple **Publisher** and **Consumer** interfaces
-- 🛡 **Outbox** (reliable send) & **Inbox** (idempotent receive)
-- 🧨 **DLQ** for poison messages
-- ⚙️ Durable `pull_subscribe` with exponential backoff & `max_deliver`
-- 🎯 Configurable **source** and **destination** applications
-- 📊 Built-in observability
+* 🔌 Simple **Publisher** and **Consumer** interfaces
+* 🛡 **Outbox** (reliable send) & **Inbox** (idempotent receive), opt-in
+* 🧨 **DLQ** for poison messages
+* ⚙️ Durable `pull_subscribe` with backoff & `max_deliver`
+* 🎯 Clear **source/destination** subject conventions
+* 🧱 **Overlap-safe stream ensure** (prevents “subjects overlap” BadRequest)
+* 🚂 **Rails generators** for initializer & migrations, plus an install **rake task**
+* ⚡️ **Eager-loaded models** via Railtie (production)
+* 📊 Built-in logging for visibility
 
 ---
 
@@ -20,7 +23,7 @@ Includes durable consumers, backpressure, retries, **DLQ**, and optional **Inbox
 
 ```ruby
 # Gemfile
-gem "jetstream_bridge"
+gem "jetstream_bridge", "~> 2.0"
 ```
 
 ```bash
@@ -29,90 +32,144 @@ bundle install
 
 ---
 
+## 🧰 Rails Generators & Rake Task
+
+From your Rails app:
+
+```bash
+# Create initializer + migrations
+bin/rails g jetstream_bridge:install
+
+# Or run them separately:
+bin/rails g jetstream_bridge:initializer
+bin/rails g jetstream_bridge:migrations
+
+# Rake task (does both initializer + migrations)
+bin/rake jetstream_bridge:install
+```
+
+Then:
+
+```bash
+bin/rails db:migrate
+```
+
+> The generators create:
+>
+> * `config/initializers/jetstream_bridge.rb`
+> * `db/migrate/*_create_jetstream_outbox_events.rb`
+> * `db/migrate/*_create_jetstream_inbox_events.rb`
+
+---
+
 ## 🔧 Configure (Rails)
 
 ```ruby
 # config/initializers/jetstream_bridge.rb
 JetstreamBridge.configure do |config|
-  # NATS Connection
+  # NATS connection
   config.nats_urls       = ENV.fetch("NATS_URLS", "nats://localhost:4222")
-  config.env             = ENV.fetch("NATS_ENV", "development")
-  config.app_name        = ENV.fetch("APP_NAME", "app")
-  config.destination_app = ENV["DESTINATION_APP"]
+  config.env             = ENV.fetch("NATS_ENV",  "development")
+  config.app_name        = ENV.fetch("APP_NAME",  "app")
+  config.destination_app = ENV["DESTINATION_APP"] # required
 
-  # Consumer Tuning
+  # Consumer tuning
   config.max_deliver = 5
   config.ack_wait    = "30s"
   config.backoff     = %w[1s 5s 15s 30s 60s]
 
-  # Reliability Features
+  # Reliability features (opt-in)
   config.use_outbox = true
   config.use_inbox  = true
   config.use_dlq    = true
 
-  # Models (override if custom)
+  # Models (override if you use custom AR classes/table names)
   config.outbox_model = "JetstreamBridge::OutboxEvent"
   config.inbox_model  = "JetstreamBridge::InboxEvent"
 end
 ```
 
-> **Note:**
-> - `stream_name` defaults to `{env}-stream-bridge`
-> - `dlq_subject` defaults to `data.sync.dlq`
+> **Defaults:**
+>
+> * `stream_name` → `#{env}-jetstream-bridge-stream`
+> * `dlq_subject` → `#{env}.data.sync.dlq`
 
 ---
 
 ## 📡 Subject Conventions
 
-| Direction     | Subject Pattern                |
-|---------------|--------------------------------|
-| **Publish**   | `{env}.data.sync.{app}.{dest}` |
-| **Subscribe** | `{env}.data.sync.{dest}.{app}` |
-| **DLQ**       | `{env}.data.sync.dlq`          |
+| Direction     | Subject Pattern           |
+|---------------|---------------------------|
+| **Publish**   | `{env}.{app}.sync.{dest}` |
+| **Subscribe** | `{env}.{dest}.sync.{app}` |
+| **DLQ**       | `{env}.sync.dlq`          |
 
-- `{app}`: Your `app_name`
-- `{dest}`: Your `destination_app`
-- `{env}`: Your `env``
+* `{app}`: `app_name`
+* `{dest}`: `destination_app`
+* `{env}`: `env`
 
 ---
 
-## 🗃 Database Setup (Inbox/Outbox)
+## 🧱 Stream Topology (auto-ensure and overlap-safe)
 
-Run the installer:
+On first connection, Jetstream Bridge **ensures** a single stream exists for your `env` and that it covers:
 
-```bash
-rails jetstream_bridge:install --all
-```
+* `source_subject` (`{env}.{app}.sync.{dest}`)
+* `destination_subject` (`{env}.{dest}.sync.{app}`)
+* `dlq_subject` (if enabled)
 
-This creates:
+It’s **overlap-safe**:
 
-1. **Initializer** (`config/initializers/jetstream_bridge.rb`)
-2. **Migrations** (if enabled):
+* Skips adding subjects already covered by existing wildcards
+* Pre-filters subjects owned by other streams to avoid `BadRequest: subjects overlap with an existing stream`
+* Retries once on concurrent races, then logs and continues safely
+
+---
+
+## 🗃 Database Setup (Inbox / Outbox)
+
+Inbox/Outbox are **optional**. The library detects columns at runtime and only sets what exists, so you can start minimal and evolve later.
+
+### Generator-created tables (recommended)
 
 ```ruby
-# Outbox
+# jetstream_outbox_events
 create_table :jetstream_outbox_events do |t|
-  t.string  :resource_type, null: false
-  t.string  :resource_id,   null: false
-  t.string  :event_type,    null: false
-  t.jsonb   :payload,       null: false, default: {}
-  t.datetime :published_at
-  t.integer  :attempts,     default: 0
-  t.text     :last_error
+  t.string  :event_id, null: false
+  t.string  :subject,  null: false
+  t.jsonb   :payload,  null: false, default: {}
+  t.jsonb   :headers,  null: false, default: {}
+  t.string  :status,   null: false, default: "pending" # pending|publishing|sent|failed
+  t.integer :attempts, null: false, default: 0
+  t.text    :last_error
+  t.datetime :enqueued_at
+  t.datetime :sent_at
   t.timestamps
 end
-add_index :jetstream_outbox_events, [:resource_type, :resource_id]
+add_index :jetstream_outbox_events, :event_id, unique: true
+add_index :jetstream_outbox_events, :status
 
-# Inbox
+# jetstream_inbox_events
 create_table :jetstream_inbox_events do |t|
-  t.string   :event_id,  null: false
-  t.string   :subject,   null: false
+  t.string   :event_id                              # preferred dedupe key
+  t.string   :subject,     null: false
+  t.jsonb    :payload,     null: false, default: {}
+  t.jsonb    :headers,     null: false, default: {}
+  t.string   :stream
+  t.bigint   :stream_seq
+  t.integer  :deliveries
+  t.string   :status,      null: false, default: "received" # received|processing|processed|failed
+  t.text     :last_error
+  t.datetime :received_at
   t.datetime :processed_at
-  t.text     :error
   t.timestamps
 end
-add_index :jetstream_inbox_events, :event_id, unique: true
+add_index :jetstream_inbox_events, :event_id, unique: true, where: 'event_id IS NOT NULL'
+add_index :jetstream_inbox_events, [:stream, :stream_seq], unique: true, where: 'stream IS NOT NULL AND stream_seq IS NOT NULL'
+add_index :jetstream_inbox_events, :status
 ```
+
+> Already have different table names? Point the config to your AR classes via `config.outbox_model` / `config.inbox_model`.
 
 ---
 
@@ -122,33 +179,20 @@ add_index :jetstream_inbox_events, :event_id, unique: true
 publisher = JetstreamBridge::Publisher.new
 publisher.publish(
   resource_type: "user",
-  resource_id:   "01H1234567890ABCDEF",
   event_type:    "created",
-  payload:       { id: "01H...", name: "Ada" }
+  payload:       { id: "01H...", name: "Ada" },  # resource_id inferred from payload[:id] / payload["id"]
+  # optional:
+  # event_id: "uuid-or-ulid",
+  # trace_id: "hex",
+  # occurred_at: Time.now.utc
 )
 ```
 
-> **Ephemeral Mode** (for short-lived scripts):
-> ```ruby
-> JetstreamBridge::Publisher.new(persistent: false).publish(...)
-> ```
+If **Outbox** is enabled, the publish call:
 
----
-
-## 🔄 Outbox (If Enabled)
-
-Events are written to the Outbox table. Flush periodically:
-
-```ruby
-# app/jobs/outbox_flush_job.rb
-class OutboxFlushJob < ApplicationJob
-  def perform
-    JetstreamBridge::Publisher.new.flush_outbox
-  end
-end
-```
-
-Schedule this job to run every minute.
+* Upserts an outbox row by `event_id`
+* Publishes with `Nats-Msg-Id` (idempotent)
+* Marks status `sent` or records `failed` with `last_error`
 
 ---
 
@@ -156,58 +200,99 @@ Schedule this job to run every minute.
 
 ```ruby
 JetstreamBridge::Consumer.new(
-  durable_name: "#{Rails.env}-peerapp-events",
+  durable_name: "#{Rails.env}-#{app_name}-workers",
   batch_size:   25
 ) do |event, subject, deliveries|
   # Your idempotent domain logic here
-  UserCreatedHandler.call(event.payload)
+  # `event` is the parsed envelope hash
+  UserCreatedHandler.call(event["payload"])
 end.run!
 ```
+
+If **Inbox** is enabled, the consumer:
+
+* Dedupes by `event_id` (falls back to stream sequence if needed)
+* Records processing state, errors, and timestamps
+* Skips already-processed messages (acks immediately)
 
 ---
 
 ## 📬 Envelope Format
 
-Published events include:
-
 ```json
 {
   "event_id":       "01H1234567890ABCDEF",
   "schema_version": 1,
+  "event_type":     "created",
   "producer":       "myapp",
   "resource_type":  "user",
   "resource_id":    "01H1234567890ABCDEF",
-  "event_type":     "created",
   "occurred_at":    "2025-08-13T21:00:00Z",
   "trace_id":       "abc123",
   "payload":        { "id": "01H...", "name": "Ada" }
 }
 ```
 
+* `resource_id` is inferred from `payload.id` when publishing.
+
+---
+
+## 🧨 Dead-Letter Queue (DLQ)
+
+When enabled, the topology ensures the DLQ subject exists:
+**`{env}.data.sync.dlq`**
+
+You may run a separate process to subscribe and triage messages that exceed `max_deliver` or are NAK’ed to the DLQ.
+
 ---
 
 ## 🛠 Operations Guide
 
 ### Monitoring
-- **Consumer Lag**: `nats consumer info <stream> <durable>`
-- **Outbox Growth**: Alert if `jetstream_outbox_events` grows unexpectedly
-- **DLQ Messages**: Monitor `data.sync.dlq` subscription
+
+* **Consumer lag**: `nats consumer info <stream> <durable>`
+* **DLQ volume**: subscribe/metrics on `{env}.data.sync.dlq`
+* **Outbox backlog**: alert on `jetstream_outbox_events` with `status != 'sent'` and growing count
 
 ### Scaling
-- Run consumers in **separate processes/containers**
-- Scale independently of web workers
+
+* Run consumers in **separate processes/containers**
+* Scale consumers independently of web
+* Tune `batch_size`, `ack_wait`, `max_deliver`, and `backoff`
+
+### Health check
+
+* Force-connect & ensure topology at boot or in a check:
+
+  ```ruby
+  JetstreamBridge.ensure_topology!
+  ```
 
 ### When to Use
-- **Inbox**: When replays or duplicates are possible
-- **Outbox**: When "DB commit ⇒ event published" guarantee is required
+
+* **Inbox**: you need idempotent processing and replay safety
+* **Outbox**: you want “DB commit ⇒ event published (or recorded for retry)” guarantees
+
+---
+
+## 🧩 Troubleshooting
+
+* **`subjects overlap with an existing stream`**
+  The library pre-filters overlapping subjects and retries once. If another team owns a broad wildcard (e.g., `env.data.sync.>`), coordinate subject boundaries.
+
+* **Consumer exists with mismatched filter**
+  The library detects and recreates the durable with the desired filter subject.
+
+* **Repeated redeliveries**
+  Increase `ack_wait`, review handler acks/NACKs, or move poison messages to DLQ.
 
 ---
 
 ## 🚀 Getting Started
 
-1. Install the gem 
-2. Configure the initializer 
-3. Run migrations: `rails db:migrate`
+1. Add the gem & run `bundle install`
+2. `bin/rails g jetstream_bridge:install`
+3. `bin/rails db:migrate`
 4. Start publishing/consuming!
 
 ---

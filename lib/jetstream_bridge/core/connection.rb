@@ -5,8 +5,8 @@ require 'singleton'
 require 'json'
 require_relative 'duration'
 require_relative 'logging'
-require_relative 'topology'
 require_relative 'config'
+require_relative '../topology/topology'
 
 module JetstreamBridge
   # Singleton connection to NATS.
@@ -21,10 +21,20 @@ module JetstreamBridge
     }.freeze
 
     class << self
-      # Thread-safe delegator to the singleton instance
+      # Thread-safe delegator to the singleton instance.
+      # Returns a live JetStream context.
       def connect!
         @__mutex ||= Mutex.new
         @__mutex.synchronize { instance.connect! }
+      end
+
+      # Optional accessors if callers need raw handles
+      def nc
+        instance.__send__(:nc)
+      end
+
+      def jetstream
+        instance.__send__(:jetstream)
       end
     end
 
@@ -36,12 +46,17 @@ module JetstreamBridge
       raise 'No NATS URLs configured' if servers.empty?
 
       establish_connection(servers)
+
       Logging.info(
-        "Connected to NATS (#{servers.size} server#{servers.size == 1 ? '' : 's'}): #{sanitize_urls(servers).join(',')}",
+        "Connected to NATS (#{servers.size} server#{unless servers.size == 1
+                                                      's'
+                                                    end}): #{sanitize_urls(servers).join(', ')}",
         tag: 'JetstreamBridge::Connection'
       )
 
+      # Ensure topology (streams, subjects, overlap guard, etc.)
       Topology.ensure!(@jts)
+
       @jts
     end
 
@@ -62,7 +77,26 @@ module JetstreamBridge
     def establish_connection(servers)
       @nc = NATS::IO::Client.new
       @nc.connect({ servers: servers }.merge(DEFAULT_CONN_OPTS))
+
+      # Create JetStream context
       @jts = @nc.jetstream
+
+      # --- Compatibility shim: ensure JetStream responds to #nc for older/newer clients ---
+      # Some versions of the NATS Ruby client don't expose nc on the JetStream object.
+      # We attach a singleton method, so code expecting `js.nc` continues to work.
+      return if @jts.respond_to?(:nc)
+
+      nc_ref = @nc
+      @jts.define_singleton_method(:nc) { nc_ref }
+
+      # ------------------------------------------------------------------------------------
+    end
+
+    # Expose for class-level helpers (not part of public API)
+    attr_reader :nc
+
+    def jetstream
+      @jts
     end
 
     # Mask credentials in NATS URLs:

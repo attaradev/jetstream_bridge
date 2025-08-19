@@ -11,7 +11,7 @@ module JetstreamBridge
       @nats_urls       = ENV['NATS_URLS'] || ENV['NATS_URL'] || 'nats://localhost:4222'
       @env             = ENV['NATS_ENV']  || 'development'
       @app_name        = ENV['APP_NAME']  || 'app'
-      @destination_app = ENV['DESTINATION_APP']
+      @destination_app = ENV.fetch('DESTINATION_APP', nil)
 
       @max_deliver = 5
       @ack_wait    = '30s'
@@ -30,19 +30,23 @@ module JetstreamBridge
     end
 
     # Base subjects
-    # Producer publishes to:   {env}.data.sync.{app}.{dest}
-    # Consumer subscribes to:  {env}.data.sync.{dest}.{app}
+    # Producer publishes to:   {env}.{app}.sync.{dest}
+    # Consumer subscribes to:  {env}.{dest}.sync.{app}
     def source_subject
-      "#{env}.data.sync.#{app_name}.#{destination_app}"
+      "#{env}.#{app_name}.sync.#{destination_app}"
     end
 
     def destination_subject
-      "#{env}.data.sync.#{destination_app}.#{app_name}"
+      "#{env}.#{destination_app}.sync.#{app_name}"
     end
 
     # DLQ
     def dlq_subject
-      "#{env}.data.sync.dlq"
+      "#{env}.sync.dlq"
+    end
+
+    def durable_name
+      "#{env}-#{app_name}-workers"
     end
   end
 end

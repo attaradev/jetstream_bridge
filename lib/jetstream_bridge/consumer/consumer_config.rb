@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require_relative 'duration'
-require_relative 'logging'
-require_relative 'config'
+require_relative '../core/duration'
+require_relative '../core/config'
+require_relative '../core/logging'
 
 module JetstreamBridge
   # Consumer configuration helpers.
