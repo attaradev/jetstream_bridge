@@ -5,8 +5,8 @@ require 'singleton'
 require 'json'
 require_relative 'duration'
 require_relative 'logging'
-require_relative 'topology'
 require_relative 'config'
+require_relative '../topology/topology'
 
 module JetstreamBridge
   # Singleton connection to NATS.

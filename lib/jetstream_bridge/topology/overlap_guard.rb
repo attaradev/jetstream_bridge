@@ -2,7 +2,7 @@
 
 require 'json'
 require_relative 'subject_matcher'
-require_relative 'logging'
+require_relative '../core/logging'
 
 module JetstreamBridge
   # Checks for overlapping subjects.
@@ -12,6 +12,7 @@ module JetstreamBridge
       def check!(jts, target_name, new_subjects)
         conflicts = overlaps(jts, target_name, new_subjects)
         return if conflicts.empty?
+
         raise conflict_message(target_name, conflicts)
       end
 
@@ -22,13 +23,13 @@ module JetstreamBridge
         streams = list_streams_with_subjects(jts)
         others  = streams.reject { |s| s[:name] == target_name }
 
-        others.map do |s|
+        others.filter_map do |s|
           pairs = desired.flat_map do |n|
             Array(s[:subjects]).map(&:to_s).select { |e| SubjectMatcher.overlap?(n, e) }
                                .map { |e| [n, e] }
           end
           { name: s[:name], pairs: pairs } unless pairs.empty?
-        end.compact
+        end
       end
 
       # Returns [allowed, blocked] given desired subjects.
@@ -56,9 +57,10 @@ module JetstreamBridge
         offset = 0
         loop do
           resp  = js_api_request(jts, '$JS.API.STREAM.NAMES', { offset: offset })
-          batch = Array(resp['streams']).map { |h| h['name'] }.compact
+          batch = Array(resp['streams']).filter_map { |h| h['name'] }
           names.concat(batch)
           break if names.size >= resp['total'].to_i || batch.empty?
+
           offset = names.size
         end
         names
