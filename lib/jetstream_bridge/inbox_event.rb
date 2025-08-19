@@ -15,6 +15,7 @@ module JetstreamBridge
         # Safe column presence check that never boots a connection during class load.
         def has_column?(name)
           return false unless ar_connected?
+
           connection.schema_cache.columns_hash(table_name).key?(name.to_s)
         rescue ActiveRecord::ConnectionNotEstablished, ActiveRecord::NoDatabaseError
           false
@@ -22,7 +23,7 @@ module JetstreamBridge
 
         def ar_connected?
           ActiveRecord::Base.connected? && connection_pool.active_connection?
-        rescue
+        rescue StandardError
           false
         end
       end
@@ -42,7 +43,7 @@ module JetstreamBridge
 
       validates :stream_seq,
                 uniqueness: { scope: :stream },
-                if: -> {
+                if: lambda {
                   !self.class.has_column?(:event_id) &&
                     self.class.has_column?(:stream_seq) &&
                     self.class.has_column?(:stream)
@@ -50,7 +51,7 @@ module JetstreamBridge
 
       validates :stream_seq,
                 uniqueness: true,
-                if: -> {
+                if: lambda {
                   !self.class.has_column?(:event_id) &&
                     self.class.has_column?(:stream_seq) &&
                     !self.class.has_column?(:stream)
@@ -62,8 +63,10 @@ module JetstreamBridge
 
       # ---- Defaults that do not require schema at load time ----
       before_validation do
-        self.status      ||= 'received' if self.class.has_column?(:status) && status.blank?
-        self.received_at ||= Time.now.utc if self.class.has_column?(:received_at) && received_at.blank?
+        self.status ||= 'received' if self.class.has_column?(:status) && status.blank?
+        if self.class.has_column?(:received_at) && received_at.blank?
+          self.received_at ||= Time.now.utc
+        end
       end
 
       # ---- Helpers ----
@@ -80,8 +83,12 @@ module JetstreamBridge
       def payload_hash
         v = self[:payload]
         case v
-        when String then JSON.parse(v) rescue {}
-        when Hash   then v
+        when String then begin
+          JSON.parse(v)
+        rescue StandardError
+          {}
+        end
+        when Hash then v
         else v.respond_to?(:as_json) ? v.as_json : {}
         end
       end
@@ -93,14 +100,18 @@ module JetstreamBridge
         def method_missing(method_name, *_args, &_block)
           raise_missing_ar!('Inbox', method_name)
         end
-        def respond_to_missing?(_m, _p = false) = false
+
+        def respond_to_missing?(_m, _p = false)
+          false
+        end
 
         private
+
         def raise_missing_ar!(which, method_name)
           raise(
             "#{which} requires ActiveRecord (tried to call ##{method_name}). " \
-              'Enable `use_inbox` only in apps with ActiveRecord, or add ' \
-              '`gem \"activerecord\"` to your Gemfile.'
+            'Enable `use_inbox` only in apps with ActiveRecord, or add ' \
+            '`gem \"activerecord\"` to your Gemfile.'
           )
         end
       end

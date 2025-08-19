@@ -23,7 +23,7 @@ Includes durable consumers, backpressure, retries, **DLQ**, optional **Inbox/Out
 
 ```ruby
 # Gemfile
-gem "jetstream_bridge"
+gem "jetstream_bridge", "~> 2.0"
 ```
 
 ```bash
@@ -98,11 +98,11 @@ end
 
 ## 📡 Subject Conventions
 
-| Direction     | Subject Pattern                |
-|---------------|--------------------------------|
-| **Publish**   | `{env}.data.sync.{app}.{dest}` |
-| **Subscribe** | `{env}.data.sync.{dest}.{app}` |
-| **DLQ**       | `{env}.data.sync.dlq`          |
+| Direction     | Subject Pattern           |
+|---------------|---------------------------|
+| **Publish**   | `{env}.{app}.sync.{dest}` |
+| **Subscribe** | `{env}.{dest}.sync.{app}` |
+| **DLQ**       | `{env}.sync.dlq`          |
 
 * `{app}`: `app_name`
 * `{dest}`: `destination_app`
@@ -110,12 +110,12 @@ end
 
 ---
 
-## 🧱 Stream Topology (auto-ensure & overlap-safe)
+## 🧱 Stream Topology (auto-ensure and overlap-safe)
 
 On first connection, Jetstream Bridge **ensures** a single stream exists for your `env` and that it covers:
 
-* `source_subject` (`{env}.data.sync.{app}.{dest}`)
-* `destination_subject` (`{env}.data.sync.{dest}.{app}`)
+* `source_subject` (`{env}.{app}.sync.{dest}`)
+* `destination_subject` (`{env}.{dest}.sync.{app}`)
 * `dlq_subject` (if enabled)
 
 It’s **overlap-safe**:
@@ -200,7 +200,7 @@ If **Outbox** is enabled, the publish call:
 
 ```ruby
 JetstreamBridge::Consumer.new(
-  durable_name: "#{Rails.env}-peerapp-events",
+  durable_name: "#{Rails.env}-#{app_name}-workers",
   batch_size:   25
 ) do |event, subject, deliveries|
   # Your idempotent domain logic here
@@ -257,7 +257,7 @@ You may run a separate process to subscribe and triage messages that exceed `max
 ### Scaling
 
 * Run consumers in **separate processes/containers**
-* Scale consumers independently from web
+* Scale consumers independently of web
 * Tune `batch_size`, `ack_wait`, `max_deliver`, and `backoff`
 
 ### Health check

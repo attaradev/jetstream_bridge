@@ -9,7 +9,7 @@ require_relative '../core/model_utils'
 require_relative 'outbox_repository'
 
 module JetstreamBridge
-  # Publishes to "{env}.data.sync.{app}.{dest}".
+  # Publishes to "{env}.{app}.sync.{dest}".
   class Publisher
     DEFAULT_RETRIES = 2
     RETRY_BACKOFFS  = [0.25, 1.0].freeze
@@ -33,7 +33,7 @@ module JetstreamBridge
       if JetstreamBridge.config.use_outbox
         publish_via_outbox(subject, envelope)
       else
-        with_retries { do_publish(subject, envelope) }
+        with_retries { do_publish?(subject, envelope) }
       end
     rescue StandardError => e
       log_error(false, e)
@@ -47,8 +47,8 @@ module JetstreamBridge
       raise ArgumentError, 'destination_app must be configured'
     end
 
-    def do_publish(subject, envelope)
-      headers = { 'Nats-Msg-Id' => envelope['event_id'] }
+    def do_publish?(subject, envelope)
+      headers = { 'nats-msg-id' => envelope['event_id'] }
       @jts.publish(subject, JSON.generate(envelope), header: headers)
       Logging.info("Published #{subject} event_id=#{envelope['event_id']}",
                    tag: 'JetstreamBridge::Publisher')
@@ -62,7 +62,7 @@ module JetstreamBridge
       unless ModelUtils.ar_class?(klass)
         Logging.warn("Outbox model #{klass} is not an ActiveRecord model; publishing directly.",
                      tag: 'JetstreamBridge::Publisher')
-        return with_retries { do_publish(subject, envelope) }
+        return with_retries { do_publish?(subject, envelope) }
       end
 
       repo     = OutboxRepository.new(klass)
@@ -77,7 +77,7 @@ module JetstreamBridge
 
       repo.persist_pre(record, subject, envelope)
 
-      ok = with_retries { do_publish(subject, envelope) }
+      ok = with_retries { do_publish?(subject, envelope) }
       ok ? repo.persist_success(record) : repo.persist_failure(record, 'Publish returned false')
       ok
     rescue StandardError => e

@@ -13,7 +13,7 @@ require_relative 'subscription_manager'
 require_relative 'inbox/inbox_processor'
 
 module JetstreamBridge
-  # Subscribes to "{env}.data.sync.{dest}.{app}" and processes messages.
+  # Subscribes to "{env}.{dest}.sync.{app}" and processes messages.
   class Consumer
     DEFAULT_BATCH_SIZE = 25
     FETCH_TIMEOUT_SECS = 5
@@ -22,7 +22,7 @@ module JetstreamBridge
     def initialize(durable_name:, batch_size: DEFAULT_BATCH_SIZE, &block)
       @handler    = block
       @batch_size = batch_size
-      @durable    = durable_name
+      @durable    = durable_name || JetstreamBridge.config.durable_name
       @jts        = Connection.connect!
 
       ensure_destination!
