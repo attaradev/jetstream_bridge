@@ -2,9 +2,10 @@
 
 require 'json'
 require 'securerandom'
-require_relative 'connection'
-require_relative 'logging'
-require_relative 'config'
+require_relative '../core/connection'
+require_relative '../core/logging'
+require_relative '../core/config'
+require_relative '../core/model_utils'
 
 module JetstreamBridge
   # Publishes to "{env}.data.sync.{app}.{dest}".
@@ -27,7 +28,12 @@ module JetstreamBridge
       ensure_destination!
       envelope = build_envelope(resource_type, event_type, payload, options)
       subject  = JetstreamBridge.config.source_subject
-      with_retries { do_publish(subject, envelope) }
+
+      if JetstreamBridge.config.use_outbox
+        publish_via_outbox(subject, envelope)
+      else
+        with_retries { do_publish(subject, envelope) }
+      end
     rescue StandardError => e
       log_error(false, e)
     end
@@ -46,6 +52,37 @@ module JetstreamBridge
                    tag: 'JetstreamBridge::Publisher')
       true
     end
+
+    # ---- Outbox path ----
+    def publish_via_outbox(subject, envelope)
+      klass = ModelUtils.constantize(JetstreamBridge.config.outbox_model)
+
+      unless ModelUtils.ar_class?(klass)
+        Logging.warn("Outbox model #{klass} is not an ActiveRecord model; publishing directly.",
+                     tag: 'JetstreamBridge::Publisher')
+        return with_retries { do_publish(subject, envelope) }
+      end
+
+      repo     = OutboxRepository.new(klass)
+      event_id = envelope['event_id'].to_s
+      record   = repo.find_or_build(event_id)
+
+      if repo.already_sent?(record)
+        Logging.info("Outbox already sent event_id=#{event_id}; skipping publish.",
+                     tag: 'JetstreamBridge::Publisher')
+        return true
+      end
+
+      repo.persist_pre(record, subject, envelope)
+
+      ok = with_retries { do_publish(subject, envelope) }
+      ok ? repo.persist_success(record) : repo.persist_failure(record, 'Publish returned false')
+      ok
+    rescue => e
+      repo.persist_exception(record, e) if defined?(repo) && defined?(record)
+      log_error(false, e)
+    end
+    # ---- /Outbox path ----
 
     # Retry only on transient NATS IO errors
     def with_retries(retries = DEFAULT_RETRIES)
