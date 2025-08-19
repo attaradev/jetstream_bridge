@@ -55,13 +55,42 @@ module JetstreamBridge
       JetstreamBridge.config.destination_subject
     end
 
+    def desired_consumer_cfg
+      ConsumerConfig.consumer_config(@durable, filter_subject)
+    end
+
     def ensure_consumer!
-      @jts.consumer_info(stream_name, @durable)
-      Logging.info("Consumer #{@durable} exists.", tag: 'JetstreamBridge::Consumer')
+      info = @jts.consumer_info(stream_name, @durable)
+      if consumer_mismatch?(info, desired_consumer_cfg)
+        Logging.warn(
+          "Consumer #{@durable} exists with mismatched config; recreating (filter=#{filter_subject})",
+          tag: 'JetstreamBridge::Consumer'
+        )
+        # Be tolerant if delete fails due to races
+        begin
+          @jts.delete_consumer(stream_name, @durable)
+        rescue NATS::JetStream::Error => e
+          Logging.warn("Delete consumer #{@durable} ignored: #{e.class} #{e.message}",
+                       tag: 'JetstreamBridge::Consumer')
+        end
+        @jts.add_consumer(stream_name, **desired_consumer_cfg)
+        Logging.info("Created consumer #{@durable} (filter=#{filter_subject})",
+                     tag: 'JetstreamBridge::Consumer')
+      else
+        Logging.info("Consumer #{@durable} exists with desired config.",
+                     tag: 'JetstreamBridge::Consumer')
+      end
     rescue NATS::JetStream::Error
-      @jts.add_consumer(stream_name, **ConsumerConfig.consumer_config(@durable, filter_subject))
+      # Not found -> create fresh
+      @jts.add_consumer(stream_name, **desired_consumer_cfg)
       Logging.info("Created consumer #{@durable} (filter=#{filter_subject})",
                    tag: 'JetstreamBridge::Consumer')
+    end
+
+    def consumer_mismatch?(info, desired_cfg)
+      cfg = info.config
+      (cfg.respond_to?(:filter_subject) ? cfg.filter_subject.to_s : cfg[:filter_subject].to_s) !=
+        desired_cfg[:filter_subject].to_s
     end
 
     def subscribe!
@@ -100,7 +129,8 @@ module JetstreamBridge
     def recoverable_consumer_error?(error)
       msg = error.message.to_s
       msg =~ /consumer.*(not\s+found|deleted)/i ||
-        msg =~ /no\s+responders/i
+        msg =~ /no\s+responders/i ||
+        msg =~ /stream.*not\s+found/i
     end
   end
 end

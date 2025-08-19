@@ -47,7 +47,7 @@ module JetstreamBridge
       true
     end
 
-    # Retry only on transient NATS errors
+    # Retry only on transient NATS IO errors
     def with_retries(retries = DEFAULT_RETRIES)
       attempts = 0
       begin

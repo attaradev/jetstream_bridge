@@ -11,7 +11,7 @@ module JetstreamBridge
 
     # Proper NATS semantics:
     # - '*' matches exactly one token
-    # - '>' matches the rest (zero or more tokens) but ONLY after the fixed prefix matches
+    # - '>' matches the rest (zero or more tokens)
     def match?(pattern, subject)
       p = pattern.split('.')
       s = subject.split('.')
@@ -30,9 +30,10 @@ module JetstreamBridge
         i += 1
       end
 
-      # If the pattern still has tokens, it only matches if the remainder is a '>' (or contains one)
+      # Exact match
       return true if i == p.length && i == s.length
 
+      # If pattern has remaining '>' it can absorb remainder
       p[i] == '>' || p[i..-1]&.include?('>')
     end
 
@@ -47,8 +48,8 @@ module JetstreamBridge
       while ai < a_parts.length && bi < b_parts.length
         at = a_parts[ai]
         bt = b_parts[bi]
-        return true if at == '>' || bt == '>'                # either can absorb the rest
-        return false unless at == bt || at == '*' || bt == '*' # fixed tokens differ
+        return true if at == '>' || bt == '>'
+        return false unless at == bt || at == '*' || bt == '*'
         ai += 1
         bi += 1
       end
