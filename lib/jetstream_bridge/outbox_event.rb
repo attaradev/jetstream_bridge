@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'json'
+
 begin
   require 'active_record'
 rescue LoadError
@@ -15,6 +17,7 @@ module JetstreamBridge
         # Safe column presence check that never boots a connection during class load.
         def has_column?(name)
           return false unless ar_connected?
+
           connection.schema_cache.columns_hash(table_name).key?(name.to_s)
         rescue ActiveRecord::ConnectionNotEstablished, ActiveRecord::NoDatabaseError
           false
@@ -23,7 +26,7 @@ module JetstreamBridge
         def ar_connected?
           # Avoid creating a connection; rescue if pool isn't set yet.
           ActiveRecord::Base.connected? && connection_pool.active_connection?
-        rescue
+        rescue StandardError
           false
         end
       end
@@ -42,11 +45,15 @@ module JetstreamBridge
       # Fallback legacy fields when event_id is absent
       validates :resource_type,
                 presence: true,
-                if: -> { !self.class.has_column?(:event_id) && self.class.has_column?(:resource_type) }
+                if: lambda {
+                  !self.class.has_column?(:event_id) && self.class.has_column?(:resource_type)
+                }
 
       validates :resource_id,
                 presence: true,
-                if: -> { !self.class.has_column?(:event_id) && self.class.has_column?(:resource_id) }
+                if: lambda {
+                  !self.class.has_column?(:event_id) && self.class.has_column?(:resource_id)
+                }
 
       validates :event_type,
                 presence: true,
@@ -63,9 +70,9 @@ module JetstreamBridge
       # ---- Defaults that do not require schema at load time ----
       before_validation do
         now = Time.now.utc
-        self.status      ||= 'pending' if self.class.has_column?(:status)      && status.blank?
-        self.enqueued_at ||= now        if self.class.has_column?(:enqueued_at) && enqueued_at.blank?
-        self.attempts      = 0          if self.class.has_column?(:attempts)   && attempts.nil?
+        self.status ||= 'pending' if self.class.has_column?(:status) && status.blank?
+        self.enqueued_at ||= now if self.class.has_column?(:enqueued_at) && enqueued_at.blank?
+        self.attempts = 0 if self.class.has_column?(:attempts) && attempts.nil?
       end
 
       # ---- Helpers ----
@@ -85,9 +92,14 @@ module JetstreamBridge
       def payload_hash
         v = self[:payload]
         case v
-        when String then JSON.parse(v) rescue {}
-        when Hash   then v
-        else v.respond_to?(:as_json) ? v.as_json : {}
+        when String then begin
+          JSON.parse(v)
+        rescue StandardError
+          {}
+        end
+        when Hash then v
+        else
+          v.respond_to?(:as_json) ? v.as_json : {}
         end
       end
     end
@@ -99,15 +111,17 @@ module JetstreamBridge
           raise_missing_ar!('Outbox', method_name)
         end
 
-        def respond_to_missing?(_m, _p = false) = false
+        def respond_to_missing?(_m, _p = false)
+          false
+        end
 
         private
 
         def raise_missing_ar!(which, method_name)
           raise(
             "#{which} requires ActiveRecord (tried to call ##{method_name}). " \
-              'Enable `use_outbox` only in apps with ActiveRecord, or add ' \
-              '`gem "activerecord"` to your Gemfile.'
+            'Enable `use_outbox` only in apps with ActiveRecord, or add ' \
+            '`gem "activerecord"` to your Gemfile.'
           )
         end
       end
