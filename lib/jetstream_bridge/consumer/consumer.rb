@@ -22,7 +22,7 @@ module JetstreamBridge
     def initialize(durable_name:, batch_size: DEFAULT_BATCH_SIZE, &block)
       @handler    = block
       @batch_size = batch_size
-      @durable    = durable_name
+      @durable    = durable_name || JetstreamBridge.config.durable_name
       @jts        = Connection.connect!
 
       ensure_destination!

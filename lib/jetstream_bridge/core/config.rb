@@ -11,7 +11,7 @@ module JetstreamBridge
       @nats_urls       = ENV['NATS_URLS'] || ENV['NATS_URL'] || 'nats://localhost:4222'
       @env             = ENV['NATS_ENV']  || 'development'
       @app_name        = ENV['APP_NAME']  || 'app'
-      @destination_app = ENV['DESTINATION_APP']
+      @destination_app = ENV.fetch('DESTINATION_APP', nil)
 
       @max_deliver = 5
       @ack_wait    = '30s'
@@ -43,6 +43,10 @@ module JetstreamBridge
     # DLQ
     def dlq_subject
       "#{env}.data.sync.dlq"
+    end
+
+    def durable_name
+      "#{env}-#{app_name}-workers"
     end
   end
 end

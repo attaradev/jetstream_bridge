@@ -23,7 +23,7 @@ Includes durable consumers, backpressure, retries, **DLQ**, optional **Inbox/Out
 
 ```ruby
 # Gemfile
-gem "jetstream_bridge"
+gem "jetstream_bridge", "~> 2.0"
 ```
 
 ```bash
@@ -257,7 +257,7 @@ You may run a separate process to subscribe and triage messages that exceed `max
 ### Scaling
 
 * Run consumers in **separate processes/containers**
-* Scale consumers independently from web
+* Scale consumers independently of web
 * Tune `batch_size`, `ack_wait`, `max_deliver`, and `backoff`
 
 ### Health check
