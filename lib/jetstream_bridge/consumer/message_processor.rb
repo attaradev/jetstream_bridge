@@ -2,7 +2,7 @@
 
 require 'json'
 require 'securerandom'
-require_relative 'logging'
+require_relative '../core/logging'
 
 module JetstreamBridge
   # Handles parse → handler → ack / nak → DLQ

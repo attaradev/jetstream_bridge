@@ -25,13 +25,13 @@ Gem::Specification.new do |spec|
 
   # Rich metadata for RubyGems.org
   spec.metadata = {
-    'homepage_uri'         => 'https://github.com/attaradev/jetstream_bridge',
-    'source_code_uri'      => 'https://github.com/attaradev/jetstream_bridge',
-    'changelog_uri'        => 'https://github.com/attaradev/jetstream_bridge/blob/main/CHANGELOG.md',
-    'documentation_uri'    => 'https://github.com/attaradev/jetstream_bridge#readme',
-    'bug_tracker_uri'      => 'https://github.com/attaradev/jetstream_bridge/issues',
-    'github_repo'          => 'ssh://github.com/attaradev/jetstream_bridge',
-    'rubygems_mfa_required'=> 'true'
+    'homepage_uri' => 'https://github.com/attaradev/jetstream_bridge',
+    'source_code_uri' => 'https://github.com/attaradev/jetstream_bridge',
+    'changelog_uri' => 'https://github.com/attaradev/jetstream_bridge/blob/main/CHANGELOG.md',
+    'documentation_uri' => 'https://github.com/attaradev/jetstream_bridge#readme',
+    'bug_tracker_uri' => 'https://github.com/attaradev/jetstream_bridge/issues',
+    'github_repo' => 'ssh://github.com/attaradev/jetstream_bridge',
+    'rubygems_mfa_required' => 'true'
   }
 
   # Safer file list for published gem
@@ -51,11 +51,10 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'rails',         '>= 6.0'
 
   # Development / quality dependencies
+  spec.add_development_dependency 'bundler-audit',       '>= 0.9.1'
   spec.add_development_dependency 'rake',                '>= 13.0'
   spec.add_development_dependency 'rspec',               '>= 3.12'
   spec.add_development_dependency 'rubocop',             '~> 1.66'
-  spec.add_development_dependency 'rubocop-performance', '~> 1.21'
-  spec.add_development_dependency 'rubocop-rake',        '~> 0.6'
   spec.add_development_dependency 'rubocop-packaging',   '~> 0.5'
-  spec.add_development_dependency 'bundler-audit',       '>= 0.9.1'
+  spec.add_development_dependency 'rubocop-performance', '~> 1.21'
 end
