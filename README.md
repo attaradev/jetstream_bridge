@@ -23,7 +23,7 @@ Includes durable consumers, backpressure, retries, **DLQ**, optional **Inbox/Out
 
 ```ruby
 # Gemfile
-gem "jetstream_bridge", "~> 2.0"
+gem "jetstream_bridge", "~> 2.3"
 ```
 
 ```bash
@@ -191,7 +191,7 @@ publisher.publish(
 If **Outbox** is enabled, the publish call:
 
 * Upserts an outbox row by `event_id`
-* Publishes with `Nats-Msg-Id` (idempotent)
+* Publishes with `nats-msg-id` (idempotent)
 * Marks status `sent` or records `failed` with `last_error`
 
 ---
