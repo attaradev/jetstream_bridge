@@ -23,7 +23,7 @@ Includes durable consumers, backpressure, retries, **DLQ**, optional **Inbox/Out
 
 ```ruby
 # Gemfile
-gem "jetstream_bridge", "~> 2.0"
+gem "jetstream_bridge", "~> 2.6"
 ```
 
 ```bash
@@ -191,7 +191,7 @@ publisher.publish(
 If **Outbox** is enabled, the publish call:
 
 * Upserts an outbox row by `event_id`
-* Publishes with `Nats-Msg-Id` (idempotent)
+* Publishes with `nats-msg-id` (idempotent)
 * Marks status `sent` or records `failed` with `last_error`
 
 ---
@@ -265,7 +265,7 @@ You may run a separate process to subscribe and triage messages that exceed `max
 * Force-connect & ensure topology at boot or in a check:
 
   ```ruby
-  JetstreamBridge.ensure_topology!
+  JetstreamBridge.ensure_topology?
   ```
 
 ### When to Use

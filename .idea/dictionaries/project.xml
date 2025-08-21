@@ -6,11 +6,13 @@
       <w>backoffs</w>
       <w>dedup</w>
       <w>esub</w>
+      <w>ival</w>
       <w>msgs</w>
       <w>pipefail</w>
       <w>psub</w>
       <w>sname</w>
       <w>softprops</w>
+      <w>sval</w>
       <w>workqueue</w>
     </words>
   </dictionary>
