@@ -49,9 +49,12 @@ module JetstreamBridge
 
     def do_publish?(subject, envelope)
       headers = { 'nats-msg-id' => envelope['event_id'] }
+
       @jts.publish(subject, JSON.generate(envelope), header: headers)
-      Logging.info("Published #{subject} event_id=#{envelope['event_id']}",
-                   tag: 'JetstreamBridge::Publisher')
+      Logging.info(
+        "Published #{subject} event_id=#{envelope['event_id']}",
+        tag: 'JetstreamBridge::Publisher'
+      )
       true
     end
 
@@ -60,8 +63,10 @@ module JetstreamBridge
       klass = ModelUtils.constantize(JetstreamBridge.config.outbox_model)
 
       unless ModelUtils.ar_class?(klass)
-        Logging.warn("Outbox model #{klass} is not an ActiveRecord model; publishing directly.",
-                     tag: 'JetstreamBridge::Publisher')
+        Logging.warn(
+          "Outbox model #{klass} is not an ActiveRecord model; publishing directly.",
+          tag: 'JetstreamBridge::Publisher'
+        )
         return with_retries { do_publish?(subject, envelope) }
       end
 
@@ -70,8 +75,10 @@ module JetstreamBridge
       record   = repo.find_or_build(event_id)
 
       if repo.already_sent?(record)
-        Logging.info("Outbox already sent event_id=#{event_id}; skipping publish.",
-                     tag: 'JetstreamBridge::Publisher')
+        Logging.info(
+          "Outbox already sent event_id=#{event_id}; skipping publish.",
+          tag: 'JetstreamBridge::Publisher'
+        )
         return true
       end
 
@@ -102,14 +109,18 @@ module JetstreamBridge
 
     def backoff(attempts, error)
       delay = RETRY_BACKOFFS[attempts - 1] || RETRY_BACKOFFS.last
-      Logging.warn("Publish retry #{attempts} after #{error.class}: #{error.message}",
-                   tag: 'JetstreamBridge::Publisher')
+      Logging.warn(
+        "Publish retry #{attempts} after #{error.class}: #{error.message}",
+        tag: 'JetstreamBridge::Publisher'
+      )
       sleep delay
     end
 
     def log_error(val, exc)
-      Logging.error("Publish failed: #{exc.class} #{exc.message}",
-                    tag: 'JetstreamBridge::Publisher')
+      Logging.error(
+        "Publish failed: #{exc.class} #{exc.message}",
+        tag: 'JetstreamBridge::Publisher'
+      )
       val
     end
 

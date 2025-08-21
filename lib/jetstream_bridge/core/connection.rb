@@ -48,9 +48,8 @@ module JetstreamBridge
       establish_connection(servers)
 
       Logging.info(
-        "Connected to NATS (#{servers.size} server#{unless servers.size == 1
-                                                      's'
-                                                    end}): #{sanitize_urls(servers).join(', ')}",
+        "Connected to NATS (#{servers.size} server#{'s' unless servers.size == 1}): " \
+        "#{sanitize_urls(servers).join(', ')}",
         tag: 'JetstreamBridge::Connection'
       )
 
@@ -82,14 +81,10 @@ module JetstreamBridge
       @jts = @nc.jetstream
 
       # --- Compatibility shim: ensure JetStream responds to #nc for older/newer clients ---
-      # Some versions of the NATS Ruby client don't expose nc on the JetStream object.
-      # We attach a singleton method, so code expecting `js.nc` continues to work.
       return if @jts.respond_to?(:nc)
 
       nc_ref = @nc
       @jts.define_singleton_method(:nc) { nc_ref }
-
-      # ------------------------------------------------------------------------------------
     end
 
     # Expose for class-level helpers (not part of public API)

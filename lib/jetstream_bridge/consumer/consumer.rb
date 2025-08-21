@@ -13,7 +13,7 @@ require_relative 'subscription_manager'
 require_relative 'inbox/inbox_processor'
 
 module JetstreamBridge
-  # Subscribes to "{env}.{dest}.sync.{app}" and processes messages.
+  # Subscribes to destination subject and processes messages via a pull durable.
   class Consumer
     DEFAULT_BATCH_SIZE = 25
     FETCH_TIMEOUT_SECS = 5
@@ -29,7 +29,7 @@ module JetstreamBridge
 
       @sub_mgr = SubscriptionManager.new(@jts, @durable, JetstreamBridge.config)
       @sub_mgr.ensure_consumer!
-      @psub       = @sub_mgr.subscribe!
+      @psub = @sub_mgr.subscribe!
 
       @processor  = MessageProcessor.new(@jts, @handler)
       @inbox_proc = InboxProcessor.new(@processor) if JetstreamBridge.config.use_inbox
@@ -71,24 +71,28 @@ module JetstreamBridge
       msgs.sum { |m| process_one(m) }
     end
 
-    def process_one(m)
+    def process_one(msg)
       if @inbox_proc
-        @inbox_proc.process(m) ? 1 : 0
+        @inbox_proc.process(msg) ? 1 : 0
       else
-        @processor.handle_message(m)
+        @processor.handle_message(msg)
         1
       end
     end
 
     def handle_js_error(e)
       if recoverable_consumer_error?(e)
-        Logging.warn("Recovering subscription after error: #{e.class} #{e.message}",
-                     tag: 'JetstreamBridge::Consumer')
+        Logging.warn(
+          "Recovering subscription after error: #{e.class} #{e.message}",
+          tag: 'JetstreamBridge::Consumer'
+        )
         @sub_mgr.ensure_consumer!
         @psub = @sub_mgr.subscribe!
       else
-        Logging.error("Fetch failed: #{e.class} #{e.message}",
-                      tag: 'JetstreamBridge::Consumer')
+        Logging.error(
+          "Fetch failed: #{e.class} #{e.message}",
+          tag: 'JetstreamBridge::Consumer'
+        )
       end
       0
     end
