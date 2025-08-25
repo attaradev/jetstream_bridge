@@ -21,5 +21,15 @@ RSpec.describe JetstreamBridge::Duration do
         expect(described_class.to_millis(1_500)).to eq(1_500)
       end
     end
+
+    context 'with auto unit and numeric string' do
+      it 'uses seconds for small integers' do
+        expect(described_class.to_millis('2')).to eq(2_000)
+      end
+
+      it 'uses milliseconds for large integers' do
+        expect(described_class.to_millis('1_500')).to eq(1_500)
+      end
+    end
   end
 end
