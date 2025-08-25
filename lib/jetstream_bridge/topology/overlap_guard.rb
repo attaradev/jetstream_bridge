@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'json'
+require 'oj'
 require_relative 'subject_matcher'
 require_relative '../core/logging'
 
@@ -68,8 +68,8 @@ module JetstreamBridge
 
       def js_api_request(jts, subject, payload = {})
         # JetStream client should expose the underlying NATS client as `nc`
-        msg = jts.nc.request(subject, JSON.dump(payload))
-        JSON.parse(msg.data)
+        msg = jts.nc.request(subject, Oj.dump(payload, mode: :compat))
+        Oj.load(msg.data, mode: :strict)
       end
 
       def conflict_message(target, conflicts)

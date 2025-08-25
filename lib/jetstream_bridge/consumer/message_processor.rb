@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'json'
+require 'oj'
 require_relative '../core/logging'
 require_relative 'message_context'
 require_relative 'dlq_publisher'
@@ -37,12 +37,8 @@ module JetstreamBridge
 
     def parse_message(msg, ctx)
       data = msg.data
-      if defined?(Oj)
-        Oj.load(data, mode: :strict)
-      else
-        JSON.parse(data)
-      end
-    rescue JSON::ParserError => e
+      Oj.load(data, mode: :strict)
+    rescue Oj::ParseError => e
       @dlq.publish(msg, ctx,
                    reason: 'malformed_json', error_class: e.class.name, error_message: e.message)
       msg.ack

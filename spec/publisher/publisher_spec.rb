@@ -1,4 +1,5 @@
 require 'jetstream_bridge'
+require 'oj'
 
 RSpec.describe JetstreamBridge::Publisher do
   let(:jts) { double('jetstream') }
@@ -22,7 +23,7 @@ RSpec.describe JetstreamBridge::Publisher do
 
   it 'publishes with nats-msg-id header matching envelope event_id' do
     expect(jts).to receive(:publish) do |subject, data, header:|
-      envelope = JSON.parse(data)
+      envelope = Oj.load(data, mode: :strict)
       expect(subject).to eq('test.source.sync.dest')
       expect(header['nats-msg-id']).to eq(envelope['event_id'])
       ack

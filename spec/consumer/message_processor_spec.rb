@@ -1,4 +1,5 @@
 require 'jetstream_bridge'
+require 'oj'
 
 RSpec.describe JetstreamBridge::MessageProcessor do
   let(:jts) { double('jetstream') }
@@ -12,7 +13,7 @@ RSpec.describe JetstreamBridge::MessageProcessor do
 
   let(:msg) do
     double('msg',
-           data: { foo: 'bar' }.to_json,
+           data: Oj.dump({ foo: 'bar' }),
            header: { 'nats-msg-id' => 'abc-123' },
            subject: 'test.subject',
            metadata: metadata,
@@ -26,7 +27,7 @@ RSpec.describe JetstreamBridge::MessageProcessor do
     let(:deliveries) { 1 }
 
     it 'acks the message' do
-      expect(handler).to receive(:call).with(JSON.parse(msg.data), msg.subject, deliveries)
+      expect(handler).to receive(:call).with(Oj.load(msg.data, mode: :strict), msg.subject, deliveries)
       expect(msg).to receive(:ack)
       expect(dlq).not_to receive(:publish)
       processor.handle_message(msg)

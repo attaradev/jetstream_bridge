@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'json'
+require 'oj'
 require 'securerandom'
 require_relative '../core/connection'
 require_relative '../core/logging'
@@ -50,7 +50,7 @@ module JetstreamBridge
     def do_publish?(subject, envelope)
       headers = { 'nats-msg-id' => envelope['event_id'] }
 
-      ack = @jts.publish(subject, JSON.generate(envelope), header: headers)
+      ack = @jts.publish(subject, Oj.dump(envelope, mode: :compat), header: headers)
       duplicate = ack.respond_to?(:duplicate?) && ack.duplicate?
       msg = "Published #{subject} event_id=#{envelope['event_id']}"
       msg += ' (duplicate)' if duplicate
