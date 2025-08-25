@@ -11,6 +11,8 @@ module JetstreamBridge
       @jts     = jts
       @durable = durable
       @cfg     = cfg
+      @desired_cfg      = ConsumerConfig.consumer_config(@durable, filter_subject)
+      @desired_cfg_norm = normalize_consumer_config(@desired_cfg)
     end
 
     def stream_name
@@ -22,18 +24,18 @@ module JetstreamBridge
     end
 
     def desired_consumer_cfg
-      ConsumerConfig.consumer_config(@durable, filter_subject)
+      @desired_cfg
     end
 
     def ensure_consumer!
       info = consumer_info_or_nil
       return create_consumer! unless info
 
-      want = desired_consumer_cfg
-      if consumer_matches?(info, want)
+      have_norm = normalize_consumer_config(info.config)
+      if have_norm == @desired_cfg_norm
         log_consumer_ok
       else
-        log_consumer_diff(info, want)
+        log_consumer_diff(have_norm)
         recreate_consumer!
       end
     end
@@ -58,15 +60,8 @@ module JetstreamBridge
 
     # ---- comparison ----
 
-    def consumer_matches?(info, want)
-      have_norm = normalize_consumer_config(info.config)
-      want_norm = normalize_consumer_config(want)
-      have_norm == want_norm
-    end
-
-    def log_consumer_diff(info, want)
-      have_norm = normalize_consumer_config(info.config)
-      want_norm = normalize_consumer_config(want)
+    def log_consumer_diff(have_norm)
+      want_norm = @desired_cfg_norm
 
       diffs = {}
       (have_norm.keys | want_norm.keys).each do |k|
