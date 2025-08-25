@@ -60,7 +60,10 @@ module JetstreamBridge
 
     # Normalize an array of durations into integer milliseconds.
     def normalize_list_to_millis(values, default_unit: :auto)
-      Array(values).map { |v| to_millis(v, default_unit: default_unit) }
+      vals = Array(values)
+      return [] if vals.empty?
+
+      vals.map { |v| to_millis(v, default_unit: default_unit) }
     end
 
     # --- internal helpers ---

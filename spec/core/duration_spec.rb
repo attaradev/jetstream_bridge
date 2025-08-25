@@ -32,4 +32,15 @@ RSpec.describe JetstreamBridge::Duration do
       end
     end
   end
+
+  describe '.normalize_list_to_millis' do
+    it 'converts mixed durations into milliseconds' do
+      list = ['1s', '500ms', 2]
+      expect(described_class.normalize_list_to_millis(list)).to eq([1_000, 500, 2_000])
+    end
+
+    it 'returns an empty array for nil input' do
+      expect(described_class.normalize_list_to_millis(nil)).to eq([])
+    end
+  end
 end
