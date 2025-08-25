@@ -2,7 +2,7 @@
 
 require 'nats/io/client'
 require 'singleton'
-require 'json'
+require 'oj'
 require_relative 'duration'
 require_relative 'logging'
 require_relative 'config'

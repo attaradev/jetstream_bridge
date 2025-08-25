@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'json'
+require 'oj'
 
 module JetstreamBridge
   # Immutable value object for a single NATS message.
@@ -19,8 +19,8 @@ module JetstreamBridge
 
       raw  = m.data
       body = begin
-        JSON.parse(raw)
-      rescue StandardError
+        Oj.load(raw, mode: :strict)
+      rescue Oj::Error
         {}
       end
 

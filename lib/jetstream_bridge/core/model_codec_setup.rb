@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'oj'
+
 module JetstreamBridge
   module ModelCodecSetup
     module_function
@@ -17,7 +19,7 @@ module JetstreamBridge
         next unless column?(klass, attr)
         next if json_column?(klass, attr) || already_serialized?(klass, attr)
 
-        klass.serialize attr.to_sym, coder: JSON
+        klass.serialize attr.to_sym, coder: Oj
       end
     rescue ActiveRecord::StatementInvalid, ActiveRecord::ConnectionNotEstablished, ActiveRecord::NoDatabaseError
       # ignore when schema isn’t available yet

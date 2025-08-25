@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'json'
+require 'oj'
 
 begin
   require 'active_record'
@@ -93,8 +93,8 @@ module JetstreamBridge
         v = self[:payload]
         case v
         when String then begin
-          JSON.parse(v)
-        rescue StandardError
+          Oj.load(v, mode: :strict)
+        rescue Oj::Error
           {}
         end
         when Hash then v

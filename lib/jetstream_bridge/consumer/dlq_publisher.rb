@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'json'
+require 'oj'
 require 'time'
 require_relative '../core/logging'
 
@@ -46,7 +46,7 @@ module JetstreamBridge
       headers['x-dead-letter'] = 'true'
       headers['x-dlq-reason']  = reason
       headers['x-deliveries']  = deliveries.to_s
-      headers['x-dlq-context'] = JSON.generate(envelope)
+      headers['x-dlq-context'] = Oj.dump(envelope, mode: :compat)
       headers
     end
   end

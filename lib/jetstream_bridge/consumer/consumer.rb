@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'json'
+require 'oj'
 require 'securerandom'
 require_relative '../core/connection'
 require_relative '../core/duration'
