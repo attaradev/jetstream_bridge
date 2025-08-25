@@ -14,6 +14,7 @@ module JetstreamBridge
   # Examples:
   #   Duration.to_millis(30)                        #=> 30000   (auto)
   #   Duration.to_millis(1500)                      #=> 1500    (auto)
+  #   Duration.to_millis("1500")                    #=> 1500    (auto)
   #   Duration.to_millis(1500, default_unit: :s)    #=> 1_500_000
   #   Duration.to_millis("30s")                     #=> 30000
   #   Duration.to_millis("500ms")                   #=> 500
@@ -48,7 +49,7 @@ module JetstreamBridge
       case val
       when Integer then int_to_ms(val, default_unit: default_unit)
       when Float   then float_to_ms(val, default_unit: default_unit)
-      when String  then string_to_ms(val, default_unit: default_unit == :auto ? :s : default_unit)
+      when String  then string_to_ms(val, default_unit: default_unit)
       else
         raise ArgumentError, "invalid duration type: #{val.class}" unless val.respond_to?(:to_f)
 
@@ -80,8 +81,9 @@ module JetstreamBridge
 
     def string_to_ms(str, default_unit:)
       s = str.strip
-      # Plain number string => use default_unit explicitly (not heuristic)
-      return coerce_numeric_to_ms(s.delete('_').to_f, default_unit) if NUMBER_RE.match?(s)
+      # Plain number strings are treated like integers so the :auto
+      # heuristic still applies (<1000 => seconds, >=1000 => ms).
+      return int_to_ms(s.delete('_').to_i, default_unit: default_unit) if NUMBER_RE.match?(s)
 
       m = TOKEN_RE.match(s)
       raise ArgumentError, "invalid duration: #{str.inspect}" unless m

@@ -265,7 +265,8 @@ You may run a separate process to subscribe and triage messages that exceed `max
 * Force-connect & ensure topology at boot or in a check:
 
   ```ruby
-  JetstreamBridge.ensure_topology?
+  # Returns JetStream context if successful
+  JetstreamBridge.ensure_topology!
   ```
 
 ### When to Use

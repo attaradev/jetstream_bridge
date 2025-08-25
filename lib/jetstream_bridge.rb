@@ -46,9 +46,19 @@ module JetstreamBridge
       config.use_dlq
     end
 
-    def ensure_topology?
+    # Establishes a connection and ensures stream topology.
+    #
+    # @return [Object] JetStream context
+    def ensure_topology!
       Connection.connect!
-      true
+      Connection.jetstream
+    end
+
+    # @deprecated Use {ensure_topology!} instead. This method will be removed
+    #   in a future version.
+    def ensure_topology?
+      Logging.warn('ensure_topology? is deprecated; use ensure_topology! instead', tag: 'JetstreamBridge')
+      !!ensure_topology!
     end
 
     private
