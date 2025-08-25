@@ -50,12 +50,21 @@ module JetstreamBridge
     def do_publish?(subject, envelope)
       headers = { 'nats-msg-id' => envelope['event_id'] }
 
-      @jts.publish(subject, JSON.generate(envelope), header: headers)
-      Logging.info(
-        "Published #{subject} event_id=#{envelope['event_id']}",
-        tag: 'JetstreamBridge::Publisher'
-      )
-      true
+      ack = @jts.publish(subject, JSON.generate(envelope), header: headers)
+      duplicate = ack.respond_to?(:duplicate?) && ack.duplicate?
+      msg = "Published #{subject} event_id=#{envelope['event_id']}"
+      msg += ' (duplicate)' if duplicate
+
+      Logging.info(msg, tag: 'JetstreamBridge::Publisher')
+
+      if ack.respond_to?(:error) && ack.error
+        Logging.error(
+          "Publish ack error: #{ack.error}",
+          tag: 'JetstreamBridge::Publisher'
+        )
+      end
+
+      !ack.respond_to?(:error) || ack.error.nil?
     end
 
     # ---- Outbox path ----
