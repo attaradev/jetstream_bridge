@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'oj'
+
 module JetstreamBridge
   module ModelUtils
     module_function
@@ -36,15 +38,18 @@ module JetstreamBridge
     end
 
     def json_dump(obj)
-      obj.is_a?(String) ? obj : JSON.generate(obj)
-    rescue
+      return obj if obj.is_a?(String)
+
+      Oj.dump(obj, mode: :compat)
+    rescue Oj::Error, TypeError
       obj.to_s
     end
 
     def json_load(str)
       return str if str.is_a?(Hash)
-      JSON.parse(str.to_s)
-    rescue
+
+      Oj.load(str.to_s, mode: :strict)
+    rescue Oj::Error
       {}
     end
   end
