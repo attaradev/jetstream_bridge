@@ -23,7 +23,7 @@ Includes durable consumers, backpressure, retries, **DLQ**, optional **Inbox/Out
 
 ```ruby
 # Gemfile
-gem "jetstream_bridge", "~> 2.3"
+gem "jetstream_bridge", "~> 2.4"
 ```
 
 ```bash
@@ -265,7 +265,7 @@ You may run a separate process to subscribe and triage messages that exceed `max
 * Force-connect & ensure topology at boot or in a check:
 
   ```ruby
-  JetstreamBridge.ensure_topology!
+  JetstreamBridge.ensure_topology?
   ```
 
 ### When to Use

@@ -46,7 +46,7 @@ module JetstreamBridge
       config.use_dlq
     end
 
-    def ensure_topology!
+    def ensure_topology?
       Connection.connect!
       true
     end

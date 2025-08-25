@@ -37,8 +37,7 @@ module JetstreamBridge
     def log_all_blocked(name, blocked)
       if blocked.any?
         Logging.warn(
-          "Stream #{name}: all missing subjects belong to other streams; unchanged. " \
-          "blocked=#{blocked.inspect}",
+          "Stream #{name}: all missing subjects belong to other streams; unchanged. blocked=#{blocked.inspect}",
           tag: 'JetstreamBridge::Stream'
         )
       else
@@ -54,8 +53,7 @@ module JetstreamBridge
 
     def log_not_created(name, blocked)
       Logging.warn(
-        "Not creating stream #{name}: all desired subjects belong to other streams. " \
-        "blocked=#{blocked.inspect}",
+        "Not creating stream #{name}: all desired subjects belong to other streams. blocked=#{blocked.inspect}",
         tag: 'JetstreamBridge::Stream'
       )
     end
@@ -70,10 +68,24 @@ module JetstreamBridge
       msg += " (skipped overlapped=#{blocked.inspect})" if blocked.any?
       Logging.info(msg, tag: 'JetstreamBridge::Stream')
     end
+
+    def log_config_updated(name, storage:)
+      Logging.info(
+        "Updated stream #{name} config; storage=#{storage.inspect}",
+        tag: 'JetstreamBridge::Stream'
+      )
+    end
+
+    def log_retention_mismatch(name, have:, want:)
+      Logging.warn(
+        "Stream #{name} retention mismatch (have=#{have.inspect}, want=#{want.inspect}). " \
+        "Retention is immutable; skipping retention change.",
+        tag: 'JetstreamBridge::Stream'
+      )
+    end
   end
 
-  # Ensures a stream exists and updates only uncovered subjects, using work-queue semantics:
-  # Persist with zero consumers; delete after the first ack (retention: 'workqueue').
+  # Ensures a stream exists and updates only uncovered subjects, using work-queue semantics.
   class Stream
     RETENTION = 'workqueue'
     STORAGE   = 'file'
@@ -89,17 +101,12 @@ module JetstreamBridge
           info ? ensure_update(jts, name, info, desired) : ensure_create(jts, name, desired)
         rescue NATS::JetStream::Error => e
           if StreamSupport.overlap_error?(e) && (attempts += 1) <= 1
-            Logging.warn(
-              "Overlap race while ensuring #{name}; retrying once...",
-              tag: 'JetstreamBridge::Stream'
-            )
+            Logging.warn("Overlap race while ensuring #{name}; retrying once...", tag: 'JetstreamBridge::Stream')
             sleep(0.05)
             retry
           elsif StreamSupport.overlap_error?(e)
-            Logging.warn(
-              "Overlap persists ensuring #{name}; leaving unchanged. err=#{e.message.inspect}",
-              tag: 'JetstreamBridge::Stream'
-            )
+            Logging.warn("Overlap persists ensuring #{name}; leaving unchanged. err=#{e.message.inspect}",
+                         tag: 'JetstreamBridge::Stream')
             nil
           else
             raise
@@ -109,17 +116,26 @@ module JetstreamBridge
 
       private
 
-      # ---- keep ensure_update small (<=20 lines, lower ABC) ----
       def ensure_update(jts, name, info, desired_subjects)
         existing = StreamSupport.normalize_subjects(info.config.subjects || [])
         to_add   = StreamSupport.missing_subjects(existing, desired_subjects)
+        add_subjects(jts, name, existing, to_add) if to_add.any?
 
-        return add_subjects(jts, name, existing, to_add) if to_add.any?
-
-        if config_needs_update?(info)
-          apply_update(jts, name, existing)
-          return log_config_updated(name)
+        # Retention is immutable; warn if different and do not include on update.
+        have_ret = info.config.retention.to_s.downcase
+        if have_ret != RETENTION
+          StreamSupport.log_retention_mismatch(name, have: have_ret, want: RETENTION)
         end
+
+        # Storage can be updated; do it without passing retention.
+        have_storage = info.config.storage.to_s.downcase
+        if have_storage != STORAGE
+          apply_update(jts, name, existing, storage: STORAGE)
+          StreamSupport.log_config_updated(name, storage: STORAGE)
+          return
+        end
+
+        return if to_add.any?
 
         StreamSupport.log_already_covered(name)
       end
@@ -129,36 +145,18 @@ module JetstreamBridge
         allowed, blocked = OverlapGuard.partition_allowed(jts, name, to_add)
         return StreamSupport.log_all_blocked(name, blocked) if allowed.empty?
 
-        target = merge_subjects(existing, allowed)
+        target = (existing + allowed).uniq
         OverlapGuard.check!(jts, name, target)
+        # Do not pass retention on update to avoid 10052.
         apply_update(jts, name, target)
         StreamSupport.log_updated(name, allowed, blocked)
       end
 
-      def merge_subjects(existing, allowed)
-        (existing + allowed).uniq
-      end
-
-      def config_needs_update?(info)
-        info.config.retention.to_s.downcase != RETENTION ||
-          info.config.storage.to_s.downcase != STORAGE
-      end
-
-      def apply_update(jts, name, subjects)
-        jts.update_stream(
-          name: name,
-          subjects: subjects,
-          retention: RETENTION,
-          storage: STORAGE
-        )
-      end
-
-      def log_config_updated(name)
-        Logging.info(
-          "Updated stream #{name} config; retention=#{RETENTION.inspect} " \
-          "storage=#{STORAGE.inspect}",
-          tag: 'JetstreamBridge::Stream'
-        )
+      # Only include mutable fields on update (subjects, storage). Never retention.
+      def apply_update(jts, name, subjects, storage: nil)
+        params = { name: name, subjects: subjects }
+        params[:storage] = storage if storage
+        jts.update_stream(**params)
       end
 
       def ensure_create(jts, name, desired_subjects)
