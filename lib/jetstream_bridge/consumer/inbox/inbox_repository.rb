@@ -25,53 +25,31 @@ module JetstreamBridge
     end
 
     def persist_pre(record, msg)
-      ModelUtils.assign_known_attrs(record, {
-                                      event_id: (if ModelUtils.has_columns?(@klass,
-                                                                            :event_id)
-                                                   msg.event_id
-                                                 end),
-                                      subject: msg.subject,
-                                      payload: ModelUtils.json_dump(msg.body_for_store),
-                                      headers: ModelUtils.json_dump(msg.headers),
-                                      stream: (if ModelUtils.has_columns?(@klass,
-                                                                          :stream)
-                                                 msg.stream
-                                               end),
-                                      stream_seq: (if ModelUtils.has_columns?(@klass,
-                                                                              :stream_seq)
-                                                     msg.seq
-                                                   end),
-                                      deliveries: (if ModelUtils.has_columns?(@klass,
-                                                                              :deliveries)
-                                                     msg.deliveries
-                                                   end),
-                                      status: 'processing',
-                                      last_error: nil,
-                                      received_at: (if ModelUtils.has_columns?(@klass,
-                                                                               :received_at)
-                                                      record.received_at || msg.now
-                                                    end),
-                                      updated_at: (if ModelUtils.has_columns?(@klass,
-                                                                              :updated_at)
-                                                     msg.now
-                                                   end)
-                                    })
+      attrs = {
+        event_id: msg.event_id,
+        subject: msg.subject,
+        payload: ModelUtils.json_dump(msg.body_for_store),
+        headers: ModelUtils.json_dump(msg.headers),
+        stream: msg.stream,
+        stream_seq: msg.seq,
+        deliveries: msg.deliveries,
+        status: 'processing',
+        last_error: nil,
+        received_at: record.respond_to?(:received_at) ? (record.received_at || msg.now) : nil,
+        updated_at: record.respond_to?(:updated_at) ? msg.now : nil
+      }
+      ModelUtils.assign_known_attrs(record, attrs)
       record.save!
     end
 
     def persist_post(record)
       now = Time.now.utc
-      ModelUtils.assign_known_attrs(record, {
-                                      status: 'processed',
-                                      processed_at: (if ModelUtils.has_columns?(@klass,
-                                                                                :processed_at)
-                                                       now
-                                                     end),
-                                      updated_at: (if ModelUtils.has_columns?(@klass,
-                                                                              :updated_at)
-                                                     now
-                                                   end)
-                                    })
+      attrs = {
+        status: 'processed',
+        processed_at: record.respond_to?(:processed_at) ? now : nil,
+        updated_at: record.respond_to?(:updated_at) ? now : nil
+      }
+      ModelUtils.assign_known_attrs(record, attrs)
       record.save!
     end
 
@@ -79,20 +57,12 @@ module JetstreamBridge
       return unless record
 
       now = Time.now.utc
-      ModelUtils.assign_known_attrs(record, {
-                                      status: (if ModelUtils.has_columns?(@klass,
-                                                                          :status)
-                                                 'failed'
-                                               end),
-                                      last_error: (if ModelUtils.has_columns?(@klass,
-                                                                              :last_error)
-                                                     "#{error.class}: #{error.message}"
-                                                   end),
-                                      updated_at: (if ModelUtils.has_columns?(@klass,
-                                                                              :updated_at)
-                                                     now
-                                                   end)
-                                    })
+      attrs = {
+        status: 'failed',
+        last_error: "#{error.class}: #{error.message}",
+        updated_at: record.respond_to?(:updated_at) ? now : nil
+      }
+      ModelUtils.assign_known_attrs(record, attrs)
       record.save!
     rescue StandardError => e
       Logging.warn("Failed to persist inbox failure: #{e.class}: #{e.message}",
