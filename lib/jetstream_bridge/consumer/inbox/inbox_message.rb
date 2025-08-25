@@ -12,6 +12,7 @@ module JetstreamBridge
       seq        = meta.respond_to?(:stream_sequence) ? meta.stream_sequence : nil
       deliveries = meta.respond_to?(:num_delivered)   ? meta.num_delivered   : nil
       stream     = meta.respond_to?(:stream)          ? meta.stream          : nil
+      consumer   = meta.respond_to?(:consumer)        ? meta.consumer        : nil
       subject    = msg.subject.to_s
 
       headers = {}
@@ -27,10 +28,10 @@ module JetstreamBridge
       id = (headers['nats-msg-id'] || body['event_id']).to_s.strip
       id = "seq:#{seq}" if id.empty?
 
-      new(msg, seq, deliveries, stream, subject, headers, body, raw, id, Time.now.utc)
+      new(msg, seq, deliveries, stream, subject, headers, body, raw, id, Time.now.utc, consumer)
     end
 
-    def initialize(msg, seq, deliveries, stream, subject, headers, body, raw, event_id, now)
+    def initialize(msg, seq, deliveries, stream, subject, headers, body, raw, event_id, now, consumer = nil)
       @msg        = msg
       @seq        = seq
       @deliveries = deliveries
@@ -41,10 +42,32 @@ module JetstreamBridge
       @raw        = raw
       @event_id   = event_id
       @now        = now
+      @consumer   = consumer
     end
 
     def body_for_store
       body.empty? ? raw : body
+    end
+
+    def data
+      raw
+    end
+
+    def header
+      headers
+    end
+
+    def metadata
+      @metadata ||= Struct.new(:num_delivered, :sequence, :consumer, :stream)
+                           .new(deliveries, seq, @consumer, stream)
+    end
+
+    def ack(*args, **kwargs)
+      msg.ack(*args, **kwargs) if msg.respond_to?(:ack)
+    end
+
+    def nak(*args, **kwargs)
+      msg.nak(*args, **kwargs) if msg.respond_to?(:nak)
     end
   end
 end
