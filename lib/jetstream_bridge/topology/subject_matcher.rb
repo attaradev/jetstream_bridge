@@ -34,12 +34,12 @@ module JetstreamBridge
       return true if i == p.length && i == s.length
 
       # If pattern has remaining '>' it can absorb remainder
-      p[i] == '>' || p[i..-1]&.include?('>')
+      p[i] == '>' || p[i..]&.include?('>')
     end
 
     # Do two wildcard patterns admit at least one same subject?
-    def overlap?(a, b)
-      overlap_parts?(a.split('.'), b.split('.'))
+    def overlap?(sub_a, sub_b)
+      overlap_parts?(sub_a.split('.'), sub_b.split('.'))
     end
 
     def overlap_parts?(a_parts, b_parts)
@@ -50,13 +50,14 @@ module JetstreamBridge
         bt = b_parts[bi]
         return true if at == '>' || bt == '>'
         return false unless at == bt || at == '*' || bt == '*'
+
         ai += 1
         bi += 1
       end
 
       # If any side still has a '>' remaining, it can absorb the other's remainder
-      a_tail = a_parts[ai..-1] || []
-      b_tail = b_parts[bi..-1] || []
+      a_tail = a_parts[ai..] || []
+      b_tail = b_parts[bi..] || []
       return true if a_tail.include?('>') || b_tail.include?('>')
 
       # Otherwise they overlap only if both consumed exactly

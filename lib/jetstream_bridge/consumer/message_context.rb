@@ -10,12 +10,12 @@ module JetstreamBridge
   ) do
     def self.build(msg)
       new(
-        event_id:   msg.header&.[]('nats-msg-id') || SecureRandom.uuid,
+        event_id: msg.header&.[]('nats-msg-id') || SecureRandom.uuid,
         deliveries: msg.metadata&.num_delivered.to_i,
-        subject:    msg.subject,
-        seq:        msg.metadata&.sequence,
-        consumer:   msg.metadata&.consumer,
-        stream:     msg.metadata&.stream
+        subject: msg.subject,
+        seq: msg.metadata&.sequence,
+        consumer: msg.metadata&.consumer,
+        stream: msg.metadata&.stream
       )
     end
   end

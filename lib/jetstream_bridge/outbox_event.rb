@@ -120,8 +120,8 @@ module JetstreamBridge
         def raise_missing_ar!(which, method_name)
           raise(
             "#{which} requires ActiveRecord (tried to call ##{method_name}). " \
-            'Enable `use_outbox` only in apps with ActiveRecord, or add ' \
-            '`gem "activerecord"` to your Gemfile.'
+            "Enable `use_outbox` only in apps with ActiveRecord, or add " \
+            "`gem \"activerecord\"` to your Gemfile."
           )
         end
       end

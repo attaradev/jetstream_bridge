@@ -17,7 +17,7 @@ AllCops:
 
 # ---------- Layout & Style ----------
 Layout/LineLength:
-  Max: 100
+  Max: 120
   Exclude:
     - 'spec/**/*'   # allow longer expectation/setup lines
 
