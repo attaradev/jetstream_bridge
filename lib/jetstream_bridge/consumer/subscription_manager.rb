@@ -81,8 +81,8 @@ module JetstreamBridge
         filter_subject: sval(cfg, :filter_subject), # string
         ack_policy: sval(cfg, :ack_policy), # string
         deliver_policy: sval(cfg, :deliver_policy), # string
-        max_deliver: ival(cfg, :max_deliver),         # integer
-        ack_wait_ms: d_ms(cfg, :ack_wait),            # integer ms
+        max_deliver: ival(cfg, :max_deliver), # integer
+        ack_wait: d_ms(cfg, :ack_wait), # integer ms
         backoff_ms: darr_ms(cfg, :backoff) # array of integer ms
       }
     end
