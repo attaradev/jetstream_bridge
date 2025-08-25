@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative '../core/logging'
+require_relative '../core/duration'
 require_relative '../consumer/consumer_config'
 
 module JetstreamBridge
@@ -27,9 +28,14 @@ module JetstreamBridge
     def ensure_consumer!
       info = consumer_info_or_nil
       return create_consumer! unless info
-      return log_consumer_ok if consumer_matches?(info, desired_consumer_cfg)
 
-      recreate_consumer!
+      want = desired_consumer_cfg
+      if consumer_matches?(info, want)
+        log_consumer_ok
+      else
+        log_consumer_diff(info, want)
+        recreate_consumer!
+      end
     end
 
     # Bind a pull subscriber to the existing durable.
@@ -50,31 +56,47 @@ module JetstreamBridge
       nil
     end
 
+    # ---- comparison ----
+
     def consumer_matches?(info, want)
-      cfg = info.config
-      have = {
-        filter_subject: val(cfg, :filter_subject),
-        ack_policy: val(cfg, :ack_policy),
-        deliver_policy: val(cfg, :deliver_policy),
-        max_deliver: int_val(cfg, :max_deliver),
-        ack_wait: int_val(cfg, :ack_wait),
-        backoff: arr_int(cfg, :backoff)
-      }
-      want_cmp = {
-        filter_subject: want[:filter_subject].to_s,
-        ack_policy: want[:ack_policy].to_s,
-        deliver_policy: want[:deliver_policy].to_s,
-        max_deliver: want[:max_deliver].to_i,
-        ack_wait: want[:ack_wait].to_i,
-        backoff: Array(want[:backoff]).map(&:to_i)
-      }
-      have == want_cmp
+      have_norm = normalize_consumer_config(info.config)
+      want_norm = normalize_consumer_config(want)
+      have_norm == want_norm
     end
+
+    def log_consumer_diff(info, want)
+      have_norm = normalize_consumer_config(info.config)
+      want_norm = normalize_consumer_config(want)
+
+      diffs = {}
+      (have_norm.keys | want_norm.keys).each do |k|
+        diffs[k] = { have: have_norm[k], want: want_norm[k] } unless have_norm[k] == want_norm[k]
+      end
+
+      Logging.warn(
+        "Consumer #{@durable} config mismatch (filter=#{filter_subject}) diff=#{diffs}",
+        tag: 'JetstreamBridge::Consumer'
+      )
+    end
+
+    # Normalize both server-returned config objects and our desired hash
+    # into a common hash with consistent units/types for accurate comparison.
+    def normalize_consumer_config(cfg)
+      {
+        filter_subject: sval(cfg, :filter_subject), # string
+        ack_policy: sval(cfg, :ack_policy), # string
+        deliver_policy: sval(cfg, :deliver_policy), # string
+        max_deliver: ival(cfg, :max_deliver),         # integer
+        ack_wait_ms: d_ms(cfg, :ack_wait),            # integer ms
+        backoff_ms: darr_ms(cfg, :backoff) # array of integer ms
+      }
+    end
+
+    # ---- lifecycle helpers ----
 
     def recreate_consumer!
       Logging.warn(
-        "Consumer #{@durable} exists with mismatched config; " \
-        "recreating (filter=#{filter_subject})",
+        "Consumer #{@durable} exists with mismatched config; recreating (filter=#{filter_subject})",
         tag: 'JetstreamBridge::Consumer'
       )
       safe_delete_consumer
@@ -105,20 +127,63 @@ module JetstreamBridge
       )
     end
 
-    # ---- cfg helpers (client may return struct-like or hash-like objects) ----
+    # ---- cfg access/normalization (struct-like or hash-like) ----
 
-    def val(cfg, key)
-      (cfg.respond_to?(key) ? cfg.public_send(key) : cfg[key])&.to_s
+    def get(cfg, key)
+      cfg.respond_to?(key) ? cfg.public_send(key) : cfg[key]
     end
 
-    def int_val(cfg, key)
-      v = cfg.respond_to?(key) ? cfg.public_send(key) : cfg[key]
+    def sval(cfg, key)
+      v = get(cfg, key)
+      v = v.to_s if v.is_a?(Symbol)
+      v&.to_s&.downcase
+    end
+
+    def ival(cfg, key)
+      v = get(cfg, key)
       v.to_i
     end
 
-    def arr_int(cfg, key)
-      v = cfg.respond_to?(key) ? cfg.public_send(key) : cfg[key]
-      Array(v).map(&:to_i)
+    # Normalize duration-like field to **milliseconds** (Integer).
+    # Accepts:
+    # - Strings:"500ms""30s" "2m", "1h", "250us", "100ns"
+    # - Integers/Floats:
+    #     * Server may return large integers in **nanoseconds** → detect and convert.
+    #     * Otherwise, we delegate to Duration.to_millis (heuristic/explicit).
+    def d_ms(cfg, key)
+      raw = get(cfg, key)
+      duration_to_ms(raw)
+    end
+
+    # Normalize array of durations to integer milliseconds.
+    def darr_ms(cfg, key)
+      raw = get(cfg, key)
+      Array(raw).map { |d| duration_to_ms(d) }
+    end
+
+    # ---- duration coercion ----
+
+    def duration_to_ms(val)
+      return nil if val.nil?
+
+      case val
+      when Integer
+        # Heuristic: extremely large integers are likely **nanoseconds** from server
+        # (e.g., 30s => 30_000_000_000 ns). Convert ns → ms.
+        return (val / 1_000_000.0).round if val >= 1_000_000_000
+
+        # otherwise rely on Duration’s :auto heuristic (int <1000 => seconds, >=1000 => ms)
+        Duration.to_millis(val, default_unit: :auto)
+      when Float
+        Duration.to_millis(val, default_unit: :auto) # treated as seconds
+      when String
+        # Strings include unit (ns/us/ms/s/m/h/d) handled by Duration
+        Duration.to_millis(val) # default_unit ignored when unit given
+      else
+        return Duration.to_millis(val.to_f, default_unit: :auto) if val.respond_to?(:to_f)
+
+        raise ArgumentError, "invalid duration: #{val.inspect}"
+      end
     end
   end
 end

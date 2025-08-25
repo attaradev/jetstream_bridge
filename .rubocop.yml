@@ -62,6 +62,9 @@ Metrics/CyclomaticComplexity:
 Metrics/PerceivedComplexity:
   Max: 10
 
+Metrics/ClassLength:
+  Max: 150
+
 # Optional: relax just for low-level I/O integration code
 # (you can delete this once you refactor)
 

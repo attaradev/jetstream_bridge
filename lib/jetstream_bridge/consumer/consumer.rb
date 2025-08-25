@@ -19,10 +19,11 @@ module JetstreamBridge
     FETCH_TIMEOUT_SECS = 5
     IDLE_SLEEP_SECS    = 0.05
 
-    def initialize(durable_name:, batch_size: DEFAULT_BATCH_SIZE, &block)
+    def initialize(durable_name: JetstreamBridge.config.durable_name,
+                   batch_size: DEFAULT_BATCH_SIZE, &block)
       @handler    = block
       @batch_size = batch_size
-      @durable    = durable_name || JetstreamBridge.config.durable_name
+      @durable    = durable_name
       @jts        = Connection.connect!
 
       ensure_destination!
