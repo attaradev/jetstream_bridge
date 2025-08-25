@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'jetstream_bridge/core/model_utils'
 
 RSpec.describe JetstreamBridge::ModelUtils do
