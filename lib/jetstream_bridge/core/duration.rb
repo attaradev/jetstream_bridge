@@ -70,7 +70,7 @@ module JetstreamBridge
         # Preserve existing heuristic for compatibility
         num >= 1_000 ? num : num * 1_000
       else
-        coerce_numeric_to_ms(i.to_f, default_unit)
+        coerce_numeric_to_ms(num.to_f, default_unit)
       end
     end
 
