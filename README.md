@@ -23,7 +23,7 @@ Includes durable consumers, backpressure, retries, **DLQ**, optional **Inbox/Out
 
 ```ruby
 # Gemfile
-gem "jetstream_bridge", "~> 2.7"
+gem "jetstream_bridge", "~> 2.10"
 ```
 
 ```bash
