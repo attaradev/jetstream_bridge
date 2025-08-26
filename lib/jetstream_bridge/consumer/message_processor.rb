@@ -1,12 +1,50 @@
 # frozen_string_literal: true
 
 require 'oj'
+require 'securerandom'
 require_relative '../core/logging'
-require_relative 'message_context'
 require_relative 'dlq_publisher'
-require_relative 'backoff_strategy'
 
 module JetstreamBridge
+  # Immutable per-message metadata.
+  MessageContext = Struct.new(
+    :event_id, :deliveries, :subject, :seq, :consumer, :stream,
+    keyword_init: true
+  ) do
+    def self.build(msg)
+      new(
+        event_id: msg.header&.[]('nats-msg-id') || SecureRandom.uuid,
+        deliveries: msg.metadata&.num_delivered.to_i,
+        subject: msg.subject,
+        seq: msg.metadata&.sequence,
+        consumer: msg.metadata&.consumer,
+        stream: msg.metadata&.stream
+      )
+    end
+  end
+
+  # Simple exponential backoff strategy for transient failures.
+  class BackoffStrategy
+    TRANSIENT_ERRORS = [Timeout::Error, IOError].freeze
+    MAX_EXPONENT     = 6
+    MAX_DELAY        = 60
+    MIN_DELAY        = 1
+
+    # Returns a bounded delay in seconds
+    def delay(deliveries, error)
+      base = transient?(error) ? 0.5 : 2.0
+      power = [deliveries - 1, MAX_EXPONENT].min
+      raw = (base * (2**power)).to_i
+      raw.clamp(MIN_DELAY, MAX_DELAY)
+    end
+
+    private
+
+    def transient?(error)
+      TRANSIENT_ERRORS.any? { |k| error.is_a?(k) }
+    end
+  end
+
   # Orchestrates parse → handler → ack/nak → DLQ
   class MessageProcessor
     UNRECOVERABLE_ERRORS = [ArgumentError, TypeError].freeze

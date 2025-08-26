@@ -2,7 +2,6 @@
 
 require_relative '../core/logging'
 require_relative '../core/duration'
-require_relative '../consumer/consumer_config'
 
 module JetstreamBridge
   # Encapsulates durable ensure + subscribe for a pull consumer.
@@ -11,7 +10,7 @@ module JetstreamBridge
       @jts     = jts
       @durable = durable
       @cfg     = cfg
-      @desired_cfg      = ConsumerConfig.consumer_config(@durable, filter_subject)
+      @desired_cfg      = build_consumer_config(@durable, filter_subject)
       @desired_cfg_norm = normalize_consumer_config(@desired_cfg)
     end
 
@@ -72,6 +71,18 @@ module JetstreamBridge
         "Consumer #{@durable} config mismatch (filter=#{filter_subject}) diff=#{diffs}",
         tag: 'JetstreamBridge::Consumer'
       )
+    end
+
+    def build_consumer_config(durable, filter_subject)
+      {
+        durable_name: durable,
+        filter_subject: filter_subject,
+        ack_policy: 'explicit',
+        deliver_policy: 'all',
+        max_deliver: JetstreamBridge.config.max_deliver,
+        ack_wait: Duration.to_millis(JetstreamBridge.config.ack_wait),
+        backoff: Array(JetstreamBridge.config.backoff).map { |d| Duration.to_millis(d) }
+      }
     end
 
     # Normalize both server-returned config objects and our desired hash
