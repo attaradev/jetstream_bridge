@@ -2,7 +2,6 @@
 
 require_relative 'lib/jetstream_bridge/version'
 
-# rubocop:disable Metrics/BlockLength
 Gem::Specification.new do |spec|
   spec.name                  = 'jetstream_bridge'
   spec.version               = JetstreamBridge::VERSION
@@ -34,21 +33,16 @@ Gem::Specification.new do |spec|
     'rubygems_mfa_required' => 'true'
   }
 
-  # Safer file list (no git dependency; excludes tests/fixtures and dotfiles)
+  # Safer file list
   spec.files = Dir.glob('{lib,README*,CHANGELOG*,LICENSE*}/**/*', File::FNM_DOTMATCH)
                   .select { |f| File.file?(f) }
                   .reject { |f| f.start_with?('spec/', '.') }
 
   spec.require_paths = ['lib']
 
-  # ---- Runtime dependencies (keep it slim; avoid full rails) ----
-  # Add upper bounds to avoid accidental breakage on future major releases.
+  # ---- Runtime dependencies ----
   spec.add_dependency 'activerecord',  '>= 6.0'
   spec.add_dependency 'activesupport', '>= 6.0'
   spec.add_dependency 'nats-pure',     '~> 2.4'
   spec.add_dependency 'oj', '>= 3.16'
-
-  # If you truly need all of Rails, uncomment below and consider removing the two lines above.
-  # spec.add_dependency 'rails', '>= 6.0', '< 8.0'
 end
-# rubocop:enable Metrics/BlockLength

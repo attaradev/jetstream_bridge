@@ -28,7 +28,7 @@ RSpec.describe JetstreamBridge::SubjectMatcher do
 
   describe '.covered?' do
     it 'returns true when any pattern matches the subject' do
-      patterns = ['a.*', 'b.>']
+      patterns = %w[a.* b.>]
       expect(described_class.covered?(patterns, 'a.b')).to be true
       expect(described_class.covered?(patterns, 'b.c.d')).to be true
       expect(described_class.covered?(patterns, 'c')).to be false

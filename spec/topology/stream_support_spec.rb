@@ -16,8 +16,8 @@ RSpec.describe JetstreamBridge::StreamSupport do
 
   describe '.missing_subjects' do
     it 'returns subjects not covered by existing patterns' do
-      existing = ['a.*', 'b.>']
-      desired  = ['a.b', 'b.c.d', 'c']
+      existing = %w[a.* b.>]
+      desired  = %w[a.b b.c.d c]
       expect(described_class.missing_subjects(existing, desired)).to eq(['c'])
     end
   end
