@@ -6,7 +6,7 @@ JetstreamBridge.configure do |config|
   config.nats_urls       = ENV.fetch('NATS_URLS', 'nats://localhost:4222')
   config.env             = ENV.fetch('NATS_ENV',  Rails.env)
   config.app_name        = ENV.fetch('APP_NAME',  Rails.application.class.module_parent_name.underscore)
-  config.destination_app = ENV['DESTINATION_APP'] # required for cross-app data sync
+  config.destination_app = ENV.fetch('DESTINATION_APP', nil) # required for cross-app data sync
 
   # Consumer Tuning
   config.max_deliver = 5
@@ -21,4 +21,7 @@ JetstreamBridge.configure do |config|
   # Models (override if you keep custom AR classes)
   config.outbox_model = 'JetstreamBridge::OutboxEvent'
   config.inbox_model  = 'JetstreamBridge::InboxEvent'
+
+  # Logging
+  # config.logger = Rails.logger
 end

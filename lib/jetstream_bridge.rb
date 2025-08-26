@@ -15,7 +15,6 @@ require_relative 'jetstream_bridge/railtie' if defined?(Rails::Railtie)
 require_relative 'jetstream_bridge/inbox_event'
 require_relative 'jetstream_bridge/outbox_event'
 
-
 # JetstreamBridge main module.
 module JetstreamBridge
   class << self

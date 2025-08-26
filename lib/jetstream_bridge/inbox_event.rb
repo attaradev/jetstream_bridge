@@ -15,6 +15,7 @@ module JetstreamBridge
 
       class << self
         # Safe column presence check that never boots a connection during class load.
+        # rubocop:disable Naming/PredicatePrefix
         def has_column?(name)
           return false unless ar_connected?
 
@@ -22,6 +23,7 @@ module JetstreamBridge
         rescue ActiveRecord::ConnectionNotEstablished, ActiveRecord::NoDatabaseError
           false
         end
+        # rubocop:enable Naming/PredicatePrefix
 
         def ar_connected?
           ActiveRecord::Base.connected? && connection_pool.active_connection?
@@ -66,9 +68,7 @@ module JetstreamBridge
       # ---- Defaults that do not require schema at load time ----
       before_validation do
         self.status ||= 'received' if self.class.has_column?(:status) && status.blank?
-        if self.class.has_column?(:received_at) && received_at.blank?
-          self.received_at ||= Time.now.utc
-        end
+        self.received_at ||= Time.now.utc if self.class.has_column?(:received_at) && received_at.blank?
       end
 
       # ---- Helpers ----
@@ -103,7 +103,7 @@ module JetstreamBridge
           raise_missing_ar!('Inbox', method_name)
         end
 
-        def respond_to_missing?(_m, _p = false)
+        def respond_to_missing?(_method_name, _include_private = false)
           false
         end
 

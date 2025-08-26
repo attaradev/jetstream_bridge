@@ -103,15 +103,15 @@ module JetstreamBridge
       0
     end
 
-    def handle_js_error(e)
-      if recoverable_consumer_error?(e)
+    def handle_js_error(error)
+      if recoverable_consumer_error?(error)
         Logging.warn(
-          "Recovering subscription after error: #{e.class} #{e.message}",
+          "Recovering subscription after error: #{error.class} #{error.message}",
           tag: 'JetstreamBridge::Consumer'
         )
         ensure_subscription!
       else
-        Logging.error("Fetch failed (non-recoverable): #{e.class} #{e.message}", tag: 'JetstreamBridge::Consumer')
+        Logging.error("Fetch failed (non-recoverable): #{error.class} #{error.message}", tag: 'JetstreamBridge::Consumer')
       end
       0
     end

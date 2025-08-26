@@ -5,7 +5,7 @@ module JetstreamBridge
     attr_accessor :destination_app, :nats_urls, :env, :app_name,
                   :max_deliver, :ack_wait, :backoff,
                   :use_outbox, :use_inbox, :inbox_model, :outbox_model,
-                  :use_dlq
+                  :use_dlq, :logger
 
     def initialize
       @nats_urls       = ENV['NATS_URLS'] || ENV['NATS_URL'] || 'nats://localhost:4222'
@@ -22,6 +22,7 @@ module JetstreamBridge
       @use_dlq      = true
       @outbox_model = 'JetstreamBridge::OutboxEvent'
       @inbox_model  = 'JetstreamBridge::InboxEvent'
+      @logger       = nil
     end
 
     # Single stream name per env

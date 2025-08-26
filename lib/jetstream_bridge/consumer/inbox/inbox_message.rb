@@ -7,6 +7,7 @@ module JetstreamBridge
   class InboxMessage
     attr_reader :msg, :seq, :deliveries, :stream, :subject, :headers, :body, :raw, :event_id, :now
 
+    # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
     def self.from_nats(msg)
       meta       = (msg.respond_to?(:metadata) && msg.metadata) || nil
       seq        = meta.respond_to?(:stream_sequence) ? meta.stream_sequence : nil
@@ -30,7 +31,9 @@ module JetstreamBridge
 
       new(msg, seq, deliveries, stream, subject, headers, body, raw, id, Time.now.utc, consumer)
     end
+    # rubocop:enable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
 
+    # rubocop:disable Metrics/ParameterLists
     def initialize(msg, seq, deliveries, stream, subject, headers, body, raw, event_id, now, consumer = nil)
       @msg        = msg
       @seq        = seq
@@ -44,6 +47,7 @@ module JetstreamBridge
       @now        = now
       @consumer   = consumer
     end
+    # rubocop:enable Metrics/ParameterLists
 
     def body_for_store
       body.empty? ? raw : body
@@ -59,7 +63,7 @@ module JetstreamBridge
 
     def metadata
       @metadata ||= Struct.new(:num_delivered, :sequence, :consumer, :stream)
-                           .new(deliveries, seq, @consumer, stream)
+                          .new(deliveries, seq, @consumer, stream)
     end
 
     def ack(*args, **kwargs)

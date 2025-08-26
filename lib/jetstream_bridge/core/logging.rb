@@ -1,20 +1,27 @@
 # frozen_string_literal: true
 
 require 'uri'
+require 'logger'
 
 module JetstreamBridge
-  # Logging helpers that route to Rails.logger when available,
-  # falling back to STDOUT.
+  # Logging helpers that route to the configured logger when available,
+  # falling back to Rails.logger or STDOUT.
   module Logging
     module_function
 
+    def logger
+      JetstreamBridge.config.logger ||
+        (defined?(Rails) && Rails.respond_to?(:logger) && Rails.logger) ||
+        default_logger
+    end
+
+    def default_logger
+      @default_logger ||= Logger.new($stdout)
+    end
+
     def log(level, msg, tag: nil)
       message = tag ? "[#{tag}] #{msg}" : msg
-      if defined?(Rails) && Rails.respond_to?(:logger) && Rails.logger
-        Rails.logger.public_send(level, message)
-      else
-        puts "[#{level.to_s.upcase}] #{message}"
-      end
+      logger.public_send(level, message)
     end
 
     def info(msg, tag: nil)
@@ -29,6 +36,7 @@ module JetstreamBridge
       log(:error, msg, tag: tag)
     end
 
+    # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
     def sanitize_url(url)
       uri = URI.parse(url)
       return url unless uri.user || uri.password
@@ -55,5 +63,6 @@ module JetstreamBridge
         "#{scheme}://#{masked}@"
       end
     end
+    # rubocop:enable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
   end
 end

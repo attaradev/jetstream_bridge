@@ -123,9 +123,7 @@ module JetstreamBridge
 
         # Retention is immutable; warn if different and do not include on update.
         have_ret = info.config.retention.to_s.downcase
-        if have_ret != RETENTION
-          StreamSupport.log_retention_mismatch(name, have: have_ret, want: RETENTION)
-        end
+        StreamSupport.log_retention_mismatch(name, have: have_ret, want: RETENTION) if have_ret != RETENTION
 
         # Storage can be updated; do it without passing retention.
         have_storage = info.config.storage.to_s.downcase
