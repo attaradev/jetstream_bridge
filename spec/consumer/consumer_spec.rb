@@ -23,14 +23,14 @@ RSpec.describe JetstreamBridge::Consumer do
 
   describe 'initialization' do
     it 'ensures and subscribes the consumer' do
-      described_class.new(durable_name: 'durable') { |*| }
+      described_class.new(durable_name: 'durable') { |*| nil }
       expect(sub_mgr).to have_received(:ensure_consumer!)
       expect(sub_mgr).to have_received(:subscribe!)
     end
   end
 
   describe '#process_batch' do
-    subject(:consumer) { described_class.new(durable_name: 'durable') { |*| } }
+    subject(:consumer) { described_class.new(durable_name: 'durable') { |*| nil } }
 
     it 'processes fetched messages' do
       msg1 = double('msg1')

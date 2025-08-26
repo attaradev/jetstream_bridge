@@ -15,7 +15,7 @@ Includes durable consumers, backpressure, retries, **DLQ**, optional **Inbox/Out
 * 🧱 **Overlap-safe stream ensure** (prevents “subjects overlap” BadRequest)
 * 🚂 **Rails generators** for initializer & migrations, plus an install **rake task**
 * ⚡️ **Eager-loaded models** via Railtie (production)
-* 📊 Built-in logging for visibility
+* 📊 Configurable logging with sensible defaults
 
 ---
 
@@ -86,6 +86,9 @@ JetstreamBridge.configure do |config|
   # Models (override if you use custom AR classes/table names)
   config.outbox_model = "JetstreamBridge::OutboxEvent"
   config.inbox_model  = "JetstreamBridge::InboxEvent"
+
+  # Logging
+  # config.logger = Rails.logger
 end
 ```
 
@@ -93,6 +96,10 @@ end
 >
 > * `stream_name` → `#{env}-jetstream-bridge-stream`
 > * `dlq_subject` → `#{env}.data.sync.dlq`
+
+### Logging
+
+JetstreamBridge logs through `config.logger` when set, falling back to `Rails.logger` or STDOUT. Provide any `Logger`-compatible instance in the initializer to integrate with your application's logging setup.
 
 ---
 

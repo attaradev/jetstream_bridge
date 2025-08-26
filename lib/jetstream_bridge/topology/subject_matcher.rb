@@ -48,20 +48,30 @@ module JetstreamBridge
       while ai < a_parts.length && bi < b_parts.length
         at = a_parts[ai]
         bt = b_parts[bi]
-        return true if at == '>' || bt == '>'
-        return false unless at == bt || at == '*' || bt == '*'
+        return true if tail?(at, bt)
+        return false unless token_match?(at, bt)
 
         ai += 1
         bi += 1
       end
 
-      # If any side still has a '>' remaining, it can absorb the other's remainder
-      a_tail = a_parts[ai..] || []
-      b_tail = b_parts[bi..] || []
+      tail_overlap?(a_parts[ai..], b_parts[bi..])
+    end
+
+    def tail?(a_token, b_token)
+      a_token == '>' || b_token == '>'
+    end
+
+    def token_match?(a_token, b_token)
+      a_token == b_token || a_token == '*' || b_token == '*'
+    end
+
+    def tail_overlap?(a_tail, b_tail)
+      a_tail ||= []
+      b_tail ||= []
       return true if a_tail.include?('>') || b_tail.include?('>')
 
-      # Otherwise they overlap only if both consumed exactly
-      ai == a_parts.length && bi == b_parts.length
+      a_tail.empty? && b_tail.empty?
     end
   end
 end

@@ -2,6 +2,7 @@
 
 require_relative 'lib/jetstream_bridge/version'
 
+# rubocop:disable Metrics/BlockLength
 Gem::Specification.new do |spec|
   spec.name                  = 'jetstream_bridge'
   spec.version               = JetstreamBridge::VERSION
@@ -50,3 +51,4 @@ Gem::Specification.new do |spec|
   # If you truly need all of Rails, uncomment below and consider removing the two lines above.
   # spec.add_dependency 'rails', '>= 6.0', '< 8.0'
 end
+# rubocop:enable Metrics/BlockLength

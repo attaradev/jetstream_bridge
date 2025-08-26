@@ -14,7 +14,7 @@ module JetstreamBridge
 
       Logging.info(
         "Subjects ready: producer=#{cfg.source_subject}, consumer=#{cfg.destination_subject}. " \
-          "Counterpart publishes on #{cfg.destination_subject} and subscribes on #{cfg.source_subject}.",
+        "Counterpart publishes on #{cfg.destination_subject} and subscribes on #{cfg.source_subject}.",
         tag: 'JetstreamBridge::Topology'
       )
     end

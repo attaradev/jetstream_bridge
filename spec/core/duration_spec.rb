@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'jetstream_bridge/core/duration'
 
 RSpec.describe JetstreamBridge::Duration do
