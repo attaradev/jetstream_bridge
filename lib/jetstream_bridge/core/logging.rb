@@ -24,6 +24,10 @@ module JetstreamBridge
       logger.public_send(level, message)
     end
 
+    def debug(msg, tag: nil)
+      log(:debug, msg, tag: tag)
+    end
+
     def info(msg, tag: nil)
       log(:info, msg, tag: tag)
     end

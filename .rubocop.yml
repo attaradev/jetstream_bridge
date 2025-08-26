@@ -43,6 +43,7 @@ Metrics/BlockLength:
     - 'spec/**/*'
     - 'Rakefile'
     - 'tasks/**/*.rake'
+    - 'jetstream_bridge.gemspec'
 
 Metrics/MethodLength:
   Max: 25
