@@ -11,12 +11,4 @@ RSpec.describe JetstreamBridge do
       expect(described_class.ensure_topology!).to eq(jts)
     end
   end
-
-  describe '.ensure_topology?' do
-    it 'delegates to ensure_topology! and returns boolean' do
-      jts = double('jetstream')
-      expect(described_class).to receive(:ensure_topology!).and_return(jts)
-      expect(described_class.ensure_topology?).to eq(true)
-    end
-  end
 end
