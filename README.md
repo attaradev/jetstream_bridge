@@ -206,13 +206,19 @@ If **Outbox** is enabled, the publish call:
 ## 📥 Consume Events
 
 ```ruby
-JetstreamBridge::Consumer.new(
-  durable_name: "#{Rails.env}-#{app_name}-workers",
-  batch_size:   25
-) do |event, subject, deliveries|
+JetstreamBridge::Consumer.new do |event, subject, deliveries|
   # Your idempotent domain logic here
   # `event` is the parsed envelope hash
   UserCreatedHandler.call(event["payload"])
+end.run!
+```
+
+`durable_name` and `batch_size` default to the configured values and can be
+overridden if needed:
+
+```ruby
+JetstreamBridge::Consumer.new(durable_name: 'my-durable', batch_size: 10) do |event, subject, deliveries|
+  # ...
 end.run!
 ```
 
