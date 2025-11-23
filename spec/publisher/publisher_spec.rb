@@ -10,6 +10,8 @@ RSpec.describe JetstreamBridge::Publisher do
 
   before do
     JetstreamBridge.reset!
+    # Reset Connection singleton to prevent mock leakage between tests
+    JetstreamBridge::Connection.instance_variable_set(:@singleton__instance__, nil)
     # Mock Connection.connect! before configure to prevent actual connection
     allow(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
     JetstreamBridge.configure do |c|
@@ -17,7 +19,7 @@ RSpec.describe JetstreamBridge::Publisher do
       c.app_name        = 'source'
       c.env             = 'test'
     end
-    allow(jts).to receive(:publish).and_return(ack)
+    allow(jts).to receive(:publish) { ack }
   end
 
   after { JetstreamBridge.reset! }
@@ -268,7 +270,7 @@ RSpec.describe JetstreamBridge::Publisher do
     end
 
     it 'persists exception when publish raises error' do
-      allow(jts).to receive(:publish).and_raise(StandardError, 'NATS error')
+      allow(jts).to receive(:publish) { raise StandardError, 'NATS error' }
       expect(outbox_repo).to receive(:persist_exception).with(record, kind_of(StandardError))
 
       result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
