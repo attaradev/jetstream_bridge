@@ -148,23 +148,19 @@ RSpec.describe 'JetstreamBridge Error Hierarchy' do
   describe 'error hierarchy' do
     it 'allows catching all gem errors with base Error class' do
       expect do
-        begin
-          raise JetstreamBridge::PublishError, 'publish failed'
-        rescue JetstreamBridge::Error => e
-          expect(e).to be_a(JetstreamBridge::PublishError)
-          raise
-        end
+        raise JetstreamBridge::PublishError, 'publish failed'
+      rescue JetstreamBridge::Error => e
+        expect(e).to be_a(JetstreamBridge::PublishError)
+        raise
       end.to raise_error(JetstreamBridge::Error)
     end
 
     it 'allows catching configuration errors specifically' do
       expect do
-        begin
-          raise JetstreamBridge::InvalidSubjectError, 'invalid subject'
-        rescue JetstreamBridge::ConfigurationError => e
-          expect(e).to be_a(JetstreamBridge::InvalidSubjectError)
-          raise
-        end
+        raise JetstreamBridge::InvalidSubjectError, 'invalid subject'
+      rescue JetstreamBridge::ConfigurationError => e
+        expect(e).to be_a(JetstreamBridge::InvalidSubjectError)
+        raise
       end.to raise_error(JetstreamBridge::ConfigurationError)
     end
 

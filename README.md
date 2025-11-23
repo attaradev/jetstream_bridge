@@ -13,6 +13,24 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/attaradev/jetstream_bridge/actions/workflows/ci.yml">
+    <img src="https://github.com/attaradev/jetstream_bridge/actions/workflows/ci.yml/badge.svg" alt="CI Status"/>
+  </a>
+  <a href="https://codecov.io/gh/attaradev/jetstream_bridge">
+    <img src="https://codecov.io/gh/attaradev/jetstream_bridge/branch/main/graph/badge.svg" alt="Coverage Status"/>
+  </a>
+  <a href="https://rubygems.org/gems/jetstream_bridge">
+    <img src="https://img.shields.io/gem/v/jetstream_bridge.svg" alt="Gem Version"/>
+  </a>
+  <a href="https://rubygems.org/gems/jetstream_bridge">
+    <img src="https://img.shields.io/gem/dt/jetstream_bridge.svg" alt="Downloads"/>
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"/>
+  </a>
+</p>
+
+<p align="center">
   <a href="#-features">Features</a> •
   <a href="#-install">Install</a> •
   <a href="#-getting-started">Getting Started</a> •
@@ -35,7 +53,7 @@
 * ⚡️ **Eager-loaded models** via Railtie (production)
 * 📊 Configurable logging with sensible defaults
 
-### Production-Ready Features (v2.10+)
+### Production-Ready Features
 
 * 🏥 **Health checks** - Monitor NATS connection and stream status
 * 🔄 **Auto-reconnection** - Automatic recovery from connection failures
@@ -53,7 +71,7 @@
 
 ```ruby
 # Gemfile
-gem "jetstream_bridge", "~> 2.10"
+gem "jetstream_bridge", "~> 3.0"
 ```
 
 ```bash
@@ -335,7 +353,7 @@ health = JetstreamBridge.health_check
 #   connected_at: "2025-11-22T20:00:00Z",
 #   stream: { exists: true, name: "...", ... },
 #   config: { env: "production", ... },
-#   version: "2.10.0"
+#   version: "3.0.0"
 # }
 
 # Force-connect & ensure topology at boot or in a check

@@ -8,22 +8,22 @@ module JetstreamBridge
     class << self
       # Print comprehensive debug information about the current setup
       def debug_info
-      info = {
-        config: config_debug,
-        connection: connection_debug,
-        stream: stream_debug,
-        health: JetstreamBridge.health_check
-      }
+        info = {
+          config: config_debug,
+          connection: connection_debug,
+          stream: stream_debug,
+          health: JetstreamBridge.health_check
+        }
 
-      Logging.info("=== JetStream Bridge Debug Info ===", tag: 'JetstreamBridge::Debug')
-      info.each do |section, data|
-        Logging.info("#{section.to_s.upcase}:", tag: 'JetstreamBridge::Debug')
-        log_hash(data, indent: 2)
+        Logging.info('=== JetStream Bridge Debug Info ===', tag: 'JetstreamBridge::Debug')
+        info.each do |section, data|
+          Logging.info("#{section.to_s.upcase}:", tag: 'JetstreamBridge::Debug')
+          log_hash(data, indent: 2)
+        end
+        Logging.info('=== End Debug Info ===', tag: 'JetstreamBridge::Debug')
+
+        info
       end
-      Logging.info("=== End Debug Info ===", tag: 'JetstreamBridge::Debug')
-
-      info
-    end
 
       private
 
@@ -34,9 +34,21 @@ module JetstreamBridge
           app_name: cfg.app_name,
           destination_app: cfg.destination_app,
           stream_name: cfg.stream_name,
-          source_subject: (cfg.source_subject rescue 'ERROR'),
-          destination_subject: (cfg.destination_subject rescue 'ERROR'),
-          dlq_subject: (cfg.dlq_subject rescue 'ERROR'),
+          source_subject: begin
+            cfg.source_subject
+          rescue StandardError
+            'ERROR'
+          end,
+          destination_subject: begin
+            cfg.destination_subject
+          rescue StandardError
+            'ERROR'
+          end,
+          dlq_subject: begin
+            cfg.dlq_subject
+          rescue StandardError
+            'ERROR'
+          end,
           durable_name: cfg.durable_name,
           nats_urls: cfg.nats_urls,
           max_deliver: cfg.max_deliver,

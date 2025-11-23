@@ -40,8 +40,9 @@ module JetstreamBridge
           sleep delay
         end
       end
-    rescue => e
+    rescue StandardError => e
       raise unless retryable?(e)
+
       raise RetryExhausted, "Failed after #{attempts} attempts: #{e.message}"
     end
 

@@ -72,7 +72,7 @@ module JetstreamBridge
       case default_unit
       when :auto
         # Preserve existing heuristic for compatibility but log deprecation warning
-        if defined?(Logging) && num > 0 && num < 1_000
+        if defined?(Logging) && num.positive? && num < 1_000
           Logging.debug(
             "Duration :auto heuristic treating #{num} as seconds. " \
             "Consider specifying default_unit: :s or :ms for clarity.",

@@ -23,11 +23,9 @@ module JetstreamBridge
     initializer 'jetstream_bridge.validate_config', after: :load_config_initializers do |app|
       if Rails.env.development? || Rails.env.test?
         app.config.after_initialize do
-          begin
-            JetstreamBridge.config.validate! if JetstreamBridge.config.destination_app
-          rescue JetstreamBridge::ConfigurationError => e
-            Rails.logger.warn "[JetStream Bridge] Configuration warning: #{e.message}"
-          end
+          JetstreamBridge.config.validate! if JetstreamBridge.config.destination_app
+        rescue JetstreamBridge::ConfigurationError => e
+          Rails.logger.warn "[JetStream Bridge] Configuration warning: #{e.message}"
         end
       end
     end
@@ -35,7 +33,7 @@ module JetstreamBridge
     # Add console helper methods
     console do
       Rails.logger.info "[JetStream Bridge] Loaded v#{JetstreamBridge::VERSION}"
-      Rails.logger.info "[JetStream Bridge] Use JetstreamBridge.health_check to check status"
+      Rails.logger.info '[JetStream Bridge] Use JetstreamBridge.health_check to check status'
     end
 
     # Load rake tasks

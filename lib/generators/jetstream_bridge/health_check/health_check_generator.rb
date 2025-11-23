@@ -13,8 +13,8 @@ module JetstreamBridge
       end
 
       def add_route
-        route_content = "  # JetStream Bridge health check endpoint\n" \
-                       "  get '/health/jetstream', to: 'jetstream_health#show'"
+        route_content = "  # JetStream Bridge health check endpoint\n  " \
+                        "get '/health/jetstream', to: 'jetstream_health#show'"
 
         if File.exist?('config/routes.rb')
           inject_into_file 'config/routes.rb', after: /Rails\.application\.routes\.draw do\n/ do
@@ -28,11 +28,11 @@ module JetstreamBridge
       end
 
       def show_usage
-        say "\n" + '=' * 70, :green
+        say "\n#{'=' * 70}", :green
         say 'Health Check Endpoint Created!', :green
         say '=' * 70, :green
         say "\nThe health check endpoint is now available at:"
-        say "  GET /health/jetstream", :cyan
+        say '  GET /health/jetstream', :cyan
         say "\nExample response:"
         say <<~EXAMPLE, :white
           {
@@ -54,10 +54,10 @@ module JetstreamBridge
           }
         EXAMPLE
         say "\nUse this endpoint for:"
-        say "  • Kubernetes liveness/readiness probes", :white
-        say "  • Docker health checks", :white
-        say "  • Monitoring and alerting", :white
-        say "  • Load balancer health checks", :white
+        say '  • Kubernetes liveness/readiness probes', :white
+        say '  • Docker health checks', :white
+        say '  • Monitoring and alerting', :white
+        say '  • Load balancer health checks', :white
         say '=' * 70, :green
       end
     end

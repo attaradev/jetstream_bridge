@@ -72,7 +72,7 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
         hash = options.to_h
 
         expect(hash.keys).to include(:reconnect, :reconnect_time_wait, :max_reconnect_attempts,
-                                      :connect_timeout, :custom)
+                                     :connect_timeout, :custom)
       end
 
       it 'includes servers when provided' do
@@ -175,10 +175,9 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
   describe '.build_options' do
     it 'builds options from JetstreamBridge config' do
       config = double('config',
-        nats_urls: 'nats://localhost:4222',
-        app_name: 'test_app',
-        env: 'test'
-      )
+                      nats_urls: 'nats://localhost:4222',
+                      app_name: 'test_app',
+                      env: 'test')
 
       options = described_class.build_options(config)
 
@@ -188,10 +187,9 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
 
     it 'uses defaults when config returns nil' do
       config = double('config',
-        nats_urls: 'nats://localhost:4222',
-        app_name: 'test_app',
-        env: 'test'
-      )
+                      nats_urls: 'nats://localhost:4222',
+                      app_name: 'test_app',
+                      env: 'test')
 
       options = described_class.build_options(config)
 
@@ -234,10 +232,9 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
 
     it 'handles multiple server URLs' do
       config = double('config',
-        nats_urls: 'nats://server1:4222,nats://server2:4222',
-        app_name: 'test_app',
-        env: 'production'
-      )
+                      nats_urls: 'nats://server1:4222,nats://server2:4222',
+                      app_name: 'test_app',
+                      env: 'production')
 
       options = described_class.build_options(config)
 
@@ -269,18 +266,18 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
       described_class.create_client(options)
 
       expect(mock_client).to have_received(:connect).with(hash_including(
-        servers: ['nats://localhost:4222'],
-        reconnect: true
-      ))
+                                                            servers: ['nats://localhost:4222'],
+                                                            reconnect: true
+                                                          ))
     end
 
     it 'uses default options when none provided' do
       described_class.create_client
 
       expect(mock_client).to have_received(:connect).with(hash_including(
-        reconnect: true,
-        connect_timeout: 5
-      ))
+                                                            reconnect: true,
+                                                            connect_timeout: 5
+                                                          ))
     end
 
     it 'returns the connected client' do

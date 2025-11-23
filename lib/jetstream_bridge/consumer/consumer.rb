@@ -28,7 +28,7 @@ module JetstreamBridge
       @idle_backoff  = IDLE_SLEEP_SECS
       @running       = true
       @shutdown_requested = false
-      @jts           = Connection.connect!
+      @jts = Connection.connect!
 
       ensure_destination!
 
@@ -162,22 +162,20 @@ module JetstreamBridge
     def drain_inflight_messages
       return unless @psub
 
-      Logging.info("Draining in-flight messages...", tag: 'JetstreamBridge::Consumer')
+      Logging.info('Draining in-flight messages...', tag: 'JetstreamBridge::Consumer')
       # Process any pending messages with a short timeout
       5.times do
-        begin
-          msgs = @psub.fetch(@batch_size, timeout: 1)
-          break if msgs.nil? || msgs.empty?
+        msgs = @psub.fetch(@batch_size, timeout: 1)
+        break if msgs.nil? || msgs.empty?
 
-          msgs.each { |m| process_one(m) }
-        rescue NATS::Timeout, NATS::IO::Timeout
-          break
-        rescue StandardError => e
-          Logging.warn("Error draining messages: #{e.class} #{e.message}", tag: 'JetstreamBridge::Consumer')
-          break
-        end
+        msgs.each { |m| process_one(m) }
+      rescue NATS::Timeout, NATS::IO::Timeout
+        break
+      rescue StandardError => e
+        Logging.warn("Error draining messages: #{e.class} #{e.message}", tag: 'JetstreamBridge::Consumer')
+        break
       end
-      Logging.info("Drain complete", tag: 'JetstreamBridge::Consumer')
+      Logging.info('Drain complete', tag: 'JetstreamBridge::Consumer')
     rescue StandardError => e
       Logging.error("Drain failed: #{e.class} #{e.message}", tag: 'JetstreamBridge::Consumer')
     end

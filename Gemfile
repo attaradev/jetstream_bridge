@@ -10,4 +10,5 @@ group :development, :test do
   gem 'rubocop', '~> 1.66', require: false
   gem 'rubocop-packaging', '~> 0.5', require: false
   gem 'rubocop-performance', '~> 1.21', require: false
+  gem 'simplecov', '>= 0.22', require: false
 end

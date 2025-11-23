@@ -40,7 +40,7 @@ RSpec.describe JetstreamBridge::Models::EventEnvelope do
 
     it 'accepts a custom event_id' do
       custom_id = SecureRandom.uuid
-      envelope = described_class.new(**valid_params.merge(event_id: custom_id))
+      envelope = described_class.new(**valid_params, event_id: custom_id)
 
       expect(envelope.event_id).to eq(custom_id)
     end
@@ -62,26 +62,26 @@ RSpec.describe JetstreamBridge::Models::EventEnvelope do
 
     it 'accepts a custom occurred_at timestamp' do
       custom_time = '2025-01-01T00:00:00Z'
-      envelope = described_class.new(**valid_params.merge(occurred_at: custom_time))
+      envelope = described_class.new(**valid_params, occurred_at: custom_time)
 
       expect(envelope.occurred_at).to eq(custom_time)
     end
 
     it 'sets producer if provided' do
-      envelope = described_class.new(**valid_params.merge(producer: 'my-app'))
+      envelope = described_class.new(**valid_params, producer: 'my-app')
 
       expect(envelope.producer).to eq('my-app')
     end
 
     it 'sets resource_id if provided' do
-      envelope = described_class.new(**valid_params.merge(resource_id: 123))
+      envelope = described_class.new(**valid_params, resource_id: 123)
 
       expect(envelope.resource_id).to eq(123)
     end
 
     it 'sets trace_id if provided' do
       trace_id = 'trace-123'
-      envelope = described_class.new(**valid_params.merge(trace_id: trace_id))
+      envelope = described_class.new(**valid_params, trace_id: trace_id)
 
       expect(envelope.trace_id).to eq(trace_id)
     end
@@ -95,43 +95,39 @@ RSpec.describe JetstreamBridge::Models::EventEnvelope do
 
     it 'accepts Time object for occurred_at' do
       time_obj = Time.utc(2025, 1, 15, 10, 30, 0)
-      envelope = described_class.new(**valid_params.merge(occurred_at: time_obj))
+      envelope = described_class.new(**valid_params, occurred_at: time_obj)
 
       expect(envelope.occurred_at).to eq(time_obj)
     end
 
     it 'extracts resource_id from payload with symbol key' do
-      envelope = described_class.new(**valid_params.merge(payload: { id: 999 }))
+      envelope = described_class.new(**valid_params, payload: { id: 999 })
 
       expect(envelope.resource_id).to eq('999')
     end
 
     it 'extracts resource_id from payload with string key' do
-      envelope = described_class.new(**valid_params.merge(payload: { 'id' => 888 }))
+      envelope = described_class.new(**valid_params, payload: { 'id' => 888 })
 
       expect(envelope.resource_id).to eq('888')
     end
 
     it 'prefers explicit resource_id over payload id' do
-      envelope = described_class.new(**valid_params.merge(
-        resource_id: 'explicit-123',
-        payload: { id: 456 }
-      ))
+      envelope = described_class.new(**valid_params, resource_id: 'explicit-123',
+                                                     payload: { id: 456 })
 
       expect(envelope.resource_id).to eq('explicit-123')
     end
 
     it 'handles payload without id field' do
-      envelope = described_class.new(**valid_params.merge(payload: { name: 'test' }))
+      envelope = described_class.new(**valid_params, payload: { name: 'test' })
 
       expect(envelope.resource_id).to eq('')
     end
 
     it 'handles non-hash payload for resource_id extraction' do
-      envelope = described_class.new(**valid_params.merge(
-        payload: 'string payload',
-        resource_id: 'explicit-id'
-      ))
+      envelope = described_class.new(**valid_params, payload: 'string payload',
+                                                     resource_id: 'explicit-id')
 
       expect(envelope.resource_id).to eq('explicit-id')
     end
@@ -171,31 +167,31 @@ RSpec.describe JetstreamBridge::Models::EventEnvelope do
 
       it 'rejects nil resource_type' do
         expect do
-          described_class.new(**valid_params.merge(resource_type: nil))
+          described_class.new(**valid_params, resource_type: nil)
         end.to raise_error(ArgumentError, /resource_type.*blank/)
       end
 
       it 'rejects blank resource_type' do
         expect do
-          described_class.new(**valid_params.merge(resource_type: ''))
+          described_class.new(**valid_params, resource_type: '')
         end.to raise_error(ArgumentError, /resource_type.*blank/)
       end
 
       it 'rejects nil event_type' do
         expect do
-          described_class.new(**valid_params.merge(event_type: nil))
+          described_class.new(**valid_params, event_type: nil)
         end.to raise_error(ArgumentError, /event_type.*blank/)
       end
 
       it 'rejects blank event_type' do
         expect do
-          described_class.new(**valid_params.merge(event_type: ''))
+          described_class.new(**valid_params, event_type: '')
         end.to raise_error(ArgumentError, /event_type.*blank/)
       end
 
       it 'rejects nil payload' do
         expect do
-          described_class.new(**valid_params.merge(payload: nil))
+          described_class.new(**valid_params, payload: nil)
         end.to raise_error(ArgumentError, /payload.*nil/)
       end
     end
@@ -217,16 +213,16 @@ RSpec.describe JetstreamBridge::Models::EventEnvelope do
       hash = envelope.to_h
 
       expect(hash).to eq({
-        schema_version: 1,
-        event_id: 'evt-123',
-        event_type: 'shipped',
-        producer: 'warehouse-app',
-        resource_type: 'Order',
-        resource_id: 456,
-        occurred_at: '2025-11-22T12:00:00Z',
-        trace_id: 'trace-789',
-        payload: { order_id: 456 }
-      })
+                           schema_version: 1,
+                           event_id: 'evt-123',
+                           event_type: 'shipped',
+                           producer: 'warehouse-app',
+                           resource_type: 'Order',
+                           resource_id: 456,
+                           occurred_at: '2025-11-22T12:00:00Z',
+                           trace_id: 'trace-789',
+                           payload: { order_id: 456 }
+                         })
     end
 
     it 'omits nil optional fields' do
@@ -554,7 +550,7 @@ RSpec.describe JetstreamBridge::Models::EventEnvelope do
         resource_type: 'Test',
         event_type: 'test',
         payload: {},
-        occurred_at: 1234567890
+        occurred_at: 1_234_567_890
       )
 
       expect(envelope.occurred_at).to be_a(Time)

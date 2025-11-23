@@ -86,9 +86,7 @@ module JetstreamBridge
 
     # Public API for getting connection timestamp
     # @return [Time, nil] timestamp when connection was established
-    def connected_at
-      @connected_at
-    end
+    attr_reader :connected_at
 
     private
 

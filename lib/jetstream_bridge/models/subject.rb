@@ -53,7 +53,7 @@ module JetstreamBridge
       end
 
       def ==(other)
-        other.is_a?(Subject) ? @value == other.value : @value == other.to_s
+        @value == (other.is_a?(Subject) ? other.value : other.to_s)
       end
 
       alias eql? ==

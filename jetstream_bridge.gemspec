@@ -23,13 +23,13 @@ Gem::Specification.new do |spec|
 
   # Metadata for RubyGems.org
   spec.metadata = {
-    'homepage_uri'          => 'https://github.com/attaradev/jetstream_bridge',
-    'source_code_uri'       => 'https://github.com/attaradev/jetstream_bridge',
-    'changelog_uri'         => 'https://github.com/attaradev/jetstream_bridge/blob/main/CHANGELOG.md',
-    'documentation_uri'     => 'https://github.com/attaradev/jetstream_bridge#readme',
-    'bug_tracker_uri'       => 'https://github.com/attaradev/jetstream_bridge/issues',
+    'homepage_uri' => 'https://github.com/attaradev/jetstream_bridge',
+    'source_code_uri' => 'https://github.com/attaradev/jetstream_bridge',
+    'changelog_uri' => 'https://github.com/attaradev/jetstream_bridge/blob/main/CHANGELOG.md',
+    'documentation_uri' => 'https://github.com/attaradev/jetstream_bridge#readme',
+    'bug_tracker_uri' => 'https://github.com/attaradev/jetstream_bridge/issues',
     'rubygems_mfa_required' => 'true',
-    'allowed_push_host'     => 'https://rubygems.org'
+    'allowed_push_host' => 'https://rubygems.org'
   }
 
   # Specify which files should be included in the gem
@@ -49,7 +49,7 @@ Gem::Specification.new do |spec|
   # Runtime dependencies
   spec.add_dependency 'activerecord',  '>= 6.0', '< 8.0'
   spec.add_dependency 'activesupport', '>= 6.0', '< 8.0'
-  spec.add_dependency 'nats-pure',     '~> 2.4'
-  spec.add_dependency 'oj',            '>= 3.16', '< 4.0'
   spec.add_dependency 'mutex_m'
+  spec.add_dependency 'nats-pure',     '~> 2.4'
+  spec.add_dependency 'oj', '>= 3.16', '< 4.0'
 end

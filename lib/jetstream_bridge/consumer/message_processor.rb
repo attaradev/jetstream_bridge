@@ -79,7 +79,7 @@ module JetstreamBridge
       Oj.load(data, mode: :strict)
     rescue Oj::ParseError => e
       dlq_success = @dlq.publish(msg, ctx,
-                                  reason: 'malformed_json', error_class: e.class.name, error_message: e.message)
+                                 reason: 'malformed_json', error_class: e.class.name, error_message: e.message)
       if dlq_success
         msg.ack
         Logging.warn(
@@ -106,7 +106,7 @@ module JetstreamBridge
       )
     rescue *UNRECOVERABLE_ERRORS => e
       dlq_success = @dlq.publish(msg, ctx,
-                                  reason: 'unrecoverable', error_class: e.class.name, error_message: e.message)
+                                 reason: 'unrecoverable', error_class: e.class.name, error_message: e.message)
       if dlq_success
         msg.ack
         Logging.warn(
@@ -130,9 +130,9 @@ module JetstreamBridge
       if ctx.deliveries >= max_deliver
         # Only ACK if DLQ publish succeeds
         dlq_success = @dlq.publish(msg, ctx,
-                                    reason: 'max_deliver_exceeded',
-                                    error_class: error.class.name,
-                                    error_message: error.message)
+                                   reason: 'max_deliver_exceeded',
+                                   error_class: error.class.name,
+                                   error_message: error.message)
 
         if dlq_success
           msg.ack

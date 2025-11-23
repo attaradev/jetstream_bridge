@@ -44,6 +44,7 @@ RSpec.describe JetstreamBridge::RetryStrategy do
         result = strategy.execute do
           attempts += 1
           raise StandardError, 'fail' if attempts < 3
+
           'success'
         end
 
@@ -58,6 +59,7 @@ RSpec.describe JetstreamBridge::RetryStrategy do
         strategy.execute do
           attempts += 1
           raise StandardError if attempts < 2
+
           'done'
         end
 
@@ -308,6 +310,7 @@ RSpec.describe JetstreamBridge::PublisherRetryStrategy do
       result = strategy.execute do
         attempts += 1
         raise NATS::IO::Timeout if attempts < 2
+
         'published'
       end
 

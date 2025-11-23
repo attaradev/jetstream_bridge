@@ -109,7 +109,10 @@ module JetstreamBridge
       def deep_freeze(obj)
         case obj
         when Hash
-          obj.each { |k, v| deep_freeze(k); deep_freeze(v) }
+          obj.each do |k, v|
+            deep_freeze(k)
+            deep_freeze(v)
+          end
           obj.freeze
         when Array
           obj.each { |item| deep_freeze(item) }

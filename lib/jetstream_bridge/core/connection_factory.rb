@@ -90,9 +90,7 @@ module JetstreamBridge
           jts = client.jetstream
 
           # Ensure JetStream responds to #nc for compatibility
-          unless jts.respond_to?(:nc)
-            jts.define_singleton_method(:nc) { client }
-          end
+          jts.define_singleton_method(:nc) { client } unless jts.respond_to?(:nc)
 
           jts
         end
