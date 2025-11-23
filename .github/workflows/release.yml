@@ -37,12 +37,24 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Using version: $VERSION"
 
-      # Install Ruby BEFORE any `ruby -e` or bundler calls
+      # Install Ruby and run tests BEFORE any release-specific changes
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.2"
-          bundler-cache: false
+          bundler-cache: true
+
+      - name: Run tests
+        id: tests
+        run: bundle exec rspec
+
+      - name: Run RuboCop
+        id: rubocop
+        run: bundle exec rubocop
+
+      - name: Run security audit
+        id: security
+        run: bundle exec bundle-audit check --update
 
       - name: Read version.rb
         id: file
@@ -66,21 +78,6 @@ jobs:
         run: |
           bundle lock --add-platform x86_64-linux
           bundle lock --add-platform ruby
-
-      - name: Install dependencies
-        run: bundle install --jobs 4 --retry 3
-
-      - name: Run tests
-        id: tests
-        run: bundle exec rspec
-
-      - name: Run RuboCop
-        id: rubocop
-        run: bundle exec rubocop
-
-      - name: Run security audit
-        id: security
-        run: bundle exec bundle-audit check --update
 
       - name: Build gem
         id: build
