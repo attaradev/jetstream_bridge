@@ -103,7 +103,8 @@ module JetstreamBridge
       @idle_backoff  = IDLE_SLEEP_SECS
       @running       = true
       @shutdown_requested = false
-      @jts = Connection.connect!
+      # Use existing connection or establish one
+      @jts = Connection.jetstream || Connection.connect!
       @middleware_chain = MiddlewareChain.new
 
       ensure_destination!

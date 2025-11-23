@@ -36,11 +36,14 @@ module JetstreamBridge
   class Publisher
     # Initialize a new Publisher instance.
     #
+    # Note: The NATS connection should already be established via JetstreamBridge.configure.
+    # If not, this will attempt to connect, but it's recommended to call configure first.
+    #
     # @param retry_strategy [RetryStrategy, nil] Optional custom retry strategy for handling transient failures.
     #   Defaults to PublisherRetryStrategy with exponential backoff.
     # @raise [ConnectionError] If unable to connect to NATS server
     def initialize(retry_strategy: nil)
-      @jts = Connection.connect!
+      @jts = Connection.jetstream || Connection.connect!
       @retry_strategy = retry_strategy || PublisherRetryStrategy.new
     end
 
@@ -290,7 +293,7 @@ module JetstreamBridge
         'schema_version' => 1,
         'event_type' => event_type,
         'producer' => JetstreamBridge.config.app_name,
-        'resource_id' => (payload['id'] || payload[:id]).to_s,
+        'resource_id' => extract_resource_id(payload),
         'occurred_at' => (options[:occurred_at] || Time.now.utc).iso8601,
         'trace_id' => options[:trace_id] || SecureRandom.hex(8),
         'resource_type' => resource_type,

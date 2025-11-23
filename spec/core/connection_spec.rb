@@ -2,11 +2,16 @@
 
 require 'spec_helper'
 
-RSpec.describe JetstreamBridge::Connection do
+RSpec.describe JetstreamBridge::Connection, :allow_real_connection do
   # Reset singleton between tests
   before do
     described_class.instance_variable_set(:@singleton__instance__, nil)
-    described_class.instance_variable_set(:@__mutex, nil)
+    # NOTE: @@connection_lock is now a class variable and persists across tests (intentional)
+
+    # Ensure no mock NATS client is set from other tests
+    if JetstreamBridge.instance_variable_defined?(:@mock_nats_client)
+      JetstreamBridge.remove_instance_variable(:@mock_nats_client)
+    end
   end
 
   let(:mock_nc) { double('NATS::Client', connected?: true) }
@@ -15,7 +20,12 @@ RSpec.describe JetstreamBridge::Connection do
 
   before do
     allow(JetstreamBridge).to receive(:config).and_return(
-      double(nats_urls: nats_urls, logger: nil)
+      double(
+        nats_urls: nats_urls,
+        logger: nil,
+        connect_retry_attempts: 3,
+        connect_retry_delay: 2
+      )
     )
     allow(NATS::IO::Client).to receive(:new).and_return(mock_nc)
     allow(mock_nc).to receive(:on_reconnect)
@@ -53,13 +63,15 @@ RSpec.describe JetstreamBridge::Connection do
       expect(NATS::IO::Client).to have_received(:new).once
     end
 
-    it 'uses a mutex for synchronization' do
-      mutex = described_class.instance_variable_get(:@__mutex)
-      expect(mutex).to be_nil
-
-      described_class.connect!
-      mutex = described_class.instance_variable_get(:@__mutex)
+    it 'uses a class-level mutex for synchronization' do
+      # Class-level mutex is defined at class load time, not lazily
+      mutex = described_class.class_variable_get(:@@connection_lock)
       expect(mutex).to be_a(Mutex)
+
+      # Verify it's the same mutex instance after connect
+      described_class.connect!
+      same_mutex = described_class.class_variable_get(:@@connection_lock)
+      expect(same_mutex).to eq(mutex)
     end
   end
 

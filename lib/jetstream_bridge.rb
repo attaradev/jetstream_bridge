@@ -31,9 +31,10 @@ require_relative 'jetstream_bridge/models/outbox_event'
 # - Built-in health checks and monitoring
 # - Middleware support for cross-cutting concerns
 # - Rails integration with generators and migrations
+# - Graceful startup/shutdown lifecycle management
 #
 # @example Quick start
-#   # Configure
+#   # Configure (automatically starts connection)
 #   JetstreamBridge.configure do |config|
 #     config.nats_urls = "nats://localhost:4222"
 #     config.env = "development"
@@ -50,9 +51,13 @@ require_relative 'jetstream_bridge/models/outbox_event'
 #   )
 #
 #   # Consume events
-#   JetstreamBridge.subscribe do |event|
+#   consumer = JetstreamBridge.subscribe do |event|
 #     puts "Received: #{event.type} - #{event.payload.to_h}"
-#   end.run!
+#   end
+#   consumer.run!
+#
+#   # Graceful shutdown
+#   at_exit { JetstreamBridge.shutdown! }
 #
 # @see Publisher For publishing events
 # @see Consumer For consuming events
@@ -65,14 +70,52 @@ module JetstreamBridge
       @config ||= Config.new
     end
 
-    def configure(overrides = {})
+    # Configure JetStream Bridge settings and establish connection
+    #
+    # This method sets configuration and immediately establishes a connection
+    # to NATS, providing fail-fast behavior during application startup.
+    # If NATS is unavailable, the application will fail to start.
+    #
+    # Set config.lazy_connect = true to defer connection until first use.
+    #
+    # @example Basic configuration
+    #   JetstreamBridge.configure do |config|
+    #     config.nats_urls = "nats://localhost:4222"
+    #     config.app_name = "my_app"
+    #     config.destination_app = "worker"
+    #   end
+    #
+    # @example With hash overrides
+    #   JetstreamBridge.configure(env: 'production', app_name: 'my_app')
+    #
+    # @example Lazy connection (defer until first use)
+    #   JetstreamBridge.configure do |config|
+    #     config.nats_urls = "nats://localhost:4222"
+    #     config.lazy_connect = true
+    #   end
+    #
+    # @param overrides [Hash] Configuration key-value pairs to set
+    # @yield [Config] Configuration object for block-based configuration
+    # @return [Config] The configured instance
+    # @raise [ConnectionError] If connection to NATS fails (unless lazy_connect is true)
+    def configure(overrides = {}, **extra_overrides)
+      # Merge extra keyword arguments into overrides hash
+      all_overrides = overrides.nil? ? extra_overrides : overrides.merge(extra_overrides)
+
       cfg = config
-      overrides.each { |k, v| assign!(cfg, k, v) } unless overrides.nil? || overrides.empty?
+      all_overrides.each { |k, v| assign!(cfg, k, v) } unless all_overrides.empty?
       yield(cfg) if block_given?
+
+      # Establish connection immediately for fail-fast behavior (unless lazy_connect is true)
+      startup! unless cfg.lazy_connect
+
       cfg
     end
 
-    # Configure with a preset
+    # Configure with a preset and establish connection
+    #
+    # This method applies a configuration preset and immediately establishes
+    # a connection to NATS, providing fail-fast behavior.
     #
     # @example
     #   JetstreamBridge.configure_for(:production) do |config|
@@ -84,6 +127,7 @@ module JetstreamBridge
     # @param preset [Symbol] Preset name (:development, :test, :production, etc.)
     # @yield [Config] Configuration object
     # @return [Config] Configured instance
+    # @raise [ConnectionError] If connection to NATS fails
     def configure_for(preset)
       configure do |cfg|
         cfg.apply_preset(preset)
@@ -93,6 +137,41 @@ module JetstreamBridge
 
     def reset!
       @config = nil
+      @connection_initialized = false
+    end
+
+    # Initialize the JetStream Bridge connection and topology
+    #
+    # This method is called automatically by `configure`, but can be called
+    # explicitly if needed. It's idempotent and safe to call multiple times.
+    #
+    # @return [void]
+    def startup!
+      return if @connection_initialized
+
+      Connection.connect!
+      @connection_initialized = true
+      Logging.info('JetStream Bridge started successfully', tag: 'JetstreamBridge')
+    end
+
+    # Gracefully shutdown the JetStream Bridge connection
+    #
+    # Closes the NATS connection and cleans up resources. Should be called
+    # during application shutdown (e.g., in at_exit or signal handlers).
+    #
+    # @return [void]
+    def shutdown!
+      return unless @connection_initialized
+
+      begin
+        nc = Connection.nc
+        nc&.close if nc&.connected?
+        Logging.info('JetStream Bridge shut down gracefully', tag: 'JetstreamBridge')
+      rescue StandardError => e
+        Logging.error("Error during shutdown: #{e.message}", tag: 'JetstreamBridge')
+      ensure
+        @connection_initialized = false
+      end
     end
 
     def use_outbox?
@@ -130,9 +209,12 @@ module JetstreamBridge
       # Active check: calls @jts.account_info internally
       connected = conn_instance.connected?
       connected_at = conn_instance.connected_at
+      connection_state = conn_instance.state
+      last_error = conn_instance.last_reconnect_error
+      last_error_at = conn_instance.last_reconnect_error_at
 
       # Active check: queries actual stream from NATS server
-      stream_info = fetch_stream_info if connected
+      stream_info = connected ? fetch_stream_info : { exists: false, name: config.stream_name }
 
       # Active check: measure NATS round-trip time
       rtt_ms = measure_nats_rtt if connected
@@ -141,8 +223,13 @@ module JetstreamBridge
 
       {
         healthy: connected && stream_info&.fetch(:exists, false),
-        nats_connected: connected,
-        connected_at: connected_at&.iso8601,
+        connection: {
+          state: connection_state,
+          connected: connected,
+          connected_at: connected_at&.iso8601,
+          last_error: last_error&.message,
+          last_error_at: last_error_at&.iso8601
+        },
         stream: stream_info,
         performance: {
           nats_rtt_ms: rtt_ms,
@@ -161,6 +248,10 @@ module JetstreamBridge
     rescue StandardError => e
       {
         healthy: false,
+        connection: {
+          state: :failed,
+          connected: false
+        },
         error: "#{e.class}: #{e.message}"
       }
     end

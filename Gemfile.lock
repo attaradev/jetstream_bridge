@@ -1,11 +1,11 @@
 PATH
   remote: .
   specs:
-    jetstream_bridge (4.0.4)
+    jetstream_bridge (4.1.0)
       activerecord (>= 7.1.5.2, < 8.0)
       activesupport (>= 7.1.5.2, < 8.0)
       mutex_m
-      nats-pure (~> 2.4)
+      nats-pure (>= 2.4.0, < 3.0)
       oj (>= 3.16, < 4.0)
 
 GEM

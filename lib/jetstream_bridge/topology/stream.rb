@@ -141,7 +141,11 @@ module JetstreamBridge
           return
         end
 
-        add_subjects(jts, name, existing, to_add) if to_add.any?
+        # Add subjects if needed and return (logging is handled in add_subjects)
+        if to_add.any?
+          add_subjects(jts, name, existing, to_add)
+          return
+        end
 
         # Storage can be updated; do it without passing retention.
         storage = config_data.respond_to?(:storage) ? config_data.storage : config_data[:storage]
@@ -152,8 +156,7 @@ module JetstreamBridge
           return
         end
 
-        return if to_add.any?
-
+        # If we reach here, nothing was updated
         StreamSupport.log_already_covered(name)
       end
 

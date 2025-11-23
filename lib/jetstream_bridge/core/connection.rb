@@ -27,6 +27,15 @@ module JetstreamBridge
   class Connection
     include Singleton
 
+    # Connection states for observability
+    module State
+      DISCONNECTED = :disconnected
+      CONNECTING = :connecting
+      CONNECTED = :connected
+      RECONNECTING = :reconnecting
+      FAILED = :failed
+    end
+
     DEFAULT_CONN_OPTS = {
       reconnect: true,
       reconnect_time_wait: 2,
@@ -36,16 +45,21 @@ module JetstreamBridge
 
     VALID_NATS_SCHEMES = %w[nats nats+tls].freeze
 
+    # Class-level mutex for thread-safe connection initialization
+    # Using class variable to avoid race condition in mutex creation
+    # rubocop:disable Style/ClassVars
+    @@connection_lock = Mutex.new
+    # rubocop:enable Style/ClassVars
+
     class << self
       # Thread-safe delegator to the singleton instance.
       # Returns a live JetStream context.
       #
-      # Safe to call from multiple threads - uses mutex for synchronization.
+      # Safe to call from multiple threads - uses class-level mutex for synchronization.
       #
       # @return [NATS::JetStream::JS] JetStream context
       def connect!
-        @__mutex ||= Mutex.new
-        @__mutex.synchronize { instance.connect! }
+        @@connection_lock.synchronize { instance.connect! }
       end
 
       # Optional accessors if callers need raw handles
@@ -60,12 +74,14 @@ module JetstreamBridge
 
     # Idempotent: returns an existing, healthy JetStream context or establishes one.
     def connect!
-      return @jts if connected?
+      # Check if already connected without acquiring mutex (for performance)
+      return @jts if @jts && @nc&.connected?
 
       servers = nats_servers
       raise 'No NATS URLs configured' if servers.empty?
 
-      establish_connection(servers)
+      @state = State::CONNECTING
+      establish_connection_with_retry(servers)
 
       Logging.info(
         "Connected to NATS (#{servers.size} server#{'s' unless servers.size == 1}): " \
@@ -77,21 +93,57 @@ module JetstreamBridge
       Topology.ensure!(@jts)
 
       @connected_at = Time.now.utc
+      @state = State::CONNECTED
       @jts
+    rescue StandardError => e
+      @state = State::FAILED
+      raise
     end
 
     # Public API for checking connection status
+    #
+    # Uses cached health check result to avoid excessive network calls.
+    # Cache expires after 30 seconds.
+    #
+    # Thread-safe: Cache updates are synchronized to prevent race conditions.
+    #
+    # @param skip_cache [Boolean] Force fresh health check, bypass cache
     # @return [Boolean] true if NATS client is connected and JetStream is healthy
-    def connected?
+    def connected?(skip_cache: false)
       return false unless @nc&.connected?
       return false unless @jts
 
-      jetstream_healthy?
+      # Use cached result if available and fresh
+      now = Time.now.to_i
+      return @cached_health_status if !skip_cache && @last_health_check && (now - @last_health_check) < 30
+
+      # Thread-safe cache update to prevent race conditions
+      @@connection_lock.synchronize do
+        # Double-check after acquiring lock (another thread may have updated)
+        now = Time.now.to_i
+        return @cached_health_status if !skip_cache && @last_health_check && (now - @last_health_check) < 30
+
+        # Perform actual health check
+        @cached_health_status = jetstream_healthy?
+        @last_health_check = now
+        @cached_health_status
+      end
     end
 
     # Public API for getting connection timestamp
     # @return [Time, nil] timestamp when connection was established
     attr_reader :connected_at
+
+    # Get current connection state
+    #
+    # @return [Symbol] Current connection state (see State module)
+    def state
+      return State::DISCONNECTED unless @nc
+      return State::FAILED if @last_reconnect_error && !@nc.connected?
+      return State::RECONNECTING if @reconnecting
+
+      @nc.connected? ? (@state || State::CONNECTED) : State::DISCONNECTED
+    end
 
     private
 
@@ -118,19 +170,59 @@ module JetstreamBridge
       servers
     end
 
+    def establish_connection_with_retry(servers)
+      attempts = 0
+      max_attempts = JetstreamBridge.config.connect_retry_attempts
+      retry_delay = JetstreamBridge.config.connect_retry_delay
+
+      begin
+        attempts += 1
+        establish_connection(servers)
+      rescue ConnectionError => e
+        if attempts < max_attempts
+          delay = retry_delay * attempts
+          Logging.warn(
+            "Connection attempt #{attempts}/#{max_attempts} failed: #{e.message}. " \
+            "Retrying in #{delay}s...",
+            tag: 'JetstreamBridge::Connection'
+          )
+          sleep(delay)
+          retry
+        else
+          Logging.error(
+            "Failed to establish connection after #{attempts} attempts",
+            tag: 'JetstreamBridge::Connection'
+          )
+          raise
+        end
+      end
+    end
+
     def establish_connection(servers)
-      @nc = NATS::IO::Client.new
+      # Use mock NATS client if explicitly enabled for testing
+      # This allows test helpers to inject a mock without affecting normal operation
+      @nc = if defined?(JetstreamBridge::TestHelpers) &&
+               JetstreamBridge::TestHelpers.respond_to?(:test_mode?) &&
+               JetstreamBridge::TestHelpers.test_mode? &&
+               JetstreamBridge.instance_variable_defined?(:@mock_nats_client)
+              JetstreamBridge.instance_variable_get(:@mock_nats_client)
+            else
+              NATS::IO::Client.new
+            end
 
       # Setup reconnect handler to refresh JetStream context
       @nc.on_reconnect do
+        @reconnecting = true
         Logging.info(
           'NATS reconnected, refreshing JetStream context',
           tag: 'JetstreamBridge::Connection'
         )
         refresh_jetstream_context
+        @reconnecting = false
       end
 
       @nc.on_disconnect do |reason|
+        @state = State::DISCONNECTED
         Logging.warn(
           "NATS disconnected: #{reason}",
           tag: 'JetstreamBridge::Connection'
@@ -144,7 +236,14 @@ module JetstreamBridge
         )
       end
 
-      @nc.connect({ servers: servers }.merge(DEFAULT_CONN_OPTS))
+      # Only connect if not already connected (mock may be pre-connected)
+      # Note: For test helpers mock, skip connect. For RSpec mocks, always call connect
+      skip_connect = @nc.connected? &&
+                     defined?(JetstreamBridge::TestHelpers) &&
+                     JetstreamBridge::TestHelpers.respond_to?(:test_mode?) &&
+                     JetstreamBridge::TestHelpers.test_mode?
+
+      @nc.connect({ servers: servers }.merge(DEFAULT_CONN_OPTS)) unless skip_connect
 
       # Verify connection is established
       verify_connection!
@@ -298,12 +397,39 @@ module JetstreamBridge
 
       # Re-ensure topology after reconnect
       Topology.ensure!(@jts)
+
+      # Invalidate health check cache on successful reconnect
+      @cached_health_status = nil
+      @last_health_check = nil
+
+      # Clear error state on successful reconnect
+      @last_reconnect_error = nil
+      @last_reconnect_error_at = nil
+      @state = State::CONNECTED
+
+      Logging.info(
+        'JetStream context refreshed successfully after reconnect',
+        tag: 'JetstreamBridge::Connection'
+      )
     rescue StandardError => e
+      # Store error state for diagnostics
+      @last_reconnect_error = e
+      @last_reconnect_error_at = Time.now
+      @state = State::FAILED
+
       Logging.error(
         "Failed to refresh JetStream context: #{e.class} #{e.message}",
         tag: 'JetstreamBridge::Connection'
       )
+
+      # Invalidate health check cache to force re-check
+      @cached_health_status = false
+      @last_health_check = Time.now.to_i
     end
+
+    # Get last reconnection error for diagnostics
+    # @return [StandardError, nil] Last error during reconnection
+    attr_reader :last_reconnect_error, :last_reconnect_error_at
 
     # Expose for class-level helpers (not part of public API)
     attr_reader :nc

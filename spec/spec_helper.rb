@@ -31,14 +31,33 @@ RSpec.configure do |config|
     c.syntax = :expect
   end
 
-  # Suppress standard output during tests
-  config.before(:all) do
-    $stdout = StringIO.new
-    $stderr = StringIO.new
+  # Prevent actual NATS connections in tests by default
+  # Individual specs should explicitly allow real connections if needed
+  config.before(:each) do
+    # Stub Connection.connect! to prevent real connections
+    # Specs that need actual connection behavior should override this
+    unless RSpec.current_example.metadata[:allow_real_connection]
+      allow(JetstreamBridge::Connection).to receive(:connect!).and_return(
+        double('jetstream',
+               publish: double(duplicate?: false, error: nil),
+               account_info: double(streams: 0, consumers: 0, memory: 0, storage: 0))
+      )
+    end
   end
 
-  config.after(:all) do
-    $stdout = STDOUT
-    $stderr = STDERR
+  # Optionally silence output for specific tests that need it
+  # Usage: it 'example', :silence_output do
+  config.around(:each, :silence_output) do |example|
+    original_stdout = $stdout
+    original_stderr = $stderr
+
+    begin
+      $stdout = StringIO.new
+      $stderr = StringIO.new
+      example.run
+    ensure
+      $stdout = original_stdout
+      $stderr = original_stderr
+    end
   end
 end

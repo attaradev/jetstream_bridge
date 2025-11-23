@@ -7,15 +7,27 @@ RSpec.describe JetstreamBridge do
 
   before do
     described_class.reset!
+
+    # Ensure no mock NATS client is set from other tests
+    if JetstreamBridge.instance_variable_defined?(:@mock_nats_client)
+      JetstreamBridge.remove_instance_variable(:@mock_nats_client)
+    end
+
+    # Mock connection before configure since configure now connects immediately
+    allow(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
     described_class.configure do |c|
       c.destination_app = 'dest'
       c.app_name = 'source'
       c.env = 'test'
     end
-    allow(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
   end
 
-  after { described_class.reset! }
+  after do
+    described_class.reset!
+    if JetstreamBridge.instance_variable_defined?(:@mock_nats_client)
+      JetstreamBridge.remove_instance_variable(:@mock_nats_client)
+    end
+  end
 
   describe '.ensure_topology!' do
     it 'connects and returns the jetstream context' do
@@ -126,7 +138,10 @@ RSpec.describe JetstreamBridge do
     let(:conn_instance) do
       double('Connection',
              connected?: true,
-             connected_at: Time.utc(2024, 1, 1, 12, 0, 0))
+             connected_at: Time.utc(2024, 1, 1, 12, 0, 0),
+             state: :connected,
+             last_reconnect_error: nil,
+             last_reconnect_error_at: nil)
     end
 
     let(:mock_nc) { double('NATS::Client', rtt: 0.005) }
@@ -149,7 +164,7 @@ RSpec.describe JetstreamBridge do
       result = described_class.health_check
       expect(result).to be_a(Hash)
       expect(result).to have_key(:healthy)
-      expect(result).to have_key(:nats_connected)
+      expect(result).to have_key(:connection)
       expect(result).to have_key(:stream)
       expect(result).to have_key(:performance)
       expect(result).to have_key(:config)
@@ -159,12 +174,13 @@ RSpec.describe JetstreamBridge do
     it 'indicates healthy when connected and stream exists' do
       result = described_class.health_check
       expect(result[:healthy]).to be true
-      expect(result[:nats_connected]).to be true
+      expect(result[:connection][:connected]).to be true
+      expect(result[:connection][:state]).to eq(:connected)
     end
 
     it 'includes connected_at timestamp' do
       result = described_class.health_check
-      expect(result[:connected_at]).to eq('2024-01-01T12:00:00Z')
+      expect(result[:connection][:connected_at]).to eq('2024-01-01T12:00:00Z')
     end
 
     it 'includes stream information' do
@@ -189,12 +205,14 @@ RSpec.describe JetstreamBridge do
     context 'when not connected' do
       before do
         allow(conn_instance).to receive(:connected?).and_return(false)
+        allow(conn_instance).to receive(:state).and_return(:disconnected)
       end
 
       it 'indicates unhealthy' do
         result = described_class.health_check
         expect(result[:healthy]).to be false
-        expect(result[:nats_connected]).to be false
+        expect(result[:connection][:connected]).to be false
+        expect(result[:connection][:state]).to eq(:disconnected)
       end
 
       it 'does not fetch stream info' do
@@ -349,13 +367,20 @@ RSpec.describe JetstreamBridge do
   end
 
   describe '.configure' do
+    before do
+      # Reset and clear mocks from top-level before block
+      described_class.reset!
+    end
+
     it 'accepts hash overrides' do
+      allow(JetstreamBridge::Connection).to receive(:connect!)
       described_class.configure(env: 'production', app_name: 'my_app')
       expect(described_class.config.env).to eq('production')
       expect(described_class.config.app_name).to eq('my_app')
     end
 
     it 'accepts block configuration' do
+      allow(JetstreamBridge::Connection).to receive(:connect!)
       described_class.configure do |c|
         c.env = 'staging'
         c.app_name = 'test'
@@ -365,6 +390,7 @@ RSpec.describe JetstreamBridge do
     end
 
     it 'accepts both hash and block' do
+      allow(JetstreamBridge::Connection).to receive(:connect!)
       described_class.configure(env: 'dev') do |c|
         c.app_name = 'combined'
       end
@@ -373,21 +399,47 @@ RSpec.describe JetstreamBridge do
     end
 
     it 'raises error for unknown option' do
+      allow(JetstreamBridge::Connection).to receive(:connect!)
       expect do
         described_class.configure(unknown_option: 'value')
       end.to raise_error(ArgumentError, /Unknown configuration option/)
     end
 
     it 'handles nil overrides' do
+      allow(JetstreamBridge::Connection).to receive(:connect!)
       expect do
         described_class.configure(nil) { |c| c.env = 'test' }
       end.not_to raise_error
     end
 
     it 'handles empty hash overrides' do
+      allow(JetstreamBridge::Connection).to receive(:connect!)
       expect do
         described_class.configure({}) { |c| c.env = 'test' }
       end.not_to raise_error
+    end
+
+    it 'establishes connection immediately' do
+      connection_count = 0
+      allow(JetstreamBridge::Connection).to receive(:connect!) { connection_count += 1 }
+
+      described_class.configure do |c|
+        c.env = 'test'
+      end
+
+      expect(connection_count).to eq(1)
+    end
+
+    it 'raises error if connection fails' do
+      allow(JetstreamBridge::Connection).to receive(:connect!).and_raise(
+        JetstreamBridge::ConnectionError, 'Connection failed'
+      )
+
+      expect do
+        described_class.configure do |c|
+          c.env = 'test'
+        end
+      end.to raise_error(JetstreamBridge::ConnectionError, 'Connection failed')
     end
   end
 
@@ -397,10 +449,120 @@ RSpec.describe JetstreamBridge do
       described_class.reset!
       expect(described_class.config.env).to eq('development')
     end
+
+    it 'resets connection_initialized flag' do
+      described_class.instance_variable_set(:@connection_initialized, true)
+      described_class.reset!
+      expect(described_class.instance_variable_get(:@connection_initialized)).to be false
+    end
+  end
+
+  describe '.startup!' do
+    before do
+      described_class.reset!
+    end
+
+    it 'initializes the connection' do
+      connection_count = 0
+      allow(JetstreamBridge::Connection).to receive(:connect!) { connection_count += 1 }
+      allow(JetstreamBridge::Logging).to receive(:info)
+
+      described_class.startup!
+      expect(connection_count).to eq(1)
+    end
+
+    it 'sets connection_initialized flag' do
+      allow(JetstreamBridge::Connection).to receive(:connect!)
+      allow(JetstreamBridge::Logging).to receive(:info)
+
+      described_class.startup!
+      expect(described_class.instance_variable_get(:@connection_initialized)).to be true
+    end
+
+    it 'is idempotent' do
+      connection_count = 0
+      allow(JetstreamBridge::Connection).to receive(:connect!) { connection_count += 1 }
+      allow(JetstreamBridge::Logging).to receive(:info)
+
+      described_class.startup!
+      described_class.startup!
+      expect(connection_count).to eq(1)
+    end
+
+    it 'logs successful startup' do
+      allow(JetstreamBridge::Connection).to receive(:connect!)
+      allow(JetstreamBridge::Logging).to receive(:info)
+
+      described_class.startup!
+      expect(JetstreamBridge::Logging).to have_received(:info).with(
+        'JetStream Bridge started successfully',
+        tag: 'JetstreamBridge'
+      )
+    end
+  end
+
+  describe '.shutdown!' do
+    let(:mock_nc) { double('NATS::Client', connected?: true, close: nil) }
+
+    before do
+      allow(JetstreamBridge::Connection).to receive(:nc).and_return(mock_nc)
+      allow(JetstreamBridge::Logging).to receive(:info)
+      allow(JetstreamBridge::Logging).to receive(:error)
+    end
+
+    context 'when connection is initialized' do
+      before do
+        described_class.instance_variable_set(:@connection_initialized, true)
+      end
+
+      it 'closes the NATS connection' do
+        described_class.shutdown!
+        expect(mock_nc).to have_received(:close)
+      end
+
+      it 'logs successful shutdown' do
+        described_class.shutdown!
+        expect(JetstreamBridge::Logging).to have_received(:info).with(
+          'JetStream Bridge shut down gracefully',
+          tag: 'JetstreamBridge'
+        )
+      end
+
+      it 'resets connection_initialized flag' do
+        described_class.shutdown!
+        expect(described_class.instance_variable_get(:@connection_initialized)).to be false
+      end
+
+      it 'handles errors during shutdown' do
+        allow(mock_nc).to receive(:close).and_raise(StandardError, 'Connection error')
+
+        described_class.shutdown!
+
+        expect(JetstreamBridge::Logging).to have_received(:error).with(
+          'Error during shutdown: Connection error',
+          tag: 'JetstreamBridge'
+        )
+        expect(described_class.instance_variable_get(:@connection_initialized)).to be false
+      end
+    end
+
+    context 'when connection is not initialized' do
+      before do
+        described_class.instance_variable_set(:@connection_initialized, false)
+      end
+
+      it 'does nothing' do
+        described_class.shutdown!
+        expect(mock_nc).not_to have_received(:close)
+      end
+    end
   end
 
   describe '.configure_for' do
-    before { described_class.reset! }
+    before do
+      described_class.reset!
+      allow(JetstreamBridge::Connection).to receive(:connect!)
+    end
 
     it 'applies preset configuration' do
       described_class.configure_for(:production) do |c|
@@ -432,6 +594,18 @@ RSpec.describe JetstreamBridge do
       expect(described_class.config.use_dlq).to be false
       expect(described_class.config.max_deliver).to eq(3)
       expect(described_class.config.preset_applied).to eq(:development)
+    end
+
+    it 'establishes connection immediately' do
+      connection_count = 0
+      allow(JetstreamBridge::Connection).to receive(:connect!) { connection_count += 1 }
+
+      described_class.configure_for(:production) do |c|
+        c.app_name = 'my_app'
+        c.destination_app = 'dest'
+      end
+
+      expect(connection_count).to eq(1)
     end
   end
 
@@ -538,7 +712,10 @@ RSpec.describe JetstreamBridge do
     let(:conn_instance) do
       double('Connection',
              connected?: true,
-             connected_at: nil)
+             connected_at: nil,
+             state: :connected,
+             last_reconnect_error: nil,
+             last_reconnect_error_at: nil)
     end
 
     let(:mock_nc) { double('NATS::Client', rtt: 0.005) }
@@ -558,7 +735,7 @@ RSpec.describe JetstreamBridge do
 
     it 'handles nil connected_at timestamp' do
       result = described_class.health_check
-      expect(result[:connected_at]).to be_nil
+      expect(result[:connection][:connected_at]).to be_nil
     end
 
     it 'handles stream with zero messages' do

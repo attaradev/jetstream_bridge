@@ -10,12 +10,13 @@ RSpec.describe JetstreamBridge::Publisher do
 
   before do
     JetstreamBridge.reset!
+    # Mock Connection.connect! before configure to prevent actual connection
+    allow(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
     JetstreamBridge.configure do |c|
       c.destination_app = 'dest'
       c.app_name        = 'source'
       c.env             = 'test'
     end
-    allow(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
     allow(jts).to receive(:publish).and_return(ack)
   end
 

@@ -50,6 +50,6 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'activerecord',  '>= 7.1.5.2', '< 8.0'
   spec.add_dependency 'activesupport', '>= 7.1.5.2', '< 8.0'
   spec.add_dependency 'mutex_m'
-  spec.add_dependency 'nats-pure',     '~> 2.4'
+  spec.add_dependency 'nats-pure',     '>= 2.4.0', '< 3.0'
   spec.add_dependency 'oj', '>= 3.16', '< 4.0'
 end

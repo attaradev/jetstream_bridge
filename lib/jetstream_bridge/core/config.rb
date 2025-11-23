@@ -86,6 +86,15 @@ module JetstreamBridge
     # Applied preset name
     # @return [Symbol, nil]
     attr_reader :preset_applied
+    # Number of retry attempts for initial connection
+    # @return [Integer]
+    attr_accessor :connect_retry_attempts
+    # Delay between connection retry attempts (in seconds)
+    # @return [Integer]
+    attr_accessor :connect_retry_delay
+    # Enable lazy connection (connect on first use instead of during configure)
+    # @return [Boolean]
+    attr_accessor :lazy_connect
 
     def initialize
       @nats_urls       = ENV['NATS_URLS'] || ENV['NATS_URL'] || 'nats://localhost:4222'
@@ -104,6 +113,11 @@ module JetstreamBridge
       @inbox_model  = 'JetstreamBridge::InboxEvent'
       @logger       = nil
       @preset_applied = nil
+
+      # Connection management
+      @connect_retry_attempts = 3
+      @connect_retry_delay = 2
+      @lazy_connect = false
     end
 
     # Apply a configuration preset

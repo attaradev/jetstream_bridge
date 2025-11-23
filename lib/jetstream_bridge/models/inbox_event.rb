@@ -101,15 +101,21 @@ module JetstreamBridge
 
         # Get processing statistics
         #
-        # @return [Hash] Statistics hash
+        # Uses a single aggregated query to avoid N+1 problem.
+        #
+        # @return [Hash] Statistics hash with counts by status
         def processing_stats
           return {} unless has_column?(:status)
 
+          # Single aggregated query instead of 4 separate queries
+          stats_by_status = group(:status).count
+          total_count = stats_by_status.values.sum
+
           {
-            total: count,
-            processed: processed.count,
-            failed: failed.count,
-            pending: unprocessed.count
+            total: total_count,
+            processed: stats_by_status['processed'] || 0,
+            failed: stats_by_status['failed'] || 0,
+            pending: stats_by_status['pending'] || stats_by_status[nil] || 0
           }
         end
       end
