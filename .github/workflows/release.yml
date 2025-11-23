@@ -89,37 +89,39 @@ jobs:
           echo "gemfile=${GEMFILE}" >> "$GITHUB_OUTPUT"
           ls -l "$GEMFILE"
 
-      - name: Generate CHANGELOG for this release
+      - name: Extract release notes from CHANGELOG
         id: changelog
         shell: bash
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
 
-          # Find previous tag (semantic aware); fallback to first commit
-          PREV_TAG=$(git tag --sort=-v:refname | sed -n '2p' || true)
-          if [[ -z "$PREV_TAG" ]]; then
-            FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
-            RANGE="$FIRST_COMMIT..$TAG"
-          else
-            RANGE="$PREV_TAG..$TAG"
+          # Extract release notes for this version from CHANGELOG.md
+          awk "/^## \[${VERSION}\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md > RELEASE_NOTES.md
+
+          # If extraction failed or empty, generate from git log
+          if [[ ! -s RELEASE_NOTES.md ]]; then
+            echo "No CHANGELOG entry found for ${VERSION}, generating from git log..."
+            PREV_TAG=$(git tag --sort=-v:refname | sed -n '2p' || true)
+            if [[ -z "$PREV_TAG" ]]; then
+              FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
+              RANGE="$FIRST_COMMIT..$TAG"
+            else
+              RANGE="$PREV_TAG..$TAG"
+            fi
+
+            {
+              echo "## Changes"
+              git log --no-merges --format='- %s (%h)' "$RANGE" || echo "- Initial release"
+            } > RELEASE_NOTES.md
           fi
 
-          DATE=$(date -u +'%Y-%m-%d')
-          {
-            echo "## $TAG — $DATE"
-            echo
-            echo "### Changes"
-            # Exclude merge commits, show subject, short sha, author
-            if ! git log --no-merges --format='- %s (%h) — %an' "$RANGE"; then
-              echo "- Initial release"
-            fi
-            echo
-          } > CHANGELOG.md
+          echo "Release notes for ${TAG}:"
+          cat RELEASE_NOTES.md
 
+          PREV_TAG=$(git tag --sort=-v:refname | sed -n '2p' || true)
           echo "prev_tag=${PREV_TAG}" >> "$GITHUB_OUTPUT"
-          echo "Generated CHANGELOG for range: $RANGE"
-          sed -n '1,200p' CHANGELOG.md
 
       - name: Create/Update GitHub Release and upload .gem
         uses: softprops/action-gh-release@v2
@@ -128,10 +130,10 @@ jobs:
           name: "JetstreamBridge ${{ github.ref_name }}"
           files: |
             ${{ steps.build.outputs.gemfile }}
-            CHANGELOG.md
+            RELEASE_NOTES.md
           draft: false
           generate_release_notes: false
-          body_path: CHANGELOG.md
+          body_path: RELEASE_NOTES.md
           prerelease: ${{ contains(steps.ver.outputs.version, '-') }}
 
       - name: Configure RubyGems credentials with OIDC
