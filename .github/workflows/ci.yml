@@ -48,10 +48,11 @@ jobs:
           ruby-version: "3.3"
           bundler-cache: true
 
-      - name: Run RuboCop
+      - name: Run RuboCop with Reviewdog
         uses: reviewdog/action-rubocop@v2
         with:
           rubocop_version: gemfile
+          rubocop_extensions: rubocop-performance:gemfile rubocop-packaging:gemfile
           reporter: github-check
           fail_level: error
 
