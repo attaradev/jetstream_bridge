@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.2] - 2025-11-23
+
+### Fixed
+
+- **Stream Updates** - Prevent retention policy change errors (NATS error 10052)
+  - Skip all stream updates when retention policy differs from expected 'workqueue'
+  - Prevents "stream configuration update can not change retention policy to/from workqueue" error
+  - Logs warning when stream has mismatched retention policy but skips update
+  - Ensures compatibility with existing streams that have different retention policies
+
 ## [4.0.1] - 2025-11-23
 
 ### Fixed
