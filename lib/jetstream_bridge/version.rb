@@ -4,5 +4,5 @@
 #
 # Version constant for the gem.
 module JetstreamBridge
-  VERSION = '2.10.0'
+  VERSION = '3.0.0'
 end

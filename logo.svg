@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Gradient for the bridge -->
+    <linearGradient id="bridgeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#2563eb;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7c3aed;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Gradient for the streams -->
+    <linearGradient id="streamGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#06b6d4;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#3b82f6;stop-opacity:0.8" />
+    </linearGradient>
+
+    <!-- Shadow -->
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+      <feOffset dx="0" dy="2" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.3"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="100" cy="100" r="95" fill="#f8fafc" stroke="#e2e8f0" stroke-width="2"/>
+
+  <!-- Stream lines (flowing data) - left side -->
+  <g opacity="0.7">
+    <path d="M 20 70 Q 40 68, 60 70" stroke="url(#streamGradient)" stroke-width="2.5" fill="none" stroke-linecap="round">
+      <animate attributeName="stroke-dasharray" from="0,10" to="10,0" dur="1.5s" repeatCount="indefinite"/>
+    </path>
+    <path d="M 20 85 Q 40 83, 60 85" stroke="url(#streamGradient)" stroke-width="2.5" fill="none" stroke-linecap="round">
+      <animate attributeName="stroke-dasharray" from="0,10" to="10,0" dur="1.5s" begin="0.2s" repeatCount="indefinite"/>
+    </path>
+    <path d="M 20 100 Q 40 98, 60 100" stroke="url(#streamGradient)" stroke-width="3" fill="none" stroke-linecap="round">
+      <animate attributeName="stroke-dasharray" from="0,10" to="10,0" dur="1.5s" begin="0.4s" repeatCount="indefinite"/>
+    </path>
+    <path d="M 20 115 Q 40 113, 60 115" stroke="url(#streamGradient)" stroke-width="2.5" fill="none" stroke-linecap="round">
+      <animate attributeName="stroke-dasharray" from="0,10" to="10,0" dur="1.5s" begin="0.6s" repeatCount="indefinite"/>
+    </path>
+    <path d="M 20 130 Q 40 128, 60 130" stroke="url(#streamGradient)" stroke-width="2.5" fill="none" stroke-linecap="round">
+      <animate attributeName="stroke-dasharray" from="0,10" to="10,0" dur="1.5s" begin="0.8s" repeatCount="indefinite"/>
+    </path>
+  </g>
+
+  <!-- Stream lines (flowing data) - right side -->
+  <g opacity="0.7">
+    <path d="M 140 70 Q 160 72, 180 70" stroke="url(#streamGradient)" stroke-width="2.5" fill="none" stroke-linecap="round">
+      <animate attributeName="stroke-dasharray" from="0,10" to="10,0" dur="1.5s" begin="0.3s" repeatCount="indefinite"/>
+    </path>
+    <path d="M 140 85 Q 160 87, 180 85" stroke="url(#streamGradient)" stroke-width="2.5" fill="none" stroke-linecap="round">
+      <animate attributeName="stroke-dasharray" from="0,10" to="10,0" dur="1.5s" begin="0.5s" repeatCount="indefinite"/>
+    </path>
+    <path d="M 140 100 Q 160 102, 180 100" stroke="url(#streamGradient)" stroke-width="3" fill="none" stroke-linecap="round">
+      <animate attributeName="stroke-dasharray" from="0,10" to="10,0" dur="1.5s" begin="0.7s" repeatCount="indefinite"/>
+    </path>
+    <path d="M 140 115 Q 160 117, 180 115" stroke="url(#streamGradient)" stroke-width="2.5" fill="none" stroke-linecap="round">
+      <animate attributeName="stroke-dasharray" from="0,10" to="10,0" dur="1.5s" begin="0.9s" repeatCount="indefinite"/>
+    </path>
+    <path d="M 140 130 Q 160 132, 180 130" stroke="url(#streamGradient)" stroke-width="2.5" fill="none" stroke-linecap="round">
+      <animate attributeName="stroke-dasharray" from="0,10" to="10,0" dur="1.5s" begin="1.1s" repeatCount="indefinite"/>
+    </path>
+  </g>
+
+  <!-- Bridge structure with shadow -->
+  <g filter="url(#shadow)">
+    <!-- Bridge arch -->
+    <path d="M 60 100 Q 100 50, 140 100"
+          stroke="url(#bridgeGradient)"
+          stroke-width="8"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+
+    <!-- Bridge deck -->
+    <rect x="55" y="95" width="90" height="10" fill="url(#bridgeGradient)" rx="2"/>
+
+    <!-- Bridge supports -->
+    <line x1="70" y1="100" x2="70" y2="140" stroke="url(#bridgeGradient)" stroke-width="6" stroke-linecap="round"/>
+    <line x1="100" y1="100" x2="100" y2="150" stroke="url(#bridgeGradient)" stroke-width="6" stroke-linecap="round"/>
+    <line x1="130" y1="100" x2="130" y2="140" stroke="url(#bridgeGradient)" stroke-width="6" stroke-linecap="round"/>
+
+    <!-- Support bases -->
+    <ellipse cx="70" cy="140" rx="8" ry="3" fill="url(#bridgeGradient)"/>
+    <ellipse cx="100" cy="150" rx="8" ry="3" fill="url(#bridgeGradient)"/>
+    <ellipse cx="130" cy="140" rx="8" ry="3" fill="url(#bridgeGradient)"/>
+  </g>
+
+  <!-- Data packets flowing across the bridge -->
+  <g>
+    <!-- Packet 1 -->
+    <circle r="4" fill="#06b6d4">
+      <animateMotion dur="3s" repeatCount="indefinite">
+        <mpath href="#bridgePath"/>
+      </animateMotion>
+    </circle>
+
+    <!-- Packet 2 -->
+    <circle r="4" fill="#3b82f6">
+      <animateMotion dur="3s" begin="1s" repeatCount="indefinite">
+        <mpath href="#bridgePath"/>
+      </animateMotion>
+    </circle>
+
+    <!-- Packet 3 -->
+    <circle r="4" fill="#7c3aed">
+      <animateMotion dur="3s" begin="2s" repeatCount="indefinite">
+        <mpath href="#bridgePath"/>
+      </animateMotion>
+    </circle>
+  </g>
+
+  <!-- Hidden path for animation -->
+  <path id="bridgePath" d="M 60 100 Q 100 50, 140 100" fill="none" stroke="none"/>
+
+  <!-- Accent dots (connection points) -->
+  <circle cx="60" cy="100" r="5" fill="#2563eb"/>
+  <circle cx="140" cy="100" r="5" fill="#7c3aed"/>
+
+  <!-- Small highlight on connection points -->
+  <circle cx="60" cy="100" r="2" fill="#60a5fa" opacity="0.8"/>
+  <circle cx="140" cy="100" r="2" fill="#a78bfa" opacity="0.8"/>
+</svg>

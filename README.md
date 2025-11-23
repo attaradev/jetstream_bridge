@@ -1,21 +1,51 @@
-# Jetstream Bridge
+<p align="center">
+  <img src="logo.svg" alt="JetStream Bridge Logo" width="200"/>
+</p>
 
-**Production-safe realtime data bridge** between systems using **NATS JetStream**.
-Includes durable consumers, backpressure, retries, **DLQ**, optional **Inbox/Outbox**, and **overlap-safe stream provisioning**.
+<h1 align="center">JetStream Bridge</h1>
+
+<p align="center">
+  <strong>Production-safe realtime data bridge</strong> between systems using <strong>NATS JetStream</strong>
+</p>
+
+<p align="center">
+  Includes durable consumers, backpressure, retries, <strong>DLQ</strong>, optional <strong>Inbox/Outbox</strong>, and <strong>overlap-safe stream provisioning</strong>
+</p>
+
+<p align="center">
+  <a href="#-features">Features</a> •
+  <a href="#-install">Install</a> •
+  <a href="#-getting-started">Getting Started</a> •
+  <a href="#-operations-guide">Operations</a>
+</p>
 
 ---
 
 ## ✨ Features
+
+### Core Capabilities
 
 * 🔌 Simple **Publisher** and **Consumer** interfaces
 * 🛡 **Outbox** (reliable send) & **Inbox** (idempotent receive), opt-in
 * 🧨 **DLQ** for poison messages
 * ⚙️ Durable `pull_subscribe` with backoff & `max_deliver`
 * 🎯 Clear **source/destination** subject conventions
-* 🧱 **Overlap-safe stream ensure** (prevents “subjects overlap” BadRequest)
+* 🧱 **Overlap-safe stream ensure** (prevents "subjects overlap" BadRequest)
 * 🚂 **Rails generators** for initializer & migrations, plus an install **rake task**
 * ⚡️ **Eager-loaded models** via Railtie (production)
 * 📊 Configurable logging with sensible defaults
+
+### Production-Ready Features (v2.10+)
+
+* 🏥 **Health checks** - Monitor NATS connection and stream status
+* 🔄 **Auto-reconnection** - Automatic recovery from connection failures
+* 🔒 **Race condition protection** - Pessimistic locking for outbox operations
+* 🛡️ **Transaction safety** - All database operations wrapped in transactions
+* 🎯 **Subject validation** - Prevents NATS wildcards in configuration
+* 🚦 **Graceful shutdown** - Signal handlers and message draining
+* 📈 **Retry strategies** - Pluggable exponential/linear backoff algorithms
+* 🎨 **Value objects** - Type-safe domain models for events and subjects
+* 🏗️ **SOLID architecture** - Clean separation of concerns and dependency injection
 
 ---
 
@@ -32,7 +62,9 @@ bundle install
 
 ---
 
-## 🧰 Rails Generators & Rake Task
+## 🧰 Rails Generators & Rake Tasks
+
+### Installation
 
 From your Rails app:
 
@@ -44,8 +76,8 @@ bin/rails g jetstream_bridge:install
 bin/rails g jetstream_bridge:initializer
 bin/rails g jetstream_bridge:migrations
 
-# Rake task (does both initializer + migrations)
-bin/rake jetstream_bridge:install
+# Create health check endpoint
+bin/rails g jetstream_bridge:health_check
 ```
 
 Then:
@@ -59,6 +91,23 @@ bin/rails db:migrate
 > * `config/initializers/jetstream_bridge.rb`
 > * `db/migrate/*_create_jetstream_outbox_events.rb`
 > * `db/migrate/*_create_jetstream_inbox_events.rb`
+> * `app/controllers/jetstream_health_controller.rb` (if health_check generator used)
+
+### Rake Tasks
+
+```bash
+# Check health and connection status
+bin/rake jetstream_bridge:health
+
+# Validate configuration
+bin/rake jetstream_bridge:validate
+
+# Test NATS connection
+bin/rake jetstream_bridge:test_connection
+
+# Show comprehensive debug information
+bin/rake jetstream_bridge:debug
+```
 
 ---
 
@@ -95,7 +144,7 @@ end
 > **Defaults:**
 >
 > * `stream_name` → `#{env}-jetstream-bridge-stream`
-> * `dlq_subject` → `#{env}.data.sync.dlq`
+> * `dlq_subject` → `#{env}.sync.dlq`
 
 ### Logging
 
@@ -253,9 +302,9 @@ If **Inbox** is enabled, the consumer:
 ## 🧨 Dead-Letter Queue (DLQ)
 
 When enabled, the topology ensures the DLQ subject exists:
-**`{env}.data.sync.dlq`**
+**`{env}.sync.dlq`**
 
-You may run a separate process to subscribe and triage messages that exceed `max_deliver` or are NAK’ed to the DLQ.
+You may run a separate process to subscribe and triage messages that exceed `max_deliver` or are NAK'ed to the DLQ.
 
 ---
 
@@ -264,7 +313,7 @@ You may run a separate process to subscribe and triage messages that exceed `max
 ### Monitoring
 
 * **Consumer lag**: `nats consumer info <stream> <durable>`
-* **DLQ volume**: subscribe/metrics on `{env}.data.sync.dlq`
+* **DLQ volume**: subscribe/metrics on `{env}.sync.dlq`
 * **Outbox backlog**: alert on `jetstream_outbox_events` with `status != 'sent'` and growing count
 
 ### Scaling
@@ -273,14 +322,28 @@ You may run a separate process to subscribe and triage messages that exceed `max
 * Scale consumers independently of web
 * Tune `batch_size`, `ack_wait`, `max_deliver`, and `backoff`
 
-### Health check
+### Health Checks
 
-* Force-connect & ensure topology at boot or in a check:
+The gem provides built-in health check functionality for monitoring:
 
-  ```ruby
-  # Returns JetStream context if successful
-  JetstreamBridge.ensure_topology!
-  ```
+```ruby
+# Get comprehensive health status
+health = JetstreamBridge.health_check
+# => {
+#   healthy: true,
+#   nats_connected: true,
+#   connected_at: "2025-11-22T20:00:00Z",
+#   stream: { exists: true, name: "...", ... },
+#   config: { env: "production", ... },
+#   version: "2.10.0"
+# }
+
+# Force-connect & ensure topology at boot or in a check
+JetstreamBridge.ensure_topology!
+
+# Debug helper for troubleshooting
+JetstreamBridge::DebugHelper.debug_info
+```
 
 ### When to Use
 

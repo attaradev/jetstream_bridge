@@ -27,6 +27,7 @@ module JetstreamBridge
       @durable       = durable_name || JetstreamBridge.config.durable_name
       @idle_backoff  = IDLE_SLEEP_SECS
       @running       = true
+      @shutdown_requested = false
       @jts           = Connection.connect!
 
       ensure_destination!
@@ -36,6 +37,7 @@ module JetstreamBridge
       @inbox_proc = InboxProcessor.new(@processor) if JetstreamBridge.config.use_inbox
 
       ensure_subscription!
+      setup_signal_handlers
     end
 
     def run!
@@ -47,11 +49,17 @@ module JetstreamBridge
         processed = process_batch
         idle_sleep(processed)
       end
+
+      # Drain in-flight messages before exiting
+      drain_inflight_messages if @shutdown_requested
+      Logging.info("Consumer #{@durable} stopped gracefully", tag: 'JetstreamBridge::Consumer')
     end
 
     # Allow external callers to stop a long-running loop gracefully.
     def stop!
+      @shutdown_requested = true
       @running = false
+      Logging.info("Consumer #{@durable} shutdown requested", tag: 'JetstreamBridge::Consumer')
     end
 
     private
@@ -137,6 +145,41 @@ module JetstreamBridge
       else
         @idle_backoff = IDLE_SLEEP_SECS
       end
+    end
+
+    def setup_signal_handlers
+      %w[INT TERM].each do |sig|
+        Signal.trap(sig) do
+          Logging.info("Received #{sig}, stopping consumer...", tag: 'JetstreamBridge::Consumer')
+          stop!
+        end
+      end
+    rescue ArgumentError => e
+      # Signal handlers may not be available in all environments (e.g., threads)
+      Logging.debug("Could not set up signal handlers: #{e.message}", tag: 'JetstreamBridge::Consumer')
+    end
+
+    def drain_inflight_messages
+      return unless @psub
+
+      Logging.info("Draining in-flight messages...", tag: 'JetstreamBridge::Consumer')
+      # Process any pending messages with a short timeout
+      5.times do
+        begin
+          msgs = @psub.fetch(@batch_size, timeout: 1)
+          break if msgs.nil? || msgs.empty?
+
+          msgs.each { |m| process_one(m) }
+        rescue NATS::Timeout, NATS::IO::Timeout
+          break
+        rescue StandardError => e
+          Logging.warn("Error draining messages: #{e.class} #{e.message}", tag: 'JetstreamBridge::Consumer')
+          break
+        end
+      end
+      Logging.info("Drain complete", tag: 'JetstreamBridge::Consumer')
+    rescue StandardError => e
+      Logging.error("Drain failed: #{e.class} #{e.message}", tag: 'JetstreamBridge::Consumer')
     end
   end
 end

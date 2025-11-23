@@ -11,9 +11,9 @@ jobs:
     permissions:
       contents: write
       packages: write
+      id-token: write # Required for OIDC
 
     env:
-      RUBYGEMS_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
       # Force Bundler to ignore platform-specific precompiled variants (e.g., arm64-darwin)
       BUNDLER_FORCE_RUBY_PLATFORM: "true"
 
@@ -62,26 +62,11 @@ jobs:
           sed -i "s/VERSION\\s*=\\s*['\"][^'\"]\\+['\"]/VERSION = '${{ steps.ver.outputs.version }}'/" lib/jetstream_bridge/version.rb
           grep VERSION lib/jetstream_bridge/version.rb
 
-      - name: Prepare Bundler (non-frozen; add Linux/Ruby platforms)
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -f .bundle/config || true
-          bundle config set --local frozen false
-          bundle config set --local deployment false
-          bundle config set --local path vendor/bundle
-          bundle lock --add-platform x86_64-linux || true
-          bundle lock --add-platform ruby || true
-
       - name: Install dependencies
-        shell: bash
         run: |
-          set -euo pipefail
-          bundle install --jobs 4
-
-      # Optional tests
-      # - name: Run tests
-      #   run: bundle exec rake
+          bundle lock --add-platform x86_64-linux
+          bundle lock --add-platform ruby
+          bundle install
 
       - name: Build gem
         id: build
@@ -138,13 +123,8 @@ jobs:
           body_path: CHANGELOG.md
           prerelease: ${{ contains(steps.ver.outputs.version, '-') }}
 
-      # Publish only if token present
-      - name: Push to RubyGems
-        if: ${{ env.RUBYGEMS_API_KEY != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.gem
-          printf -- "---\n:rubygems_api_key: $RUBYGEMS_API_KEY\n" > ~/.gem/credentials
-          chmod 0600 ~/.gem/credentials
-          gem push "${{ steps.build.outputs.gemfile }}"
+      - name: Configure RubyGems credentials with OIDC
+        uses: rubygems/configure-rubygems-credentials@v1.0.0
+
+      - name: Push gem to RubyGems
+        run: gem push ${{ steps.build.outputs.gemfile }}

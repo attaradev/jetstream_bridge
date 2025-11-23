@@ -11,17 +11,20 @@ module JetstreamBridge
     end
 
     # Sends original payload to DLQ with explanatory headers/context
+    # @return [Boolean] true if published successfully, false otherwise
     def publish(msg, ctx, reason:, error_class:, error_message:)
-      return unless JetstreamBridge.config.use_dlq
+      return true unless JetstreamBridge.config.use_dlq
 
       envelope = build_envelope(ctx, reason, error_class, error_message)
       headers  = build_headers(msg.header, reason, ctx.deliveries, envelope)
       @jts.publish(JetstreamBridge.config.dlq_subject, msg.data, header: headers)
+      true
     rescue StandardError => e
       Logging.error(
         "DLQ publish failed event_id=#{ctx.event_id}: #{e.class} #{e.message}",
         tag: 'JetstreamBridge::Consumer'
       )
+      false
     end
 
     private

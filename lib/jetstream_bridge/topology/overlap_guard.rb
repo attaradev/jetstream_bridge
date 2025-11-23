@@ -55,11 +55,25 @@ module JetstreamBridge
       def list_stream_names(jts)
         names  = []
         offset = 0
+        max_iterations = 100 # Safety limit to prevent infinite loops
+        iterations = 0
+
         loop do
+          iterations += 1
+          if iterations > max_iterations
+            Logging.warn(
+              "Stream listing exceeded max iterations (#{max_iterations}), returning #{names.size} streams",
+              tag: 'JetstreamBridge::OverlapGuard'
+            )
+            break
+          end
+
           resp  = js_api_request(jts, '$JS.API.STREAM.NAMES', { offset: offset })
           batch = Array(resp['streams']).filter_map { |h| h['name'] }
           names.concat(batch)
-          break if names.size >= resp['total'].to_i || batch.empty?
+          total = resp['total'].to_i
+
+          break if names.size >= total || batch.empty?
 
           offset = names.size
         end

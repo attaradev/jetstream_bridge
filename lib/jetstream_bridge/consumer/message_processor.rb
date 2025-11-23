@@ -63,12 +63,13 @@ module JetstreamBridge
 
       process_event(msg, event, ctx)
     rescue StandardError => e
+      backtrace = e.backtrace&.first(5)&.join("\n  ")
       Logging.error(
         "Processor crashed event_id=#{ctx&.event_id} subject=#{ctx&.subject} seq=#{ctx&.seq} " \
-        "deliveries=#{ctx&.deliveries} err=#{e.class}: #{e.message}",
+        "deliveries=#{ctx&.deliveries} err=#{e.class}: #{e.message}\n  #{backtrace}",
         tag: 'JetstreamBridge::Consumer'
       )
-      safe_nak(msg)
+      safe_nak(msg, ctx, e)
     end
 
     private
@@ -77,14 +78,22 @@ module JetstreamBridge
       data = msg.data
       Oj.load(data, mode: :strict)
     rescue Oj::ParseError => e
-      @dlq.publish(msg, ctx,
-                   reason: 'malformed_json', error_class: e.class.name, error_message: e.message)
-      msg.ack
-      Logging.warn(
-        "Malformed JSON → DLQ event_id=#{ctx.event_id} subject=#{ctx.subject} " \
-        "seq=#{ctx.seq} deliveries=#{ctx.deliveries}: #{e.message}",
-        tag: 'JetstreamBridge::Consumer'
-      )
+      dlq_success = @dlq.publish(msg, ctx,
+                                  reason: 'malformed_json', error_class: e.class.name, error_message: e.message)
+      if dlq_success
+        msg.ack
+        Logging.warn(
+          "Malformed JSON → DLQ event_id=#{ctx.event_id} subject=#{ctx.subject} " \
+          "seq=#{ctx.seq} deliveries=#{ctx.deliveries}: #{e.message}",
+          tag: 'JetstreamBridge::Consumer'
+        )
+      else
+        safe_nak(msg, ctx, e)
+        Logging.error(
+          "Malformed JSON, DLQ publish failed, NAKing event_id=#{ctx.event_id}",
+          tag: 'JetstreamBridge::Consumer'
+        )
+      end
       nil
     end
 
@@ -96,14 +105,22 @@ module JetstreamBridge
         tag: 'JetstreamBridge::Consumer'
       )
     rescue *UNRECOVERABLE_ERRORS => e
-      @dlq.publish(msg, ctx,
-                   reason: 'unrecoverable', error_class: e.class.name, error_message: e.message)
-      msg.ack
-      Logging.warn(
-        "DLQ (unrecoverable) event_id=#{ctx.event_id} subject=#{ctx.subject} " \
-        "seq=#{ctx.seq} deliveries=#{ctx.deliveries} err=#{e.class}: #{e.message}",
-        tag: 'JetstreamBridge::Consumer'
-      )
+      dlq_success = @dlq.publish(msg, ctx,
+                                  reason: 'unrecoverable', error_class: e.class.name, error_message: e.message)
+      if dlq_success
+        msg.ack
+        Logging.warn(
+          "DLQ (unrecoverable) event_id=#{ctx.event_id} subject=#{ctx.subject} " \
+          "seq=#{ctx.seq} deliveries=#{ctx.deliveries} err=#{e.class}: #{e.message}",
+          tag: 'JetstreamBridge::Consumer'
+        )
+      else
+        safe_nak(msg, ctx, e)
+        Logging.error(
+          "Unrecoverable error, DLQ publish failed, NAKing event_id=#{ctx.event_id}",
+          tag: 'JetstreamBridge::Consumer'
+        )
+      end
     rescue StandardError => e
       ack_or_nak(msg, ctx, e)
     end
@@ -111,14 +128,28 @@ module JetstreamBridge
     def ack_or_nak(msg, ctx, error)
       max_deliver = JetstreamBridge.config.max_deliver.to_i
       if ctx.deliveries >= max_deliver
-        @dlq.publish(msg, ctx,
-                     reason: 'max_deliver_exceeded', error_class: error.class.name, error_message: error.message)
-        msg.ack
-        Logging.warn(
-          "DLQ (max_deliver) event_id=#{ctx.event_id} subject=#{ctx.subject} " \
-          "seq=#{ctx.seq} deliveries=#{ctx.deliveries} err=#{error.class}: #{error.message}",
-          tag: 'JetstreamBridge::Consumer'
-        )
+        # Only ACK if DLQ publish succeeds
+        dlq_success = @dlq.publish(msg, ctx,
+                                    reason: 'max_deliver_exceeded',
+                                    error_class: error.class.name,
+                                    error_message: error.message)
+
+        if dlq_success
+          msg.ack
+          Logging.warn(
+            "DLQ (max_deliver) event_id=#{ctx.event_id} subject=#{ctx.subject} " \
+            "seq=#{ctx.seq} deliveries=#{ctx.deliveries} err=#{error.class}: #{error.message}",
+            tag: 'JetstreamBridge::Consumer'
+          )
+        else
+          # NAK to retry DLQ publish
+          safe_nak(msg, ctx, error)
+          Logging.error(
+            "DLQ publish failed at max_deliver, NAKing event_id=#{ctx.event_id} " \
+            "seq=#{ctx.seq} deliveries=#{ctx.deliveries}",
+            tag: 'JetstreamBridge::Consumer'
+          )
+        end
       else
         safe_nak(msg, ctx, error)
         Logging.warn(
@@ -129,11 +160,14 @@ module JetstreamBridge
       end
     end
 
-    def safe_nak(msg, ctx = nil, _error = nil)
-      # If your NATS client supports delayed NAKs, uncomment:
-      # delay = @backoff.delay(ctx&.deliveries.to_i, error) if ctx
-      # msg.nak(next_delivery_delay: delay)
-      msg.nak
+    def safe_nak(msg, ctx = nil, error = nil)
+      # Use backoff strategy with error context if available
+      if ctx && error && msg.respond_to?(:nak_with_delay)
+        delay = @backoff.delay(ctx.deliveries.to_i, error)
+        msg.nak_with_delay(delay)
+      else
+        msg.nak
+      end
     rescue StandardError => e
       Logging.error(
         "Failed to NAK event_id=#{ctx&.event_id} deliveries=#{ctx&.deliveries}: " \
