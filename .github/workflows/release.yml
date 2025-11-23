@@ -62,11 +62,13 @@ jobs:
           sed -i "s/VERSION\\s*=\\s*['\"][^'\"]\\+['\"]/VERSION = '${{ steps.ver.outputs.version }}'/" lib/jetstream_bridge/version.rb
           grep VERSION lib/jetstream_bridge/version.rb
 
-      - name: Install dependencies
+      - name: Add platforms to Gemfile.lock
         run: |
           bundle lock --add-platform x86_64-linux
           bundle lock --add-platform ruby
-          bundle install
+
+      - name: Install dependencies
+        run: bundle install --jobs 4 --retry 3
 
       - name: Run tests
         id: tests
