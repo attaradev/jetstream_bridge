@@ -58,6 +58,7 @@ Metrics/MethodLength:
     - "lib/jetstream_bridge/topology/stream.rb"
     - "lib/generators/jetstream_bridge/health_check/health_check_generator.rb"
     - "lib/jetstream_bridge/core/connection.rb" # Connection validation with logging
+    - "lib/jetstream_bridge.rb" # Health check with performance metrics
 
 Metrics/AbcSize:
   Max: 25
@@ -67,6 +68,8 @@ Metrics/AbcSize:
     - "lib/jetstream_bridge/core/config.rb"
     - "lib/jetstream_bridge/core/debug_helper.rb"
     - "lib/jetstream_bridge/core/connection.rb" # Connection validation with logging
+    - "lib/jetstream_bridge.rb" # Health check with performance metrics
+    - "lib/jetstream_bridge/topology/stream.rb" # Stream update with compatibility checks
 
 Metrics/CyclomaticComplexity:
   Max: 10
@@ -76,6 +79,7 @@ Metrics/CyclomaticComplexity:
     - "lib/jetstream_bridge/core/logging.rb" # URL sanitization with multiple branches
     - "lib/jetstream_bridge/consumer/inbox/inbox_message.rb" # NATS message parsing
     - "lib/jetstream_bridge/core/connection.rb" # Connection validation with multiple checks
+    - "lib/jetstream_bridge/core/debug_helper.rb" # Stream info with compatibility checks
 
 Metrics/PerceivedComplexity:
   Max: 10
@@ -84,11 +88,13 @@ Metrics/PerceivedComplexity:
     - "lib/jetstream_bridge/core/logging.rb" # URL sanitization with multiple branches
     - "lib/jetstream_bridge/consumer/inbox/inbox_message.rb" # NATS message parsing
     - "lib/jetstream_bridge/core/connection.rb" # Connection validation with multiple checks
+    - "lib/jetstream_bridge/core/debug_helper.rb" # Stream info with compatibility checks
 
 Metrics/ModuleLength:
   Max: 100
   Exclude:
     - "lib/jetstream_bridge.rb" # Main module with convenience methods
+    - "lib/jetstream_bridge/core/debug_helper.rb" # Debug helper with stream info methods
 
 Metrics/ClassLength:
   Max: 200

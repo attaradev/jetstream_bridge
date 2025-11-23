@@ -81,36 +81,36 @@ module JetstreamBridge
         cfg = JetstreamBridge.config
         info = jts.stream_info(cfg.stream_name)
 
-        # Handle both object-style and hash-style access for compatibility
-        config_data = info.config
-        state_data = info.state
-        subjects = config_data.respond_to?(:subjects) ? config_data.subjects : config_data[:subjects]
-        retention = config_data.respond_to?(:retention) ? config_data.retention : config_data[:retention]
-        storage = config_data.respond_to?(:storage) ? config_data.storage : config_data[:storage]
-        max_consumers = config_data.respond_to?(:max_consumers) ? config_data.max_consumers : config_data[:max_consumers]
-        messages = state_data.respond_to?(:messages) ? state_data.messages : state_data[:messages]
-        bytes = state_data.respond_to?(:bytes) ? state_data.bytes : state_data[:bytes]
-        first_seq = state_data.respond_to?(:first_seq) ? state_data.first_seq : state_data[:first_seq]
-        last_seq = state_data.respond_to?(:last_seq) ? state_data.last_seq : state_data[:last_seq]
-
-        {
-          name: cfg.stream_name,
-          exists: true,
-          subjects: subjects,
-          retention: retention,
-          storage: storage,
-          max_consumers: max_consumers,
-          messages: messages,
-          bytes: bytes,
-          first_seq: first_seq,
-          last_seq: last_seq
-        }
+        build_stream_info(cfg, info)
       rescue StandardError => e
         {
           name: JetstreamBridge.config.stream_name,
           exists: false,
           error: "#{e.class}: #{e.message}"
         }
+      end
+
+      def build_stream_info(cfg, info)
+        # Handle both object-style and hash-style access for compatibility
+        config_data = info.config
+        state_data = info.state
+
+        {
+          name: cfg.stream_name,
+          exists: true,
+          subjects: safe_attr(config_data, :subjects),
+          retention: safe_attr(config_data, :retention),
+          storage: safe_attr(config_data, :storage),
+          max_consumers: safe_attr(config_data, :max_consumers),
+          messages: safe_attr(state_data, :messages),
+          bytes: safe_attr(state_data, :bytes),
+          first_seq: safe_attr(state_data, :first_seq),
+          last_seq: safe_attr(state_data, :last_seq)
+        }
+      end
+
+      def safe_attr(obj, attr)
+        obj.respond_to?(attr) ? obj.public_send(attr) : obj[attr]
       end
 
       def log_hash(hash, indent: 0)
