@@ -72,23 +72,78 @@ module JetstreamBridge
       # ---- Defaults that do not require schema at load time ----
       before_validation do
         now = Time.now.utc
-        self.status ||= 'pending' if self.class.has_column?(:status) && status.blank?
+        self.status ||= JetstreamBridge::Config::Status::PENDING if self.class.has_column?(:status) && status.blank?
         self.enqueued_at ||= now if self.class.has_column?(:enqueued_at) && enqueued_at.blank?
         self.attempts = 0 if self.class.has_column?(:attempts) && attempts.nil?
       end
 
-      # ---- Helpers ----
+      # ---- Query Scopes ----
+      scope :pending, -> { where(status: JetstreamBridge::Config::Status::PENDING) if has_column?(:status) }
+      scope :publishing, -> { where(status: JetstreamBridge::Config::Status::PUBLISHING) if has_column?(:status) }
+      scope :sent, -> { where(status: JetstreamBridge::Config::Status::SENT) if has_column?(:status) }
+      scope :failed, -> { where(status: JetstreamBridge::Config::Status::FAILED) if has_column?(:status) }
+      scope :stale, lambda {
+        pending.where('created_at < ?', 1.hour.ago) if has_column?(:created_at) && has_column?(:status)
+      }
+      scope :by_resource_type, lambda { |type|
+        where(resource_type: type) if has_column?(:resource_type)
+      }
+      scope :by_event_type, lambda { |type|
+        where(event_type: type) if has_column?(:event_type)
+      }
+      scope :recent, lambda { |limit = 100|
+        order(created_at: :desc).limit(limit) if has_column?(:created_at)
+      }
+
+      # ---- Class Methods ----
+      class << self
+        # Retry failed events
+        #
+        # @param limit [Integer] Maximum number of events to retry
+        # @return [Integer] Number of events reset for retry
+        def retry_failed(limit: 100)
+          return 0 unless has_column?(:status)
+
+          failed.limit(limit).update_all(
+            status: JetstreamBridge::Config::Status::PENDING,
+            attempts: 0,
+            last_error: nil
+          )
+        end
+
+        # Clean up old sent events
+        #
+        # @param older_than [ActiveSupport::Duration] Age threshold
+        # @return [Integer] Number of records deleted
+        def cleanup_sent(older_than: 7.days)
+          return 0 unless has_column?(:status) && has_column?(:sent_at)
+
+          sent.where('sent_at < ?', older_than.ago).delete_all
+        end
+      end
+
+      # ---- Instance Methods ----
       def mark_sent!
         now = Time.now.utc
-        self.status  = 'sent' if self.class.has_column?(:status)
+        self.status  = JetstreamBridge::Config::Status::SENT if self.class.has_column?(:status)
         self.sent_at = now    if self.class.has_column?(:sent_at)
         save!
       end
 
       def mark_failed!(err_msg)
-        self.status     = 'failed' if self.class.has_column?(:status)
+        self.status     = JetstreamBridge::Config::Status::FAILED if self.class.has_column?(:status)
         self.last_error = err_msg  if self.class.has_column?(:last_error)
         save!
+      end
+
+      def retry!
+        return false unless self.class.has_column?(:status)
+
+        update!(
+          status: JetstreamBridge::Config::Status::PENDING,
+          attempts: 0,
+          last_error: nil
+        )
       end
 
       def payload_hash

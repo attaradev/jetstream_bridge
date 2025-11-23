@@ -11,4 +11,6 @@ group :development, :test do
   gem 'rubocop-packaging', '~> 0.5', require: false
   gem 'rubocop-performance', '~> 1.21', require: false
   gem 'simplecov', '>= 0.22', require: false
+  gem 'simplecov_json_formatter', require: false
+  gem 'sqlite3', '~> 1.4', require: false
 end

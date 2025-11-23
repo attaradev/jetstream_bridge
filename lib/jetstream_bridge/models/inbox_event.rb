@@ -67,19 +67,77 @@ module JetstreamBridge
 
       # ---- Defaults that do not require schema at load time ----
       before_validation do
-        self.status ||= 'received' if self.class.has_column?(:status) && status.blank?
+        self.status ||= JetstreamBridge::Config::Status::RECEIVED if self.class.has_column?(:status) && status.blank?
         self.received_at ||= Time.now.utc if self.class.has_column?(:received_at) && received_at.blank?
       end
 
-      # ---- Helpers ----
+      # ---- Query Scopes ----
+      scope :received, -> { where(status: JetstreamBridge::Config::Status::RECEIVED) if has_column?(:status) }
+      scope :processing, -> { where(status: JetstreamBridge::Config::Status::PROCESSING) if has_column?(:status) }
+      scope :processed, -> { where(status: JetstreamBridge::Config::Status::PROCESSED) if has_column?(:status) }
+      scope :failed, -> { where(status: JetstreamBridge::Config::Status::FAILED) if has_column?(:status) }
+      scope :by_subject, lambda { |subject|
+        where(subject: subject) if has_column?(:subject)
+      }
+      scope :by_stream, lambda { |stream|
+        where(stream: stream) if has_column?(:stream)
+      }
+      scope :recent, lambda { |limit = 100|
+        order(received_at: :desc).limit(limit) if has_column?(:received_at)
+      }
+      scope :unprocessed, lambda {
+        where.not(status: JetstreamBridge::Config::Status::PROCESSED) if has_column?(:status)
+      }
+
+      # ---- Class Methods ----
+      class << self
+        # Clean up old processed events
+        #
+        # @param older_than [ActiveSupport::Duration] Age threshold
+        # @return [Integer] Number of records deleted
+        def cleanup_processed(older_than: 30.days)
+          return 0 unless has_column?(:status) && has_column?(:processed_at)
+
+          processed.where('processed_at < ?', older_than.ago).delete_all
+        end
+
+        # Get processing statistics
+        #
+        # @return [Hash] Statistics hash
+        def processing_stats
+          return {} unless has_column?(:status)
+
+          {
+            total: count,
+            processed: processed.count,
+            failed: failed.count,
+            pending: unprocessed.count
+          }
+        end
+      end
+
+      # ---- Instance Methods ----
       def processed?
         if self.class.has_column?(:processed_at)
           processed_at.present?
         elsif self.class.has_column?(:status)
-          status == 'processed'
+          status == JetstreamBridge::Config::Status::PROCESSED
         else
           false
         end
+      end
+
+      def mark_processed!
+        now = Time.now.utc
+        self.status = JetstreamBridge::Config::Status::PROCESSED if self.class.has_column?(:status)
+        self.processed_at = now if self.class.has_column?(:processed_at)
+        save!
+      end
+
+      def mark_failed!(err_msg)
+        self.status = JetstreamBridge::Config::Status::FAILED if self.class.has_column?(:status)
+        self.last_error = err_msg if self.class.has_column?(:last_error)
+        save!
       end
 
       def payload_hash

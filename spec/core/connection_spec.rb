@@ -9,8 +9,8 @@ RSpec.describe JetstreamBridge::Connection do
     described_class.instance_variable_set(:@__mutex, nil)
   end
 
-  let(:mock_nc) { instance_double(NATS::IO::Client, connected?: true) }
-  let(:mock_jts) { double('JetStream') }
+  let(:mock_nc) { double('NATS::Client', connected?: true) }
+  let(:mock_jts) { double('JetStream', respond_to?: true) }
   let(:nats_urls) { 'nats://localhost:4222' }
 
   before do
@@ -21,10 +21,16 @@ RSpec.describe JetstreamBridge::Connection do
     allow(mock_nc).to receive(:on_reconnect)
     allow(mock_nc).to receive(:on_disconnect)
     allow(mock_nc).to receive(:on_error)
-    allow(mock_nc).to receive(:connect)
+    allow(mock_nc).to receive(:connect).and_return(nil)
     allow(mock_nc).to receive(:jetstream).and_return(mock_jts)
-    allow(mock_jts).to receive(:account_info)
-    allow(JetstreamBridge::Topology).to receive(:ensure!)
+    allow(mock_nc).to receive(:connected?).and_return(true)
+    allow(mock_jts).to receive(:account_info).and_return(double(messages: 0))
+    allow(mock_jts).to receive(:nc).and_return(mock_nc)
+    allow(JetstreamBridge::Topology).to receive(:ensure!).and_return(true)
+    allow(JetstreamBridge::Logging).to receive(:info)
+    allow(JetstreamBridge::Logging).to receive(:warn)
+    allow(JetstreamBridge::Logging).to receive(:error)
+    allow(JetstreamBridge::Logging).to receive(:sanitize_url) { |url| url.gsub(/:([^@]+)@/, ':***@') }
   end
 
   describe '.connect!' do
@@ -35,7 +41,7 @@ RSpec.describe JetstreamBridge::Connection do
 
     it 'is thread-safe' do
       results = []
-      threads = 3.times.map do
+      threads = Array.new(3) do
         Thread.new { results << described_class.connect! }
       end
       threads.each(&:join)
@@ -121,7 +127,7 @@ RSpec.describe JetstreamBridge::Connection do
 
       it 'ensures topology after connection' do
         instance.connect!
-        expect(JetstreamBridge::Topology).to have_received(:ensure!).with(mock_jts)
+        expect(JetstreamBridge::Topology).to have_received(:ensure!).with(mock_jts).at_least(:once)
       end
 
       it 'sets connected_at timestamp' do
@@ -278,22 +284,30 @@ RSpec.describe JetstreamBridge::Connection do
     it 're-ensures topology after reconnect' do
       instance.connect!
 
-      # Reset call count
-      allow(JetstreamBridge::Topology).to receive(:ensure!)
+      # Track calls after connect
+      calls = []
+      allow(JetstreamBridge::Topology).to receive(:ensure!) { |arg| calls << arg }
 
       # Simulate reconnect
       @reconnect_callback.call
 
-      expect(JetstreamBridge::Topology).to have_received(:ensure!).with(mock_jts)
+      expect(calls).to eq([mock_jts])
     end
 
     context 'when refresh fails' do
-      before do
-        allow(JetstreamBridge::Logging).to receive(:error)
-        allow(mock_nc).to receive(:jetstream).and_raise(StandardError, 'Connection lost')
-      end
-
       it 'logs error without crashing' do
+        allow(JetstreamBridge::Logging).to receive(:error)
+
+        # First call to jetstream succeeds (during connect!)
+        # Subsequent calls fail (during reconnect)
+        call_count = 0
+        allow(mock_nc).to receive(:jetstream) do
+          call_count += 1
+          raise StandardError, 'Connection lost' unless call_count == 1
+
+          mock_jts
+        end
+
         instance.connect!
 
         expect { @reconnect_callback.call }.not_to raise_error

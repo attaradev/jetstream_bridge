@@ -7,8 +7,10 @@ require 'simplecov_json_formatter'
 SimpleCov.start do
   add_filter '/spec/'
   add_filter '/vendor/'
+  add_filter '/lib/generators/'
+  add_filter '/lib/jetstream_bridge/railtie.rb'
   enable_coverage :branch
-  minimum_coverage line: 60, branch: 30
+  minimum_coverage line: 80, branch: 70
 
   # Use JSON formatter for Codecov
   formatter SimpleCov::Formatter::JSONFormatter

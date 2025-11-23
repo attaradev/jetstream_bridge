@@ -19,10 +19,12 @@ module JetstreamBridge
     IDLE_SLEEP_SECS       = 0.05
     MAX_IDLE_BACKOFF_SECS = 1.0
 
-    def initialize(durable_name: nil, batch_size: nil, &block)
-      raise ArgumentError, 'handler block required' unless block_given?
+    attr_reader :durable, :batch_size
 
-      @handler       = block
+    def initialize(handler = nil, durable_name: nil, batch_size: nil, &block)
+      @handler = handler || block
+      raise ArgumentError, 'handler or block required' unless @handler
+
       @batch_size    = Integer(batch_size || DEFAULT_BATCH_SIZE)
       @durable       = durable_name || JetstreamBridge.config.durable_name
       @idle_backoff  = IDLE_SLEEP_SECS

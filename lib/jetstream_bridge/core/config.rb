@@ -4,10 +4,22 @@ require_relative '../errors'
 
 module JetstreamBridge
   class Config
+    # Status constants for clarity
+    module Status
+      PENDING = 'pending'
+      PUBLISHING = 'publishing'
+      SENT = 'sent'
+      FAILED = 'failed'
+      RECEIVED = 'received'
+      PROCESSING = 'processing'
+      PROCESSED = 'processed'
+    end
+
     attr_accessor :destination_app, :nats_urls, :env, :app_name,
                   :max_deliver, :ack_wait, :backoff,
                   :use_outbox, :use_inbox, :inbox_model, :outbox_model,
                   :use_dlq, :logger
+    attr_reader :preset_applied
 
     def initialize
       @nats_urls       = ENV['NATS_URLS'] || ENV['NATS_URL'] || 'nats://localhost:4222'
@@ -25,6 +37,18 @@ module JetstreamBridge
       @outbox_model = 'JetstreamBridge::OutboxEvent'
       @inbox_model  = 'JetstreamBridge::InboxEvent'
       @logger       = nil
+      @preset_applied = nil
+    end
+
+    # Apply a configuration preset
+    #
+    # @param preset_name [Symbol, String] Name of preset (e.g., :production, :development)
+    # @return [self]
+    def apply_preset(preset_name)
+      require_relative 'config_preset'
+      ConfigPreset.apply(self, preset_name)
+      @preset_applied = preset_name.to_sym
+      self
     end
 
     # Single stream name per env

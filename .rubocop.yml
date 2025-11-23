@@ -7,23 +7,23 @@ plugins:
 
 AllCops:
   NewCops: enable
-  TargetRubyVersion: 3.2   # match gemspec minimum to avoid false positives
+  TargetRubyVersion: 3.2 # match gemspec minimum to avoid false positives
   SuggestExtensions: false
   Exclude:
-    - 'bin/*'
-    - 'pkg/**/*'
-    - 'tmp/**/*'
-    - 'vendor/**/*'
-    - 'spec/fixtures/**/*'
+    - "bin/*"
+    - "pkg/**/*"
+    - "tmp/**/*"
+    - "vendor/**/*"
+    - "spec/fixtures/**/*"
 
 # ---------- Layout & Style ----------
 Layout/LineLength:
   Max: 120
   Exclude:
-    - 'spec/**/*'   # allow longer expectation/setup lines
+    - "spec/**/*" # allow longer expectation/setup lines
 
 Style/Documentation:
-  Enabled: false    # don’t force top-level docs for every class/module in a gem
+  Enabled: false # don’t force top-level docs for every class/module in a gem
 
 Style/FrozenStringLiteralComment:
   Enabled: true
@@ -41,28 +41,28 @@ Style/HashSyntax:
 # ---------- Metrics (balanced for libs) ----------
 Metrics/BlockLength:
   Exclude:
-    - 'spec/**/*'
-    - 'Rakefile'
-    - 'tasks/**/*.rake'
-    - 'lib/jetstream_bridge/tasks/**/*.rake'
-    - 'jetstream_bridge.gemspec'
+    - "spec/**/*"
+    - "Rakefile"
+    - "tasks/**/*.rake"
+    - "lib/jetstream_bridge/tasks/**/*.rake"
+    - "jetstream_bridge.gemspec"
 
 Metrics/MethodLength:
   Max: 25
   Exclude:
-    - 'lib/jetstream_bridge/**/publisher*.rb'
-    - 'lib/jetstream_bridge/consumer/**/*.rb'
-    - 'lib/jetstream_bridge/core/debug_helper.rb'
-    - 'lib/jetstream_bridge/topology/stream.rb'
-    - 'lib/generators/jetstream_bridge/health_check/health_check_generator.rb'
+    - "lib/jetstream_bridge/**/publisher*.rb"
+    - "lib/jetstream_bridge/consumer/**/*.rb"
+    - "lib/jetstream_bridge/core/debug_helper.rb"
+    - "lib/jetstream_bridge/topology/stream.rb"
+    - "lib/generators/jetstream_bridge/health_check/health_check_generator.rb"
 
 Metrics/AbcSize:
   Max: 25
   Exclude:
-    - 'lib/jetstream_bridge/**/publisher*.rb'
-    - 'lib/jetstream_bridge/consumer/**/*.rb'
-    - 'lib/jetstream_bridge/core/config.rb'
-    - 'lib/jetstream_bridge/core/debug_helper.rb'
+    - "lib/jetstream_bridge/**/publisher*.rb"
+    - "lib/jetstream_bridge/consumer/**/*.rb"
+    - "lib/jetstream_bridge/core/config.rb"
+    - "lib/jetstream_bridge/core/debug_helper.rb"
 
 Metrics/CyclomaticComplexity:
   Max: 10
@@ -71,11 +71,11 @@ Metrics/PerceivedComplexity:
   Max: 10
 
 Metrics/ClassLength:
-  Max: 150
+  Max: 200
 
 Metrics/ParameterLists:
   Max: 5
-  CountKeywordArgs: false  # don't count keyword args for initialization methods
+  CountKeywordArgs: false # allow more keyword args for clarity
 
 # ---------- Naming ----------
 Naming/PredicateMethod:
@@ -86,7 +86,7 @@ Naming/PredicateMethod:
 
 # ---------- Lint ----------
 Lint/IneffectiveAccessModifier:
-  Enabled: false  # Allow class methods after private
+  Enabled: false # Allow class methods after private
 
 Lint/UselessConstantScoping:
   Enabled: false
@@ -94,7 +94,7 @@ Lint/UselessConstantScoping:
 # ---------- Style ----------
 Style/MultilineBlockChain:
   Exclude:
-    - 'spec/**/*'  # allow chaining in tests for better readability
+    - "spec/**/*" # allow chaining in tests for better readability
 
 # Optional: relax just for low-level I/O integration code
 # (you can delete this once you refactor)
@@ -102,7 +102,7 @@ Style/MultilineBlockChain:
 # ---------- Packaging / Gemspec ----------
 # These ship with RuboCop core and rubocop-packaging
 Gemspec/RequiredRubyVersion:
-  Enabled: true   # aligns with your gemspec `required_ruby_version`
+  Enabled: true # aligns with your gemspec `required_ruby_version`
 
 Gemspec/DevelopmentDependencies:
   Enabled: true

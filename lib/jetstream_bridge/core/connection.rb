@@ -81,7 +81,10 @@ module JetstreamBridge
     # Public API for checking connection status
     # @return [Boolean] true if NATS client is connected and JetStream is healthy
     def connected?
-      @nc&.connected? && @jts && jetstream_healthy?
+      return false unless @nc&.connected?
+      return false unless @jts
+
+      jetstream_healthy?
     end
 
     # Public API for getting connection timestamp

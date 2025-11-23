@@ -3,6 +3,16 @@
 module JetstreamBridge
   module Models
     # Value object representing a NATS subject
+    #
+    # @example Creating a subject
+    #   subject = Subject.source(env: "production", app_name: "api", dest: "worker")
+    #   subject.to_s # => "production.api.sync.worker"
+    #
+    # @example Parsing a subject string
+    #   subject = Subject.parse("production.api.sync.worker")
+    #   subject.env         # => "production"
+    #   subject.source_app  # => "api"
+    #   subject.dest_app    # => "worker"
     class Subject
       WILDCARD_SINGLE = '*'
       WILDCARD_MULTI = '>'
@@ -31,6 +41,43 @@ module JetstreamBridge
 
       def self.dlq(env:)
         new("#{env}.sync.dlq")
+      end
+
+      # Parse a subject string into a Subject object with metadata
+      #
+      # @param string [String] Subject string (e.g., "production.api.sync.worker")
+      # @return [Subject] Parsed subject
+      def self.parse(string)
+        new(string)
+      end
+
+      # Get environment from subject (first token)
+      #
+      # @return [String, nil] Environment
+      def env
+        @tokens[0]
+      end
+
+      # Get source application from subject
+      #
+      # @return [String, nil] Source application
+      def source_app
+        return nil if dlq?
+        @tokens[1]
+      end
+
+      # Get destination application from subject
+      #
+      # @return [String, nil] Destination application
+      def dest_app
+        @tokens[3]
+      end
+
+      # Check if this is a DLQ subject
+      #
+      # @return [Boolean] True if this is a DLQ subject
+      def dlq?
+        @tokens[1] == 'sync' && @tokens[2] == 'dlq'
       end
 
       # Check if this subject matches a pattern

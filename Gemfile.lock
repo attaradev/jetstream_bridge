@@ -47,6 +47,7 @@ GEM
     language_server-protocol (3.17.0.5)
     lint_roller (1.1.0)
     logger (1.7.0)
+    mini_portile2 (2.8.9)
     minitest (5.26.2)
     mutex_m (0.3.0)
     nats-pure (2.5.0)
@@ -110,6 +111,9 @@ GEM
       simplecov_json_formatter (~> 0.1)
     simplecov-html (0.13.2)
     simplecov_json_formatter (0.1.4)
+    sqlite3 (1.7.3)
+      mini_portile2 (~> 2.8.0)
+    sqlite3 (1.7.3-arm64-darwin)
     thor (1.4.0)
     timeout (0.4.4)
     tzinfo (2.0.6)
@@ -132,6 +136,8 @@ DEPENDENCIES
   rubocop-packaging (~> 0.5)
   rubocop-performance (~> 1.21)
   simplecov (>= 0.22)
+  simplecov_json_formatter
+  sqlite3 (~> 1.4)
 
 BUNDLED WITH
    2.6.3
