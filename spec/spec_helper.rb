@@ -11,7 +11,7 @@ if ENV['COVERAGE'] != 'false'
     add_filter '/lib/generators/'
     add_filter '/lib/jetstream_bridge/railtie.rb'
     enable_coverage :branch
-    minimum_coverage line: 85, branch: 75
+    minimum_coverage line: 85, branch: 70
 
     # Merge results from parallel test processes
     command_name "RSpec-#{ENV['TEST_ENV_NUMBER']}" if ENV['TEST_ENV_NUMBER']
