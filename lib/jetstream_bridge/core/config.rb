@@ -164,17 +164,21 @@ module JetstreamBridge
       "#{env}.#{destination_app}.sync.#{app_name}"
     end
 
-    # Get the dead letter queue subject for this environment.
+    # Get the dead letter queue subject for this application.
     #
-    # @return [String] DLQ subject in format "{env}.sync.dlq"
-    # @raise [InvalidSubjectError] If env contains NATS wildcards
-    # @raise [MissingConfigurationError] If env is empty
+    # Each app has its own DLQ for better isolation and monitoring.
+    #
+    # @return [String] DLQ subject in format "{env}.{app_name}.sync.dlq"
+    # @raise [InvalidSubjectError] If components contain NATS wildcards
+    # @raise [MissingConfigurationError] If required components are empty
     # @example
     #   config.env = "production"
-    #   config.dlq_subject  # => "production.sync.dlq"
+    #   config.app_name = "api"
+    #   config.dlq_subject  # => "production.api.sync.dlq"
     def dlq_subject
       validate_subject_component!(env, 'env')
-      "#{env}.sync.dlq"
+      validate_subject_component!(app_name, 'app_name')
+      "#{env}.#{app_name}.sync.dlq"
     end
 
     # Get the durable consumer name for this application.

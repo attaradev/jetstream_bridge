@@ -192,9 +192,9 @@ RSpec.describe JetstreamBridge::Models::Subject do
       expect(subject.source_app).to eq('orders')
     end
 
-    it 'returns nil for DLQ subjects' do
-      dlq_subject = described_class.dlq(env: 'production')
-      expect(dlq_subject.source_app).to be_nil
+    it 'returns app name for DLQ subjects' do
+      dlq_subject = described_class.dlq(env: 'production', app_name: 'api')
+      expect(dlq_subject.source_app).to eq('api')
     end
 
     it 'returns nil when second token does not exist' do
@@ -217,7 +217,7 @@ RSpec.describe JetstreamBridge::Models::Subject do
 
   describe '#dlq?' do
     it 'returns true for DLQ subjects' do
-      subject = described_class.dlq(env: 'production')
+      subject = described_class.dlq(env: 'production', app_name: 'api')
       expect(subject.dlq?).to be true
     end
 
@@ -243,15 +243,15 @@ RSpec.describe JetstreamBridge::Models::Subject do
   end
 
   describe '.dlq' do
-    it 'creates a DLQ subject' do
-      subject = described_class.dlq(env: 'production')
-      expect(subject.to_s).to eq('production.sync.dlq')
+    it 'creates a DLQ subject with app name' do
+      subject = described_class.dlq(env: 'production', app_name: 'api')
+      expect(subject.to_s).to eq('production.api.sync.dlq')
       expect(subject.dlq?).to be true
     end
 
     it 'creates DLQ subject for different environments' do
-      subject = described_class.dlq(env: 'staging')
-      expect(subject.to_s).to eq('staging.sync.dlq')
+      subject = described_class.dlq(env: 'staging', app_name: 'worker')
+      expect(subject.to_s).to eq('staging.worker.sync.dlq')
     end
   end
 

@@ -39,8 +39,8 @@ module JetstreamBridge
         new("#{env}.#{source}.sync.#{app_name}")
       end
 
-      def self.dlq(env:)
-        new("#{env}.sync.dlq")
+      def self.dlq(env:, app_name:)
+        new("#{env}.#{app_name}.sync.dlq")
       end
 
       # Parse a subject string into a Subject object with metadata
@@ -60,10 +60,11 @@ module JetstreamBridge
 
       # Get source application from subject
       #
+      # For regular subjects: {env}.{source_app}.sync.{dest}
+      # For DLQ subjects: {env}.{app_name}.sync.dlq
+      #
       # @return [String, nil] Source application
       def source_app
-        return nil if dlq?
-
         @tokens[1]
       end
 
@@ -76,9 +77,11 @@ module JetstreamBridge
 
       # Check if this is a DLQ subject
       #
+      # DLQ subjects follow the pattern: {env}.{app}.sync.dlq
+      #
       # @return [Boolean] True if this is a DLQ subject
       def dlq?
-        @tokens[1] == 'sync' && @tokens[2] == 'dlq'
+        @tokens.length == 4 && @tokens[2] == 'sync' && @tokens[3] == 'dlq'
       end
 
       # Check if this subject matches a pattern

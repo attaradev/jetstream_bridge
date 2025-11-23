@@ -116,10 +116,11 @@ RSpec.describe JetstreamBridge::Config do
   end
 
   describe '#dlq_subject' do
-    it 'creates DLQ subject with environment' do
+    it 'creates DLQ subject with environment and app name' do
       config.env = 'production'
+      config.app_name = 'api'
 
-      expect(config.dlq_subject).to eq('production.sync.dlq')
+      expect(config.dlq_subject).to eq('production.api.sync.dlq')
     end
 
     it 'validates env component' do
@@ -128,6 +129,15 @@ RSpec.describe JetstreamBridge::Config do
       expect do
         config.dlq_subject
       end.to raise_error(JetstreamBridge::InvalidSubjectError, /env.*wildcards/)
+    end
+
+    it 'validates app_name component' do
+      config.env = 'production'
+      config.app_name = 'app*'
+
+      expect do
+        config.dlq_subject
+      end.to raise_error(JetstreamBridge::InvalidSubjectError, /app_name.*wildcards/)
     end
   end
 

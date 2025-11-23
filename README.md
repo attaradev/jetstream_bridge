@@ -373,22 +373,24 @@ Based on your configuration, JetStream Bridge automatically creates:
 * **Subscribe Subject**: `{env}.{destination_app}.sync.{app_name}`
   * Example: `production.notification_service.sync.api_service`
 
-* **DLQ Subject**: `{env}.sync.dlq`
-  * Example: `production.sync.dlq`
+* **DLQ Subject**: `{env}.{app}.sync.dlq` (per-app DLQ for isolation)
+  * Example: `production.api_service.sync.dlq`
 
 ---
 
 ## 📡 Subject Conventions
 
-| Direction     | Subject Pattern           |
-|---------------|---------------------------|
-| **Publish**   | `{env}.{app}.sync.{dest}` |
-| **Subscribe** | `{env}.{dest}.sync.{app}` |
-| **DLQ**       | `{env}.sync.dlq`          |
+| Direction     | Subject Pattern              |
+|---------------|------------------------------|
+| **Publish**   | `{env}.{app}.sync.{dest}`    |
+| **Subscribe** | `{env}.{dest}.sync.{app}`    |
+| **DLQ**       | `{env}.{app}.sync.dlq`       |
 
 * `{app}`: `app_name`
 * `{dest}`: `destination_app`
 * `{env}`: `env`
+
+**Note**: Each application has its own DLQ (`{env}.{app}.sync.dlq`) for better isolation, monitoring, and debugging. This allows you to track failed messages per service.
 
 ---
 
@@ -1125,8 +1127,15 @@ services:
 
 ## 🧨 Dead-Letter Queue (DLQ)
 
-When enabled, the topology ensures the DLQ subject exists:
-**`{env}.sync.dlq`**
+When enabled, the topology ensures each app has its own DLQ subject:
+**`{env}.{app_name}.sync.dlq`**
+
+This per-app DLQ approach provides:
+
+* **Isolation**: Failed messages from different services don't mix
+* **Easier Monitoring**: Track DLQ metrics per service
+* **Simpler Debugging**: Identify which service is having issues
+* **Independent Processing**: Each team can manage their own DLQ consumer
 
 ### How DLQ Works
 
@@ -1217,8 +1226,9 @@ end
 ### Monitoring
 
 * **Consumer lag**: `nats consumer info <stream> <durable>`
-* **DLQ volume**: subscribe/metrics on `{env}.sync.dlq`
-* **Outbox backlog**: alert on `jetstream_outbox_events` with `status != 'sent'` and growing count
+* **DLQ volume**: Monitor your app's DLQ subject `{env}.{app_name}.sync.dlq`
+  * Example: `nats sub "production.api.sync.dlq" --count`
+* **Outbox backlog**: Alert on `jetstream_outbox_events` with `status != 'sent'` and growing count
 
 ### Scaling
 

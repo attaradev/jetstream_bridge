@@ -46,7 +46,7 @@ RSpec.describe JetstreamBridge::Topology do
           array_including(
             'development.test_app.sync.dest_app',
             'development.dest_app.sync.test_app',
-            'development.sync.dlq'
+            'development.test_app.sync.dlq'
           )
         )
         described_class.ensure!(mock_jts)
