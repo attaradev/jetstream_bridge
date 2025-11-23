@@ -95,7 +95,7 @@ module JetstreamBridge
       @connected_at = Time.now.utc
       @state = State::CONNECTED
       @jts
-    rescue StandardError => e
+    rescue StandardError
       @state = State::FAILED
       raise
     end

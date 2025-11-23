@@ -24,7 +24,7 @@ RSpec.describe JetstreamBridge::Connection, :allow_real_connection do
         nats_urls: nats_urls,
         logger: nil,
         connect_retry_attempts: 3,
-        connect_retry_delay: 2
+        connect_retry_delay: 0.01  # Fast retries in tests
       )
     )
     allow(NATS::IO::Client).to receive(:new).and_return(mock_nc)

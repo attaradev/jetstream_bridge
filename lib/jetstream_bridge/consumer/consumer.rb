@@ -101,8 +101,12 @@ module JetstreamBridge
       @batch_size    = Integer(batch_size || DEFAULT_BATCH_SIZE)
       @durable       = durable_name || JetstreamBridge.config.durable_name
       @idle_backoff  = IDLE_SLEEP_SECS
-      @running       = true
+      @reconnect_attempts = 0
+      @running = true
       @shutdown_requested = false
+      @start_time    = Time.now
+      @iterations    = 0
+      @last_health_check = Time.now
       # Use existing connection or establish one
       @jts = Connection.jetstream || Connection.connect!
       @middleware_chain = MiddlewareChain.new
@@ -193,6 +197,11 @@ module JetstreamBridge
       while @running
         processed = process_batch
         idle_sleep(processed)
+
+        @iterations += 1
+
+        # Periodic health checks every 10 minutes (600 seconds)
+        perform_health_check_if_due
       end
 
       # Drain in-flight messages before exiting
@@ -280,15 +289,32 @@ module JetstreamBridge
 
     def handle_js_error(error)
       if recoverable_consumer_error?(error)
+        # Increment reconnect attempts and calculate exponential backoff
+        @reconnect_attempts += 1
+        backoff_secs = calculate_reconnect_backoff(@reconnect_attempts)
+
         Logging.warn(
-          "Recovering subscription after error: #{error.class} #{error.message}",
+          "Recovering subscription after error (attempt #{@reconnect_attempts}): " \
+          "#{error.class} #{error.message}, waiting #{backoff_secs}s",
           tag: 'JetstreamBridge::Consumer'
         )
+
+        sleep(backoff_secs)
         ensure_subscription!
+
+        # Reset counter on successful reconnection
+        @reconnect_attempts = 0
       else
         Logging.error("Fetch failed (non-recoverable): #{error.class} #{error.message}", tag: 'JetstreamBridge::Consumer')
       end
       0
+    end
+
+    def calculate_reconnect_backoff(attempt)
+      # Exponential backoff: 0.1s, 0.2s, 0.4s, 0.8s, 1.6s, ... up to 30s max
+      base_delay = 0.1
+      max_delay = 30.0
+      [base_delay * (2**(attempt - 1)), max_delay].min
     end
 
     def recoverable_consumer_error?(error)
@@ -326,6 +352,63 @@ module JetstreamBridge
     rescue ArgumentError => e
       # Signal handlers may not be available in all environments (e.g., threads)
       Logging.debug("Could not set up signal handlers: #{e.message}", tag: 'JetstreamBridge::Consumer')
+    end
+
+    def perform_health_check_if_due
+      now = Time.now
+      time_since_check = now - @last_health_check
+
+      return unless time_since_check >= 600 # 10 minutes
+
+      @last_health_check = now
+      uptime = now - @start_time
+      memory_mb = memory_usage_mb
+
+      Logging.info(
+        "Consumer health: iterations=#{@iterations}, " \
+        "memory=#{memory_mb}MB, uptime=#{uptime.round}s",
+        tag: 'JetstreamBridge::Consumer'
+      )
+
+      # Warn if memory usage is high (over 1GB)
+      if memory_mb > 1000
+        Logging.warn(
+          "High memory usage detected: #{memory_mb}MB",
+          tag: 'JetstreamBridge::Consumer'
+        )
+      end
+
+      # Suggest GC if heap is growing significantly
+      suggest_gc_if_needed
+    rescue StandardError => e
+      Logging.debug(
+        "Health check failed: #{e.class} #{e.message}",
+        tag: 'JetstreamBridge::Consumer'
+      )
+    end
+
+    def memory_usage_mb
+      # Get memory usage from OS (works on Linux/macOS)
+      rss_kb = `ps -o rss= -p #{Process.pid}`.to_i
+      rss_kb / 1024.0
+    rescue StandardError
+      0.0
+    end
+
+    def suggest_gc_if_needed
+      # Suggest GC if heap has many live slots (Ruby-specific optimization)
+      return unless defined?(GC) && GC.respond_to?(:stat)
+
+      stats = GC.stat
+      heap_live_slots = stats[:heap_live_slots] || stats['heap_live_slots'] || 0
+
+      # Suggest GC if we have over 100k live objects
+      GC.start if heap_live_slots > 100_000
+    rescue StandardError => e
+      Logging.debug(
+        "GC check failed: #{e.class} #{e.message}",
+        tag: 'JetstreamBridge::Consumer'
+      )
     end
 
     def drain_inflight_messages

@@ -42,5 +42,68 @@ RSpec.describe JetstreamBridge::SubjectMatcher do
       expect(described_class.overlap?('a.>', 'a')).to be true
       expect(described_class.overlap?('a.*', 'a')).to be false
     end
+
+    context 'with tail wildcards' do
+      it 'detects overlap when first pattern has >' do
+        expect(described_class.overlap?('a.b.>', 'a.b.c')).to be true
+        expect(described_class.overlap?('a.>', 'a.b.c.d')).to be true
+      end
+
+      it 'detects overlap when second pattern has >' do
+        expect(described_class.overlap?('a.b.c', 'a.b.>')).to be true
+        expect(described_class.overlap?('a.b.c.d', 'a.>')).to be true
+      end
+
+      it 'detects overlap with > in both patterns' do
+        expect(described_class.overlap?('a.>', 'a.>')).to be true
+        expect(described_class.overlap?('a.b.>', 'a.c.>')).to be false
+      end
+
+      it 'handles > at different positions' do
+        expect(described_class.overlap?('a.>', 'a.b.>')).to be true
+        expect(described_class.overlap?('a.b.>', 'a.>')).to be true
+      end
+    end
+
+    context 'with * wildcards' do
+      it 'detects overlap with * in both patterns' do
+        expect(described_class.overlap?('a.*.c', 'a.*.c')).to be true
+        expect(described_class.overlap?('a.*.c', 'a.b.*')).to be true
+        expect(described_class.overlap?('*.b.c', 'a.*.c')).to be true
+      end
+
+      it 'handles multiple * wildcards' do
+        expect(described_class.overlap?('*.*.c', 'a.*.c')).to be true
+        expect(described_class.overlap?('a.*.*', 'a.b.*')).to be true
+      end
+    end
+
+    context 'edge cases' do
+      it 'handles empty tail arrays' do
+        expect(described_class.overlap?('a', 'b')).to be false
+        expect(described_class.overlap?('a', 'a')).to be true
+      end
+
+      it 'handles patterns longer than subject' do
+        expect(described_class.overlap?('a.b.c.d', 'a.b')).to be false
+        expect(described_class.overlap?('a.b', 'a.b.c.d')).to be false
+      end
+
+      it 'handles exact matches' do
+        expect(described_class.overlap?('a.b.c', 'a.b.c')).to be true
+      end
+    end
+
+    context 'with mixed wildcards' do
+      it 'detects overlap between * and >' do
+        expect(described_class.overlap?('a.*', 'a.>')).to be true
+        expect(described_class.overlap?('a.>', 'a.*')).to be true
+      end
+
+      it 'detects overlap with complex patterns' do
+        expect(described_class.overlap?('a.*.c.>', 'a.b.*')).to be true
+        expect(described_class.overlap?('*.b.>', 'a.*.c')).to be true
+      end
+    end
   end
 end

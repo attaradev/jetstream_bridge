@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Enhanced Subject Validation** - Strengthened subject component validation for security
+  - Validates against control characters, null bytes, tabs, and excessive spaces
+  - Enforces maximum subject component length of 255 characters
+  - Prevents injection attacks via malformed subject components
+  - Provides clear error messages with invalid character details
+
+- **Health Check Rate Limiting** - Prevents abuse of health check endpoint
+  - Limits uncached health checks to once every 5 seconds per process
+  - Cached health checks (30s TTL) bypass rate limit
+  - Returns helpful error message with wait time when rate limit exceeded
+  - Thread-safe implementation with mutex synchronization
+
+- **Consumer Reconnection Backoff** - Exponential backoff for consumer recovery
+  - Starts at 0.1s and doubles with each retry up to 30s maximum
+  - Resets counter on successful reconnection
+  - Logs detailed reconnection attempts with backoff timing
+  - Prevents excessive NATS API calls during connection issues
+
+- **OverlapGuard Performance Cache** - 60-second TTL cache for stream metadata
+  - Reduces N+1 API calls when checking stream overlaps
+  - Thread-safe cache implementation with mutex
+  - Falls back to cached data on fetch errors
+  - Includes `clear_cache!` method for testing
+
+- **Consumer Memory Monitoring** - Health checks for long-running consumers
+  - Logs health status every 10 minutes (iterations, memory, uptime)
+  - Warns when memory usage exceeds 1GB
+  - Suggests garbage collection when heap grows large (>100k live objects)
+  - Cross-platform memory monitoring (Linux/macOS)
+
+- **Production Deployment Guide** - Comprehensive documentation in docs/PRODUCTION.md
+  - Database connection pool sizing guidelines
+  - NATS HA configuration examples
+  - Consumer tuning recommendations
+  - Monitoring and alerting best practices
+  - Kubernetes deployment examples with health probes
+  - Security hardening recommendations
+  - Performance optimization techniques
+
+### Changed
+
+- **Health Check API** - Added optional `skip_cache` parameter
+  - `JetstreamBridge.health_check(skip_cache: true)` forces fresh check
+  - Default behavior unchanged (uses 30s cache)
+  - Rate limited when `skip_cache` is true
+
+### Fixed
+
+- **Test Suite** - Fixed test failures in OverlapGuard specs
+  - Added cache clearing in test setup to prevent interference
+  - All 1220 tests passing with 93.32% line coverage
+
 ## [4.0.4] - 2025-11-23
 
 ### Fixed

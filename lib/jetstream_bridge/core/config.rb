@@ -233,11 +233,20 @@ module JetstreamBridge
     private
 
     def validate_subject_component!(value, name)
-      str = value.to_s
-      if str.match?(/[.*>]/)
-        raise InvalidSubjectError, "#{name} cannot contain NATS wildcards (., *, >): #{value.inspect}"
+      str = value.to_s.strip
+      raise MissingConfigurationError, "#{name} cannot be empty" if str.empty?
+
+      # NATS subject tokens must not contain wildcards, spaces, or control characters
+      # Valid characters: alphanumeric, hyphen, underscore
+      if str.match?(/[.*>\s\x00-\x1F\x7F]/)
+        raise InvalidSubjectError,
+              "#{name} contains invalid NATS subject characters (wildcards, spaces, or control chars): #{value.inspect}"
       end
-      raise MissingConfigurationError, "#{name} cannot be empty" if str.strip.empty?
+
+      # NATS has a practical subject length limit
+      return unless str.length > 255
+
+      raise InvalidSubjectError, "#{name} exceeds maximum length (255 characters): #{str.length}"
     end
   end
 end

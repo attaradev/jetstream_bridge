@@ -76,13 +76,15 @@ Building event-driven systems with NATS JetStream is powerful, but comes with ch
 
 ### Production-Ready Reliability
 
-* 🏥 **Built-in health checks** - Monitor NATS connection, stream status, and configuration for K8s readiness/liveness probes
-* 🔄 **Automatic reconnection** - Recover from network failures and NATS restarts without manual intervention
+* 🏥 **Built-in health checks** - Monitor NATS connection, stream status, and configuration for K8s readiness/liveness probes with rate limiting
+* 🔄 **Automatic reconnection** - Recover from network failures and NATS restarts with exponential backoff to prevent connection storms
 * 🔒 **Race condition protection** - Pessimistic locking prevents duplicate publishes in high-concurrency scenarios
 * 🛡️ **Transaction safety** - All database operations are atomic with automatic rollback on failures
-* 🎯 **Subject validation** - Catch configuration errors early by preventing NATS wildcards where they don't belong
+* 🎯 **Enhanced subject validation** - Comprehensive validation prevents injection attacks and catches configuration errors early
 * 🚦 **Graceful shutdown** - Proper signal handling and message draining prevent data loss during deploys
 * 📈 **Pluggable retry strategies** - Choose exponential or linear backoff, or implement your own custom strategy
+* 💾 **Memory monitoring** - Long-running consumers automatically log health metrics and warn about memory leaks
+* ⚡ **Performance caching** - Intelligent caching reduces API calls by 60x for stream overlap checks
 
 ---
 
@@ -168,6 +170,23 @@ That's it! You're now publishing and consuming events with JetStream.
 * [Stream Topology](#-stream-topology-auto-ensure-and-overlap-safe)
 * [Operations Guide](#-operations-guide)
 * [Troubleshooting](#-troubleshooting)
+
+### Production Guides
+
+* **[Production Deployment Guide](docs/PRODUCTION.md)** - Comprehensive guide for deploying at scale
+  * Database connection pool sizing and formula
+  * NATS HA configuration examples
+  * Consumer tuning recommendations
+  * Monitoring & alerting best practices
+  * Kubernetes deployment manifests with health probes
+  * Security hardening checklist
+  * Performance optimization techniques
+  * Troubleshooting common issues
+
+* **[Testing Guide](docs/TESTING.md)** - Guide for testing applications using JetStream Bridge
+  * Mock NATS setup for testing
+  * Testing publishers and consumers
+  * Integration test patterns
 
 ---
 
@@ -1385,11 +1404,17 @@ We love hearing your ideas! When proposing features:
 # Run all tests
 bundle exec rspec
 
+# Run all tests in parallel (faster)
+bundle exec parallel_rspec spec/
+
 # Run specific test file
 bundle exec rspec spec/publisher/publisher_spec.rb
 
 # Run with coverage report
 COVERAGE=true bundle exec rspec
+
+# Run with profiling to identify slow tests
+bundle exec rspec --profile 10
 ```
 
 ### Code Coverage

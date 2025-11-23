@@ -186,6 +186,8 @@ RSpec.describe JetstreamBridge::OverlapGuard do
     let(:info_two) { double('StreamInfo', config: double(subjects: ['two.>'])) }
 
     before do
+      # Clear cache before each test to avoid interference
+      described_class.clear_cache!
       allow(described_class).to receive(:list_stream_names).and_return(stream_names)
       allow(mock_jts).to receive(:stream_info).with('stream_one').and_return(info_one)
       allow(mock_jts).to receive(:stream_info).with('stream_two').and_return(info_two)

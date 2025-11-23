@@ -378,4 +378,243 @@ RSpec.describe JetstreamBridge::InboxEvent do
       expect(result.to_a).to be_empty
     end
   end
+
+  describe '.by_stream' do
+    before do
+      described_class.create!(event_id: 'stream-a-1', subject: 'test', stream: 'stream-a')
+      described_class.create!(event_id: 'stream-a-2', subject: 'test', stream: 'stream-a')
+      described_class.create!(event_id: 'stream-b-1', subject: 'test', stream: 'stream-b')
+    end
+
+    it 'returns events from specified stream' do
+      events = described_class.by_stream('stream-a')
+      expect(events.count).to eq(2)
+      expect(events.pluck(:event_id)).to match_array(['stream-a-1', 'stream-a-2'])
+    end
+  end
+
+  describe '.recent' do
+    before do
+      # Create events with different timestamps
+      described_class.create!(event_id: 'old', subject: 'test', received_at: 2.hours.ago)
+      described_class.create!(event_id: 'recent', subject: 'test', received_at: 1.hour.ago)
+      described_class.create!(event_id: 'newest', subject: 'test', received_at: Time.now.utc)
+    end
+
+    it 'returns events ordered by received_at desc' do
+      events = described_class.recent(10)
+      expect(events.pluck(:event_id)).to eq(['newest', 'recent', 'old'])
+    end
+
+    it 'limits results to specified count' do
+      events = described_class.recent(2)
+      expect(events.count).to eq(2)
+      expect(events.pluck(:event_id)).to eq(['newest', 'recent'])
+    end
+
+    it 'defaults to 100 limit' do
+      expect(described_class.recent.limit_value).to eq(100)
+    end
+  end
+
+  describe '.unprocessed' do
+    before do
+      described_class.create!(event_id: 'pending', subject: 'test', status: 'pending')
+      described_class.create!(event_id: 'processing', subject: 'test', status: 'processing')
+      described_class.create!(event_id: 'processed', subject: 'test', status: 'processed')
+      described_class.create!(event_id: 'failed', subject: 'test', status: 'failed')
+    end
+
+    it 'returns events that are not processed' do
+      events = described_class.unprocessed
+      expect(events.count).to eq(3)
+      expect(events.pluck(:event_id)).to match_array(['pending', 'processing', 'failed'])
+    end
+
+    it 'excludes processed events' do
+      events = described_class.unprocessed
+      expect(events.pluck(:status)).not_to include('processed')
+    end
+  end
+
+  describe '.cleanup_processed' do
+    before do
+      # Old processed events
+      described_class.create!(event_id: 'old-processed-1', subject: 'test',
+                              status: 'processed', processed_at: 35.days.ago)
+      described_class.create!(event_id: 'old-processed-2', subject: 'test',
+                              status: 'processed', processed_at: 40.days.ago)
+      # Recent processed event
+      described_class.create!(event_id: 'recent-processed', subject: 'test',
+                              status: 'processed', processed_at: 1.day.ago)
+      # Unprocessed event
+      described_class.create!(event_id: 'unprocessed', subject: 'test', status: 'pending')
+    end
+
+    it 'deletes processed events older than specified duration' do
+      count = described_class.cleanup_processed(older_than: 30.days)
+      expect(count).to eq(2)
+      expect(described_class.pluck(:event_id)).not_to include('old-processed-1', 'old-processed-2')
+    end
+
+    it 'keeps recent processed events' do
+      described_class.cleanup_processed(older_than: 30.days)
+      expect(described_class.find_by(event_id: 'recent-processed')).to be_present
+    end
+
+    it 'keeps unprocessed events' do
+      described_class.cleanup_processed(older_than: 30.days)
+      expect(described_class.find_by(event_id: 'unprocessed')).to be_present
+    end
+
+    context 'when status column does not exist' do
+      it 'returns 0' do
+        allow(described_class).to receive(:has_column?).with(:status).and_return(false)
+        expect(described_class.cleanup_processed).to eq(0)
+      end
+    end
+
+    context 'when processed_at column does not exist' do
+      it 'returns 0' do
+        allow(described_class).to receive(:has_column?).with(:status).and_return(true)
+        allow(described_class).to receive(:has_column?).with(:processed_at).and_return(false)
+        expect(described_class.cleanup_processed).to eq(0)
+      end
+    end
+  end
+
+  describe '.processing_stats' do
+    before do
+      described_class.create!(event_id: 'pending-1', subject: 'test', status: 'pending')
+      described_class.create!(event_id: 'pending-2', subject: 'test', status: 'pending')
+      described_class.create!(event_id: 'processed-1', subject: 'test', status: 'processed')
+      described_class.create!(event_id: 'processed-2', subject: 'test', status: 'processed')
+      described_class.create!(event_id: 'processed-3', subject: 'test', status: 'processed')
+      described_class.create!(event_id: 'failed-1', subject: 'test', status: 'failed')
+    end
+
+    it 'returns aggregated statistics' do
+      stats = described_class.processing_stats
+      expect(stats[:total]).to eq(6)
+      expect(stats[:processed]).to eq(3)
+      expect(stats[:failed]).to eq(1)
+      expect(stats[:pending]).to eq(2)
+    end
+
+    it 'uses single query for efficiency' do
+      expect(described_class).to receive(:group).with(:status).and_call_original
+      described_class.processing_stats
+    end
+
+    context 'when status column does not exist' do
+      it 'returns empty hash' do
+        allow(described_class).to receive(:has_column?).with(:status).and_return(false)
+        expect(described_class.processing_stats).to eq({})
+      end
+    end
+  end
+
+  describe '#mark_processed!' do
+    let(:event) { described_class.create!(event_id: 'mark-test', subject: 'test', status: 'pending') }
+
+    it 'sets status to processed' do
+      event.mark_processed!
+      expect(event.reload.status).to eq('processed')
+    end
+
+    it 'sets processed_at timestamp' do
+      event.mark_processed!
+      expect(event.reload.processed_at).to be_within(1.second).of(Time.now.utc)
+    end
+
+    it 'persists changes' do
+      event.mark_processed!
+      expect(event.reload.processed?).to be true
+    end
+  end
+
+  describe '#mark_failed!' do
+    let(:event) { described_class.create!(event_id: 'fail-test', subject: 'test', status: 'pending') }
+
+    it 'sets status to failed' do
+      event.mark_failed!('Error message')
+      expect(event.reload.status).to eq('failed')
+    end
+
+    context 'when last_error column exists' do
+      before do
+        # Add last_error column dynamically
+        unless ActiveRecord::Base.connection.column_exists?(:jetstream_inbox_events, :last_error)
+          ActiveRecord::Base.connection.add_column(:jetstream_inbox_events, :last_error, :text)
+          described_class.reset_column_information
+        end
+      end
+
+      after do
+        # Clean up
+        if ActiveRecord::Base.connection.column_exists?(:jetstream_inbox_events, :last_error)
+          ActiveRecord::Base.connection.remove_column(:jetstream_inbox_events, :last_error)
+          described_class.reset_column_information
+        end
+      end
+
+      it 'sets last_error message' do
+        # Create a fresh event after column is added
+        event = described_class.create!(event_id: 'fail-with-error', subject: 'test', status: 'pending')
+        event.mark_failed!('Something went wrong')
+        expect(event.reload.last_error).to eq('Something went wrong')
+      end
+    end
+
+    it 'persists changes' do
+      event.mark_failed!('Error')
+      expect(event.reload.status).to eq('failed')
+    end
+  end
+
+  describe '#payload_hash' do
+    context 'when payload is a String' do
+      it 'parses valid JSON' do
+        event = described_class.create!(
+          event_id: 'json-test',
+          subject: 'test',
+          payload: '{"user_id":123,"name":"Test"}'
+        )
+        expect(event.payload_hash).to eq('user_id' => 123, 'name' => 'Test')
+      end
+
+      it 'returns empty hash on JSON parse error' do
+        event = described_class.create!(
+          event_id: 'invalid-json',
+          subject: 'test',
+          payload: 'invalid json {{'
+        )
+        expect(event.payload_hash).to eq({})
+      end
+    end
+
+    context 'when payload is a Hash' do
+      it 'returns the hash' do
+        event = described_class.create!(
+          event_id: 'hash-test',
+          subject: 'test',
+          payload: { 'user_id' => 456 }.to_json
+        )
+        # Reload to get stored value
+        event.reload
+        # Override to simulate Hash payload
+        allow(event).to receive(:[]).with(:payload).and_return({ 'user_id' => 456 })
+        expect(event.payload_hash).to eq('user_id' => 456)
+      end
+    end
+
+    context 'when payload responds to as_json' do
+      it 'converts to JSON-compatible format' do
+        event = described_class.create!(event_id: 'obj-test', subject: 'test')
+        obj = double('CustomObject', as_json: { 'custom' => 'value' })
+        allow(event).to receive(:[]).with(:payload).and_return(obj)
+        expect(event.payload_hash).to eq('custom' => 'value')
+      end
+    end
+  end
 end

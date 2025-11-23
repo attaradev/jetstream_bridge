@@ -201,13 +201,22 @@ module JetstreamBridge
     # - Verifies stream exists and is accessible (active: queries stream info)
     # - Tests NATS round-trip communication (active: RTT measurement)
     #
+    # Rate Limiting: To prevent abuse, uncached health checks are limited to once every 5 seconds.
+    # Cached results (within 30s TTL) bypass this limit via Connection.instance.connected?.
+    #
+    # @param skip_cache [Boolean] Force fresh health check, bypass connection cache (rate limited)
     # @return [Hash] Health status including NATS connection, stream, and version
-    def health_check
+    # @raise [HealthCheckFailedError] If skip_cache requested too frequently
+    def health_check(skip_cache: false)
+      # Rate limit uncached requests to prevent abuse (max 1 per 5 seconds)
+      enforce_health_check_rate_limit! if skip_cache
+
       start_time = Time.now
       conn_instance = Connection.instance
 
       # Active check: calls @jts.account_info internally
-      connected = conn_instance.connected?
+      # Pass skip_cache to force fresh check if requested
+      connected = conn_instance.connected?(skip_cache: skip_cache)
       connected_at = conn_instance.connected_at
       connection_state = conn_instance.state
       last_error = conn_instance.last_reconnect_error
@@ -386,6 +395,23 @@ module JetstreamBridge
     end
 
     private
+
+    # Enforce rate limit on uncached health checks to prevent abuse
+    # Max 1 uncached request per 5 seconds per process
+    def enforce_health_check_rate_limit!
+      @health_check_mutex ||= Mutex.new
+      @health_check_mutex.synchronize do
+        now = Time.now
+        if @last_uncached_health_check
+          time_since = now - @last_uncached_health_check
+          if time_since < 5
+            raise HealthCheckFailedError,
+                  "Health check rate limit exceeded. Please wait #{(5 - time_since).ceil} second(s)"
+          end
+        end
+        @last_uncached_health_check = now
+      end
+    end
 
     def fetch_stream_info
       jts = Connection.jetstream

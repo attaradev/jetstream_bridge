@@ -1,0 +1,8 @@
+# Parallel Tests Configuration
+# This file is used by parallel_tests gem to configure parallel test execution
+
+# Number of CPU cores to use (automatically detected if not specified)
+# You can override with: parallel_rspec -n 4
+
+# Files to ignore for parallel execution
+# Add any problematic files that cause race conditions

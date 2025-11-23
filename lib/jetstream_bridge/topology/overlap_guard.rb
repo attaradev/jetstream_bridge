@@ -7,6 +7,12 @@ require_relative '../core/logging'
 module JetstreamBridge
   # Checks for overlapping subjects.
   class OverlapGuard
+    # Cache for stream metadata to reduce N+1 API calls
+    @cache_mutex = Mutex.new
+    @stream_cache = {}
+    @cache_expires_at = Time.at(0)
+    CACHE_TTL = 60 # seconds
+
     class << self
       # Raise if any desired subjects conflict with other streams.
       def check!(jts, target_name, new_subjects)
@@ -46,6 +52,46 @@ module JetstreamBridge
       end
 
       def list_streams_with_subjects(jts)
+        # Use cached data if available and fresh
+        @cache_mutex.synchronize do
+          now = Time.now
+          if now < @cache_expires_at && @stream_cache.key?(:data)
+            Logging.debug(
+              'Using cached stream metadata',
+              tag: 'JetstreamBridge::OverlapGuard'
+            )
+            return @stream_cache[:data]
+          end
+
+          # Fetch fresh data
+          Logging.debug(
+            'Fetching fresh stream metadata from NATS',
+            tag: 'JetstreamBridge::OverlapGuard'
+          )
+          result = fetch_streams_uncached(jts)
+          @stream_cache = { data: result }
+          @cache_expires_at = now + CACHE_TTL
+          result
+        end
+      rescue StandardError => e
+        Logging.warn(
+          "Failed to fetch stream metadata: #{e.class} #{e.message}",
+          tag: 'JetstreamBridge::OverlapGuard'
+        )
+        # Return cached data on error if available, otherwise empty array
+        @cache_mutex.synchronize { @stream_cache[:data] || [] }
+      end
+
+      # Clear the cache (useful for testing)
+      def clear_cache!
+        @cache_mutex.synchronize do
+          @stream_cache = {}
+          @cache_expires_at = Time.at(0)
+        end
+      end
+
+      # Fetch stream metadata without caching (for internal use)
+      def fetch_streams_uncached(jts)
         list_stream_names(jts).map do |name|
           info = jts.stream_info(name)
           # Handle both object-style and hash-style access for compatibility

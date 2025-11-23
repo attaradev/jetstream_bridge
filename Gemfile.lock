@@ -61,6 +61,8 @@ GEM
       ostruct (>= 0.2)
     ostruct (0.6.3)
     parallel (1.27.0)
+    parallel_tests (4.10.1)
+      parallel
     parser (3.3.9.0)
       ast (~> 2.4.1)
       racc
@@ -131,6 +133,7 @@ PLATFORMS
 DEPENDENCIES
   bundler-audit (>= 0.9.1)
   jetstream_bridge!
+  parallel_tests (~> 4.0)
   rake (>= 13.0)
   rspec (>= 3.12)
   rubocop (~> 1.66)

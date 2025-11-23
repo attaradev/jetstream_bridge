@@ -5,6 +5,7 @@ gemspec
 
 group :development, :test do
   gem 'bundler-audit', '>= 0.9.1', require: false
+  gem 'parallel_tests', '~> 4.0', require: false
   gem 'rake', '>= 13.0'
   gem 'rspec', '>= 3.12'
   gem 'rubocop', '~> 1.66', require: false

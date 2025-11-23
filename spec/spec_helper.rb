@@ -3,18 +3,25 @@
 require 'simplecov'
 require 'simplecov_json_formatter'
 
-# Start SimpleCov
-SimpleCov.start do
-  add_filter '/spec/'
-  add_filter '/vendor/'
-  add_filter '/lib/generators/'
-  add_filter '/lib/jetstream_bridge/railtie.rb'
-  enable_coverage :branch
-  minimum_coverage line: 80, branch: 70
+# Start SimpleCov with parallel test support
+if ENV['COVERAGE'] != 'false'
+  SimpleCov.start do
+    add_filter '/spec/'
+    add_filter '/vendor/'
+    add_filter '/lib/generators/'
+    add_filter '/lib/jetstream_bridge/railtie.rb'
+    enable_coverage :branch
+    minimum_coverage line: 85, branch: 75
 
-  # Use both JSON and HTML formatters
-  formatter SimpleCov::Formatter::MultiFormatter.new([SimpleCov::Formatter::HTMLFormatter,
-                                                      SimpleCov::Formatter::JSONFormatter])
+    # Merge results from parallel test processes
+    if ENV['TEST_ENV_NUMBER']
+      command_name "RSpec-#{ENV['TEST_ENV_NUMBER']}"
+    end
+
+    # Use both JSON and HTML formatters
+    formatter SimpleCov::Formatter::MultiFormatter.new([SimpleCov::Formatter::HTMLFormatter,
+                                                        SimpleCov::Formatter::JSONFormatter])
+  end
 end
 
 # Load the gem
@@ -30,6 +37,13 @@ RSpec.configure do |config|
   config.expect_with :rspec do |c|
     c.syntax = :expect
   end
+
+  # Performance optimizations
+  config.order = :random
+  config.profile_examples = 10
+
+  # Run specs in random order to surface order dependencies
+  Kernel.srand config.seed
 
   # Prevent actual NATS connections in tests by default
   # Individual specs should explicitly allow real connections if needed

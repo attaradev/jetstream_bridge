@@ -331,6 +331,38 @@ RSpec.describe JetstreamBridge::Config do
         config.send(:validate_subject_component!, '   ', 'test_field')
       end.to raise_error(JetstreamBridge::MissingConfigurationError, /test_field.*empty/)
     end
+
+    it 'rejects components with spaces' do
+      expect do
+        config.send(:validate_subject_component!, 'prod test', 'test_field')
+      end.to raise_error(JetstreamBridge::InvalidSubjectError, /test_field.*invalid/)
+    end
+
+    it 'rejects components with control characters' do
+      expect do
+        config.send(:validate_subject_component!, "app\x01test", 'test_field')
+      end.to raise_error(JetstreamBridge::InvalidSubjectError, /test_field.*invalid/)
+    end
+
+    it 'rejects components with tab characters' do
+      expect do
+        config.send(:validate_subject_component!, "app\ttest", 'test_field')
+      end.to raise_error(JetstreamBridge::InvalidSubjectError, /test_field.*invalid/)
+    end
+
+    it 'rejects components exceeding 255 characters' do
+      long_string = 'a' * 256
+      expect do
+        config.send(:validate_subject_component!, long_string, 'test_field')
+      end.to raise_error(JetstreamBridge::InvalidSubjectError, /test_field.*maximum length/)
+    end
+
+    it 'accepts components at exactly 255 characters' do
+      max_string = 'a' * 255
+      expect do
+        config.send(:validate_subject_component!, max_string, 'test_field')
+      end.not_to raise_error
+    end
   end
 
   describe 'model configuration' do
