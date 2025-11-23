@@ -15,7 +15,7 @@ RSpec.describe JetstreamBridge::Connection do
 
   before do
     allow(JetstreamBridge).to receive(:config).and_return(
-      double(nats_urls: nats_urls)
+      double(nats_urls: nats_urls, logger: nil)
     )
     allow(NATS::IO::Client).to receive(:new).and_return(mock_nc)
     allow(mock_nc).to receive(:on_reconnect)
@@ -24,9 +24,12 @@ RSpec.describe JetstreamBridge::Connection do
     allow(mock_nc).to receive(:connect).and_return(nil)
     allow(mock_nc).to receive(:jetstream).and_return(mock_jts)
     allow(mock_nc).to receive(:connected?).and_return(true)
-    allow(mock_jts).to receive(:account_info).and_return(double(messages: 0))
+    allow(mock_jts).to receive(:account_info).and_return(
+      double(messages: 0, streams: 1, consumers: 2, memory: 1024, storage: 2048)
+    )
     allow(mock_jts).to receive(:nc).and_return(mock_nc)
     allow(JetstreamBridge::Topology).to receive(:ensure!).and_return(true)
+    allow(JetstreamBridge::Logging).to receive(:debug)
     allow(JetstreamBridge::Logging).to receive(:info)
     allow(JetstreamBridge::Logging).to receive(:warn)
     allow(JetstreamBridge::Logging).to receive(:error)
@@ -166,6 +169,89 @@ RSpec.describe JetstreamBridge::Connection do
 
       it 'raises error' do
         expect { instance.connect! }.to raise_error('No NATS URLs configured')
+      end
+    end
+
+    context 'with invalid NATS URL format' do
+      let(:nats_urls) { 'not-a-valid-url' }
+
+      it 'raises ConnectionError with helpful message' do
+        expect { instance.connect! }.to raise_error(
+          JetstreamBridge::ConnectionError,
+          /Invalid NATS URL format/
+        )
+      end
+    end
+
+    context 'with invalid NATS URL scheme' do
+      let(:nats_urls) { 'http://localhost:4222' }
+
+      it 'raises ConnectionError' do
+        expect { instance.connect! }.to raise_error(
+          JetstreamBridge::ConnectionError,
+          /Invalid NATS URL scheme 'http'/
+        )
+      end
+    end
+
+    context 'with missing host in URL' do
+      let(:nats_urls) { 'nats://:4222' }
+
+      it 'raises ConnectionError' do
+        expect { instance.connect! }.to raise_error(
+          JetstreamBridge::ConnectionError,
+          /missing host/
+        )
+      end
+    end
+
+    context 'with invalid port number' do
+      let(:nats_urls) { 'nats://localhost:99999' }
+
+      it 'raises ConnectionError' do
+        expect { instance.connect! }.to raise_error(
+          JetstreamBridge::ConnectionError,
+          /port must be 1-65535/
+        )
+      end
+    end
+
+    context 'when connection fails' do
+      before do
+        allow(mock_nc).to receive(:connected?).and_return(false)
+      end
+
+      it 'raises ConnectionError' do
+        expect { instance.connect! }.to raise_error(
+          JetstreamBridge::ConnectionError,
+          /Failed to establish connection/
+        )
+      end
+    end
+
+    context 'when JetStream is not enabled' do
+      before do
+        allow(mock_jts).to receive(:account_info).and_raise(NATS::IO::NoRespondersError)
+      end
+
+      it 'raises ConnectionError with helpful message' do
+        expect { instance.connect! }.to raise_error(
+          JetstreamBridge::ConnectionError,
+          /JetStream not enabled.*-js flag/
+        )
+      end
+    end
+
+    context 'when JetStream verification fails' do
+      before do
+        allow(mock_jts).to receive(:account_info).and_raise(StandardError, 'Connection timeout')
+      end
+
+      it 'raises ConnectionError' do
+        expect { instance.connect! }.to raise_error(
+          JetstreamBridge::ConnectionError,
+          /JetStream verification failed.*Connection timeout/
+        )
       end
     end
 
@@ -379,7 +465,7 @@ RSpec.describe JetstreamBridge::Connection do
 
       it 'sanitizes credentials in logs' do
         instance.connect!
-        expect(JetstreamBridge::Logging).to have_received(:sanitize_url)
+        expect(JetstreamBridge::Logging).to have_received(:sanitize_url).at_least(:once)
       end
     end
   end

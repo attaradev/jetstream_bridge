@@ -15,7 +15,6 @@ module JetstreamBridge
 
       class << self
         # Safe column presence check that never boots a connection during class load.
-        # rubocop:disable Naming/PredicatePrefix
         def has_column?(name)
           return false unless ar_connected?
 
@@ -23,7 +22,6 @@ module JetstreamBridge
         rescue ActiveRecord::ConnectionNotEstablished, ActiveRecord::NoDatabaseError
           false
         end
-        # rubocop:enable Naming/PredicatePrefix
 
         def ar_connected?
           # Avoid creating a connection; rescue if pool isn't set yet.

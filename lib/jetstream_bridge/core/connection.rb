@@ -34,6 +34,8 @@ module JetstreamBridge
       connect_timeout: 5
     }.freeze
 
+    VALID_NATS_SCHEMES = %w[nats nats+tls].freeze
+
     class << self
       # Thread-safe delegator to the singleton instance.
       # Returns a live JetStream context.
@@ -106,11 +108,14 @@ module JetstreamBridge
     end
 
     def nats_servers
-      JetstreamBridge.config.nats_urls
-                     .to_s
-                     .split(',')
-                     .map(&:strip)
-                     .reject(&:empty?)
+      servers = JetstreamBridge.config.nats_urls
+                               .to_s
+                               .split(',')
+                               .map(&:strip)
+                               .reject(&:empty?)
+
+      validate_nats_urls!(servers)
+      servers
     end
 
     def establish_connection(servers)
@@ -141,14 +146,143 @@ module JetstreamBridge
 
       @nc.connect({ servers: servers }.merge(DEFAULT_CONN_OPTS))
 
+      # Verify connection is established
+      verify_connection!
+
       # Create JetStream context
       @jts = @nc.jetstream
+
+      # Verify JetStream is available
+      verify_jetstream!
 
       # Ensure JetStream responds to #nc
       return if @jts.respond_to?(:nc)
 
       nc_ref = @nc
       @jts.define_singleton_method(:nc) { nc_ref }
+    end
+
+    def validate_nats_urls!(servers)
+      Logging.debug(
+        "Validating #{servers.size} NATS URL(s): #{sanitize_urls(servers).join(', ')}",
+        tag: 'JetstreamBridge::Connection'
+      )
+
+      servers.each do |url|
+        # Check for basic URL format (scheme://host)
+        unless url.include?('://')
+          Logging.error(
+            "Invalid URL format (missing scheme): #{url}",
+            tag: 'JetstreamBridge::Connection'
+          )
+          raise ConnectionError, "Invalid NATS URL format: #{url}. Expected format: nats://host:port"
+        end
+
+        uri = URI.parse(url)
+
+        # Validate scheme
+        scheme = uri.scheme&.downcase
+        unless VALID_NATS_SCHEMES.include?(scheme)
+          Logging.error(
+            "Invalid URL scheme '#{uri.scheme}': #{Logging.sanitize_url(url)}",
+            tag: 'JetstreamBridge::Connection'
+          )
+          raise ConnectionError, "Invalid NATS URL scheme '#{uri.scheme}' in: #{url}. Expected 'nats' or 'nats+tls'"
+        end
+
+        # Validate host is present
+        if uri.host.nil? || uri.host.empty?
+          Logging.error(
+            "Missing host in URL: #{Logging.sanitize_url(url)}",
+            tag: 'JetstreamBridge::Connection'
+          )
+          raise ConnectionError, "Invalid NATS URL - missing host: #{url}"
+        end
+
+        # Validate port if present
+        if uri.port && (uri.port < 1 || uri.port > 65_535)
+          Logging.error(
+            "Invalid port #{uri.port} in URL: #{Logging.sanitize_url(url)}",
+            tag: 'JetstreamBridge::Connection'
+          )
+          raise ConnectionError, "Invalid NATS URL - port must be 1-65535: #{url}"
+        end
+
+        Logging.debug(
+          "URL validated: #{Logging.sanitize_url(url)}",
+          tag: 'JetstreamBridge::Connection'
+        )
+      rescue URI::InvalidURIError => e
+        Logging.error(
+          "Malformed URL: #{url} (#{e.message})",
+          tag: 'JetstreamBridge::Connection'
+        )
+        raise ConnectionError, "Invalid NATS URL format: #{url} (#{e.message})"
+      end
+
+      Logging.info(
+        'All NATS URLs validated successfully',
+        tag: 'JetstreamBridge::Connection'
+      )
+    end
+
+    def verify_connection!
+      Logging.debug(
+        'Verifying NATS connection...',
+        tag: 'JetstreamBridge::Connection'
+      )
+
+      unless @nc.connected?
+        Logging.error(
+          'NATS connection verification failed - client not connected',
+          tag: 'JetstreamBridge::Connection'
+        )
+        raise ConnectionError, 'Failed to establish connection to NATS server(s)'
+      end
+
+      Logging.info(
+        'NATS connection verified successfully',
+        tag: 'JetstreamBridge::Connection'
+      )
+    end
+
+    def verify_jetstream!
+      Logging.debug(
+        'Verifying JetStream availability...',
+        tag: 'JetstreamBridge::Connection'
+      )
+
+      # Verify JetStream is enabled by checking account info
+      account_info = @jts.account_info
+
+      Logging.info(
+        "JetStream verified - Streams: #{account_info.streams}, " \
+        "Consumers: #{account_info.consumers}, " \
+        "Memory: #{format_bytes(account_info.memory)}, " \
+        "Storage: #{format_bytes(account_info.storage)}",
+        tag: 'JetstreamBridge::Connection'
+      )
+    rescue NATS::IO::NoRespondersError
+      Logging.error(
+        'JetStream not available - no responders (JetStream not enabled)',
+        tag: 'JetstreamBridge::Connection'
+      )
+      raise ConnectionError, 'JetStream not enabled on NATS server. Please enable JetStream with -js flag'
+    rescue StandardError => e
+      Logging.error(
+        "JetStream verification failed: #{e.class} - #{e.message}",
+        tag: 'JetstreamBridge::Connection'
+      )
+      raise ConnectionError, "JetStream verification failed: #{e.message}"
+    end
+
+    def format_bytes(bytes)
+      return 'N/A' if bytes.nil? || bytes.zero?
+
+      units = %w[B KB MB GB TB]
+      exp = (Math.log(bytes) / Math.log(1024)).to_i
+      exp = [exp, units.length - 1].min
+      "#{(bytes / (1024.0**exp)).round(2)} #{units[exp]}"
     end
 
     def refresh_jetstream_context

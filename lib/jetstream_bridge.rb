@@ -126,7 +126,7 @@ module JetstreamBridge
       stream_info = fetch_stream_info if connected
 
       {
-        healthy: connected && stream_info[:exists],
+        healthy: connected && stream_info&.fetch(:exists, false),
         nats_connected: connected,
         connected_at: connected_at&.iso8601,
         stream: stream_info,

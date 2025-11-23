@@ -40,7 +40,6 @@ module JetstreamBridge
       log(:error, msg, tag: tag)
     end
 
-    # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
     def sanitize_url(url)
       uri = URI.parse(url)
       return url unless uri.user || uri.password
@@ -67,6 +66,5 @@ module JetstreamBridge
         "#{scheme}://#{masked}@"
       end
     end
-    # rubocop:enable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
   end
 end

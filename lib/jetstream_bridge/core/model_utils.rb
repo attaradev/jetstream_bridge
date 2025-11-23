@@ -14,13 +14,11 @@ module JetstreamBridge
       defined?(ActiveRecord::Base) && klass <= ActiveRecord::Base
     end
 
-    # rubocop:disable Naming/PredicatePrefix
     def has_columns?(klass, *cols)
       return false unless ar_class?(klass)
 
       cols.flatten.all? { |c| klass.column_names.include?(c.to_s) }
     end
-    # rubocop:enable Naming/PredicatePrefix
 
     def assign_known_attrs(record, attrs)
       attrs.each do |k, v|

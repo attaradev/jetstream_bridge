@@ -40,12 +40,14 @@ Style/HashSyntax:
 
 # ---------- Metrics (balanced for libs) ----------
 Metrics/BlockLength:
+  Max: 25
   Exclude:
     - "spec/**/*"
     - "Rakefile"
     - "tasks/**/*.rake"
     - "lib/jetstream_bridge/tasks/**/*.rake"
     - "jetstream_bridge.gemspec"
+    - "lib/jetstream_bridge/core/connection.rb" # Connection validation logging blocks
 
 Metrics/MethodLength:
   Max: 25
@@ -55,6 +57,7 @@ Metrics/MethodLength:
     - "lib/jetstream_bridge/core/debug_helper.rb"
     - "lib/jetstream_bridge/topology/stream.rb"
     - "lib/generators/jetstream_bridge/health_check/health_check_generator.rb"
+    - "lib/jetstream_bridge/core/connection.rb" # Connection validation with logging
 
 Metrics/AbcSize:
   Max: 25
@@ -63,17 +66,24 @@ Metrics/AbcSize:
     - "lib/jetstream_bridge/consumer/**/*.rb"
     - "lib/jetstream_bridge/core/config.rb"
     - "lib/jetstream_bridge/core/debug_helper.rb"
+    - "lib/jetstream_bridge/core/connection.rb" # Connection validation with logging
 
 Metrics/CyclomaticComplexity:
   Max: 10
   Exclude:
     - "lib/jetstream_bridge/models/event.rb" # Hash-like [] accessor with many keys
     - "lib/jetstream_bridge/test_helpers.rb" # Test helper with complex setup
+    - "lib/jetstream_bridge/core/logging.rb" # URL sanitization with multiple branches
+    - "lib/jetstream_bridge/consumer/inbox/inbox_message.rb" # NATS message parsing
+    - "lib/jetstream_bridge/core/connection.rb" # Connection validation with multiple checks
 
 Metrics/PerceivedComplexity:
   Max: 10
   Exclude:
     - "lib/jetstream_bridge/test_helpers.rb" # Test helper with complex setup
+    - "lib/jetstream_bridge/core/logging.rb" # URL sanitization with multiple branches
+    - "lib/jetstream_bridge/consumer/inbox/inbox_message.rb" # NATS message parsing
+    - "lib/jetstream_bridge/core/connection.rb" # Connection validation with multiple checks
 
 Metrics/ModuleLength:
   Max: 100
@@ -82,10 +92,14 @@ Metrics/ModuleLength:
 
 Metrics/ClassLength:
   Max: 200
+  Exclude:
+    - "lib/jetstream_bridge/core/connection.rb" # Connection validation adds significant logging
 
 Metrics/ParameterLists:
   Max: 5
   CountKeywordArgs: false # allow more keyword args for clarity
+  Exclude:
+    - "lib/jetstream_bridge/consumer/inbox/inbox_message.rb" # Internal message object with many fields
 
 # ---------- Naming ----------
 Naming/PredicateMethod:
@@ -98,6 +112,9 @@ Naming/PredicatePrefix:
   Enabled: true
   Exclude:
     - "lib/jetstream_bridge/test_helpers.rb" # RSpec matcher convention uses have_*
+    - "lib/jetstream_bridge/core/model_utils.rb" # ActiveRecord introspection uses has_*
+    - "lib/jetstream_bridge/models/outbox_event.rb" # ActiveRecord introspection uses has_*
+    - "lib/jetstream_bridge/models/inbox_event.rb" # ActiveRecord introspection uses has_*
 
 # ---------- Lint ----------
 Lint/EmptyClass:

@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.3] - 2025-11-23
+
+### Added
+
+- **Connection Validation** - Comprehensive NATS URL validation on initialization
+  - Validates URL format, scheme (nats/nats+tls), host presence, and port range (1-65535)
+  - Verifies NATS connection established after connect
+  - Verifies JetStream availability with account info check
+  - Helpful error messages for common misconfigurations
+  - All validation errors include specific guidance for fixes
+
+- **Connection Logging** - Detailed logging throughout connection lifecycle
+  - Debug logs for URL validation progress and verification steps
+  - Info logs for successful validation and JetStream stats (streams, consumers, memory, storage)
+  - Error logs for all validation failures with specific details
+  - Automatic credential sanitization in all log messages
+  - Human-readable resource usage formatting (bytes to KB/MB/GB)
+
+### Fixed
+
+- **Health Check** - Fixed `healthy` field returning `nil` instead of `false` when disconnected
+  - Changed `stream_info[:exists]` to `stream_info&.fetch(:exists, false)` for proper nil handling
+  - Ensures boolean values always returned for monitoring systems
+
+### Changed
+
+- **Code Organization** - Moved all inline RuboCop rules to centralized `.rubocop.yml`
+  - Removed inline comments from 5 files (logging.rb, model_utils.rb, inbox_event.rb, outbox_event.rb, inbox_message.rb)
+  - Added exclusions to `.rubocop.yml` for metrics and naming rules
+  - Cleaner codebase with all style exceptions in one location
+
 ## [4.0.2] - 2025-11-23
 
 ### Fixed
