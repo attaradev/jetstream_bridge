@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added thread-safety documentation for Publisher
   - Updated all subject pattern references
   - Added DLQ monitoring examples
+- **YARD documentation** - Professional API documentation
+  - Added `.yardopts` configuration for consistent doc generation
+  - 60%+ documentation coverage across public APIs
+  - Configured RubyDoc.info integration
+  - Added Rake tasks for generating docs (`rake yard`)
 
 ### Code Quality
 
@@ -173,7 +178,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Better error messages
   - More robust subject matching
 
-### Documentation
+### Documentation Updates
 
 - **Updated README** - Comprehensive documentation updates
   - Added section for Rails generators and rake tasks

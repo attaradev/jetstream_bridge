@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    jetstream_bridge (3.0.2)
+    jetstream_bridge (4.0.0)
       activerecord (>= 7.1.5.2, < 8.0)
       activesupport (>= 7.1.5.2, < 8.0)
       mutex_m
@@ -122,6 +122,7 @@ GEM
       unicode-emoji (~> 4.0, >= 4.0.4)
     unicode-emoji (4.0.4)
     uri (1.1.1)
+    yard (0.9.37)
 
 PLATFORMS
   arm64-darwin-24
@@ -138,6 +139,7 @@ DEPENDENCIES
   simplecov (>= 0.22)
   simplecov_json_formatter
   sqlite3 (~> 1.4)
+  yard (~> 0.9)
 
 BUNDLED WITH
    2.6.3

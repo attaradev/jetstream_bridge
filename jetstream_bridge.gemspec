@@ -26,7 +26,7 @@ Gem::Specification.new do |spec|
     'homepage_uri' => 'https://github.com/attaradev/jetstream_bridge',
     'source_code_uri' => 'https://github.com/attaradev/jetstream_bridge',
     'changelog_uri' => 'https://github.com/attaradev/jetstream_bridge/blob/main/CHANGELOG.md',
-    'documentation_uri' => 'https://github.com/attaradev/jetstream_bridge#readme',
+    'documentation_uri' => 'https://rubydoc.info/gems/jetstream_bridge',
     'bug_tracker_uri' => 'https://github.com/attaradev/jetstream_bridge/issues',
     'rubygems_mfa_required' => 'true',
     'allowed_push_host' => 'https://rubygems.org'
