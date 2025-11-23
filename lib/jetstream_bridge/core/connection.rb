@@ -255,11 +255,17 @@ module JetstreamBridge
       # Verify JetStream is enabled by checking account info
       account_info = @jts.account_info
 
+      # Handle both object-style and hash-style access for compatibility
+      streams = account_info.respond_to?(:streams) ? account_info.streams : account_info[:streams]
+      consumers = account_info.respond_to?(:consumers) ? account_info.consumers : account_info[:consumers]
+      memory = account_info.respond_to?(:memory) ? account_info.memory : account_info[:memory]
+      storage = account_info.respond_to?(:storage) ? account_info.storage : account_info[:storage]
+
       Logging.info(
-        "JetStream verified - Streams: #{account_info.streams}, " \
-        "Consumers: #{account_info.consumers}, " \
-        "Memory: #{format_bytes(account_info.memory)}, " \
-        "Storage: #{format_bytes(account_info.storage)}",
+        "JetStream verified - Streams: #{streams}, " \
+        "Consumers: #{consumers}, " \
+        "Memory: #{format_bytes(memory)}, " \
+        "Storage: #{format_bytes(storage)}",
         tag: 'JetstreamBridge::Connection'
       )
     rescue NATS::IO::NoRespondersError
