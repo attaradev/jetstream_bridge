@@ -1249,7 +1249,7 @@ health = JetstreamBridge.health_check
 #   connected_at: "2025-11-22T20:00:00Z",
 #   stream: { exists: true, name: "...", ... },
 #   config: { env: "production", ... },
-#   version: "4.0.0"
+#   version: "4.0.1"
 # }
 
 # Force-connect & ensure topology at boot or in a check
