@@ -48,6 +48,7 @@ Metrics/BlockLength:
     - "lib/jetstream_bridge/tasks/**/*.rake"
     - "jetstream_bridge.gemspec"
     - "lib/jetstream_bridge/core/connection.rb" # Connection validation logging blocks
+    - "lib/jetstream_bridge/railtie.rb" # Rails initializer setup
 
 Metrics/MethodLength:
   Max: 25
@@ -59,6 +60,7 @@ Metrics/MethodLength:
     - "lib/generators/jetstream_bridge/health_check/health_check_generator.rb"
     - "lib/jetstream_bridge/core/connection.rb" # Connection validation with logging
     - "lib/jetstream_bridge.rb" # Health check with performance metrics
+    - "lib/jetstream_bridge/test_helpers/mock_nats.rb" # Mock NATS implementation
 
 Metrics/AbcSize:
   Max: 25
@@ -80,6 +82,7 @@ Metrics/CyclomaticComplexity:
     - "lib/jetstream_bridge/consumer/inbox/inbox_message.rb" # NATS message parsing
     - "lib/jetstream_bridge/core/connection.rb" # Connection validation with multiple checks
     - "lib/jetstream_bridge/core/debug_helper.rb" # Stream info with compatibility checks
+    - "lib/jetstream_bridge/test_helpers/mock_nats.rb" # Mock NATS implementation
 
 Metrics/PerceivedComplexity:
   Max: 10
@@ -89,6 +92,7 @@ Metrics/PerceivedComplexity:
     - "lib/jetstream_bridge/consumer/inbox/inbox_message.rb" # NATS message parsing
     - "lib/jetstream_bridge/core/connection.rb" # Connection validation with multiple checks
     - "lib/jetstream_bridge/core/debug_helper.rb" # Stream info with compatibility checks
+    - "lib/jetstream_bridge/test_helpers/mock_nats.rb" # Mock NATS implementation
 
 Metrics/ModuleLength:
   Max: 100
@@ -100,6 +104,7 @@ Metrics/ClassLength:
   Max: 200
   Exclude:
     - "lib/jetstream_bridge/core/connection.rb" # Connection validation adds significant logging
+    - "lib/jetstream_bridge/consumer/consumer.rb" # Consumer with health checks and lifecycle
 
 Metrics/ParameterLists:
   Max: 5
@@ -113,6 +118,7 @@ Naming/PredicateMethod:
     - validate!
     - validate_component!
     - publish_to_nats
+    - wait_for_messages
 
 Naming/PredicatePrefix:
   Enabled: true
@@ -138,6 +144,11 @@ Lint/UnusedBlockArgument:
   Exclude:
     - "spec/**/*" # Test mocks may not use all arguments
 
+Lint/UnusedMethodArgument:
+  Enabled: true
+  Exclude:
+    - "lib/jetstream_bridge/test_helpers/mock_nats.rb" # Mock implementation compatibility
+
 Lint/IneffectiveAccessModifier:
   Enabled: false # Allow class methods after private
 
@@ -149,8 +160,11 @@ Style/MultilineBlockChain:
   Exclude:
     - "spec/**/*" # allow chaining in tests for better readability
 
-# Optional: relax just for low-level I/O integration code
-# (you can delete this once you refactor)
+Style/OpenStructUse:
+  Enabled: true
+  Exclude:
+    - "lib/jetstream_bridge/test_helpers.rb" # Test doubles for NATS messages
+    - "lib/jetstream_bridge/test_helpers/mock_nats.rb" # Mock NATS message objects
 
 # ---------- Packaging / Gemspec ----------
 # These ship with RuboCop core and rubocop-packaging
