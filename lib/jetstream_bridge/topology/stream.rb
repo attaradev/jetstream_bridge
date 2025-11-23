@@ -96,17 +96,27 @@ module JetstreamBridge
         raise ArgumentError, 'subjects must not be empty' if desired.empty?
 
         attempts = 0
+        max_attempts = 3
+        backoffs = [0.05, 0.2, 0.5]
+
         begin
           info = safe_stream_info(jts, name)
           info ? ensure_update(jts, name, info, desired) : ensure_create(jts, name, desired)
         rescue NATS::JetStream::Error => e
-          if StreamSupport.overlap_error?(e) && (attempts += 1) <= 1
-            Logging.warn("Overlap race while ensuring #{name}; retrying once...", tag: 'JetstreamBridge::Stream')
-            sleep(0.05)
+          if StreamSupport.overlap_error?(e) && (attempts += 1) <= max_attempts
+            backoff = backoffs[attempts - 1] || backoffs.last
+            Logging.warn(
+              "Overlap race while ensuring #{name}; retry #{attempts}/#{max_attempts} after #{backoff}s...",
+              tag: 'JetstreamBridge::Stream'
+            )
+            sleep(backoff)
             retry
           elsif StreamSupport.overlap_error?(e)
-            Logging.warn("Overlap persists ensuring #{name}; leaving unchanged. err=#{e.message.inspect}",
-                         tag: 'JetstreamBridge::Stream')
+            Logging.warn(
+              "Overlap persists ensuring #{name} after #{attempts} attempts; leaving unchanged. " \
+              "err=#{e.message.inspect}",
+              tag: 'JetstreamBridge::Stream'
+            )
             nil
           else
             raise

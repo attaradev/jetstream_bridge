@@ -6,22 +6,15 @@ require_relative '../core/connection'
 require_relative '../core/logging'
 require_relative '../core/config'
 require_relative '../core/model_utils'
+require_relative '../core/retry_strategy'
 require_relative 'outbox_repository'
 
 module JetstreamBridge
   # Publishes to "{env}.{app}.sync.{dest}".
   class Publisher
-    DEFAULT_RETRIES = 2
-    RETRY_BACKOFFS  = [0.25, 1.0].freeze
-
-    TRANSIENT_ERRORS = begin
-      errs = [NATS::IO::Timeout, NATS::IO::Error]
-      errs << NATS::IO::SocketTimeoutError if defined?(NATS::IO::SocketTimeoutError)
-      errs.freeze
-    end
-
-    def initialize
+    def initialize(retry_strategy: nil)
       @jts = Connection.connect!
+      @retry_strategy = retry_strategy || PublisherRetryStrategy.new
     end
 
     # @return [Boolean]
@@ -33,7 +26,7 @@ module JetstreamBridge
       if JetstreamBridge.config.use_outbox
         publish_via_outbox(subject, envelope)
       else
-        with_retries { do_publish?(subject, envelope) }
+        with_retries { publish_to_nats(subject, envelope) }
       end
     rescue StandardError => e
       log_error(false, e)
@@ -47,7 +40,7 @@ module JetstreamBridge
       raise ArgumentError, 'destination_app must be configured'
     end
 
-    def do_publish?(subject, envelope)
+    def publish_to_nats(subject, envelope)
       headers = { 'nats-msg-id' => envelope['event_id'] }
 
       ack = @jts.publish(subject, Oj.dump(envelope, mode: :compat), header: headers)
@@ -76,7 +69,7 @@ module JetstreamBridge
           "Outbox model #{klass} is not an ActiveRecord model; publishing directly.",
           tag: 'JetstreamBridge::Publisher'
         )
-        return with_retries { do_publish?(subject, envelope) }
+        return with_retries { publish_to_nats(subject, envelope) }
       end
 
       repo     = OutboxRepository.new(klass)
@@ -93,7 +86,7 @@ module JetstreamBridge
 
       repo.persist_pre(record, subject, envelope)
 
-      ok = with_retries { do_publish?(subject, envelope) }
+      ok = with_retries { publish_to_nats(subject, envelope) }
       ok ? repo.persist_success(record) : repo.persist_failure(record, 'Publish returned false')
       ok
     rescue StandardError => e
@@ -102,27 +95,11 @@ module JetstreamBridge
     end
     # ---- /Outbox path ----
 
-    # Retry only on transient NATS IO errors
-    def with_retries(retries = DEFAULT_RETRIES)
-      attempts = 0
-      begin
-        yield
-      rescue *TRANSIENT_ERRORS => e
-        attempts += 1
-        return log_error(false, e) if attempts > retries
-
-        backoff(attempts, e)
-        retry
-      end
-    end
-
-    def backoff(attempts, error)
-      delay = RETRY_BACKOFFS[attempts - 1] || RETRY_BACKOFFS.last
-      Logging.warn(
-        "Publish retry #{attempts} after #{error.class}: #{error.message}",
-        tag: 'JetstreamBridge::Publisher'
-      )
-      sleep delay
+    # Retry using strategy pattern
+    def with_retries
+      @retry_strategy.execute(context: 'Publisher') { yield }
+    rescue RetryStrategy::RetryExhausted => e
+      log_error(false, e)
     end
 
     def log_error(val, exc)

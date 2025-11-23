@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'oj'
+require 'securerandom'
 
 module JetstreamBridge
   # Immutable value object for a single NATS message.
@@ -27,7 +28,8 @@ module JetstreamBridge
       end
 
       id = (headers['nats-msg-id'] || body['event_id']).to_s.strip
-      id = "seq:#{seq}" if id.empty?
+      id = "seq:#{seq}" if id.empty? && seq
+      id = SecureRandom.uuid if id.to_s.empty?
 
       new(msg, seq, deliveries, stream, subject, headers, body, raw, id, Time.now.utc, consumer)
     end

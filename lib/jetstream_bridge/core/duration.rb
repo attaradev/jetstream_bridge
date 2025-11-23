@@ -71,7 +71,14 @@ module JetstreamBridge
     def int_to_ms(num, default_unit:)
       case default_unit
       when :auto
-        # Preserve existing heuristic for compatibility
+        # Preserve existing heuristic for compatibility but log deprecation warning
+        if defined?(Logging) && num > 0 && num < 1_000
+          Logging.debug(
+            "Duration :auto heuristic treating #{num} as seconds. " \
+            "Consider specifying default_unit: :s or :ms for clarity.",
+            tag: 'JetstreamBridge::Duration'
+          )
+        end
         num >= 1_000 ? num : num * 1_000
       else
         coerce_numeric_to_ms(num.to_f, default_unit)
