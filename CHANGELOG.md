@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] - 2025-11-23
+
+### Breaking Changes
+
+- **Per-app Dead Letter Queue (DLQ)** - DLQ subject pattern changed for better isolation
+  - **Old pattern**: `{env}.sync.dlq` (shared across all apps)
+  - **New pattern**: `{env}.{app_name}.sync.dlq` (isolated per app)
+  - **Example**: `production.api.sync.dlq` instead of `production.sync.dlq`
+
+### Benefits
+
+- **Isolation**: Failed messages from different services don't mix
+- **Easier Monitoring**: Track DLQ metrics per service
+- **Simpler Debugging**: Identify which service is having issues
+- **Independent Processing**: Each team can manage their own DLQ consumer
+
+### Migration Guide
+
+1. **Drain existing DLQ**: Process or archive messages from the old shared DLQ (`{env}.sync.dlq`)
+2. **Deploy update**: Each app will automatically create its own DLQ subject on next deployment
+3. **Update monitoring**: Adjust dashboards to track per-app DLQ subjects (`{env}.{app_name}.sync.dlq`)
+4. **Update DLQ consumers**: Update DLQ consumer configuration to use app-specific subjects
+
+### Documentation
+
+- **Enhanced README** - Comprehensive documentation improvements
+  - Fixed consumer handler signature (single `event` parameter, not three)
+  - Added complete DLQ consumer examples with Rake task
+  - Added thread-safety documentation for Publisher
+  - Updated all subject pattern references
+  - Added DLQ monitoring examples
+
+### Code Quality
+
+- **RuboCop compliance** - Zero offenses across entire codebase
+  - Configured appropriate exclusions for test files and acceptable patterns
+  - Fixed all auto-correctable style violations
+  - Added clear comments for non-correctable patterns
+
 ## [3.0.0] - 2025-11-23
 
 ### Added
