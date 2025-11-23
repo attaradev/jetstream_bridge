@@ -92,7 +92,7 @@ Building event-driven systems with NATS JetStream is powerful, but comes with ch
 
 ```ruby
 # Gemfile
-gem "jetstream_bridge", "~> 3.0"
+gem "jetstream_bridge", "~> 4.0"
 ```
 
 ```bash
@@ -1249,7 +1249,7 @@ health = JetstreamBridge.health_check
 #   connected_at: "2025-11-22T20:00:00Z",
 #   stream: { exists: true, name: "...", ... },
 #   config: { env: "production", ... },
-#   version: "3.0.0"
+#   version: "4.0.0"
 # }
 
 # Force-connect & ensure topology at boot or in a check
