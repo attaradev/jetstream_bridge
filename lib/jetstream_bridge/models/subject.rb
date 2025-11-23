@@ -7,7 +7,7 @@ module JetstreamBridge
       WILDCARD_SINGLE = '*'
       WILDCARD_MULTI = '>'
       SEPARATOR = '.'
-      INVALID_CHARS = /[#{Regexp.escape(WILDCARD_SINGLE + WILDCARD_MULTI + SEPARATOR)}]/.freeze
+      INVALID_CHARS = /[#{Regexp.escape(WILDCARD_SINGLE + WILDCARD_MULTI + SEPARATOR)}]/
 
       attr_reader :value, :tokens
 
@@ -66,8 +66,9 @@ module JetstreamBridge
       def self.validate_component!(value, name)
         str = value.to_s
         if str.match?(INVALID_CHARS)
+          wildcards = "#{SEPARATOR}, #{WILDCARD_SINGLE}, #{WILDCARD_MULTI}"
           raise ArgumentError,
-                "#{name} cannot contain NATS wildcards (#{SEPARATOR}, #{WILDCARD_SINGLE}, #{WILDCARD_MULTI}): #{value.inspect}"
+                "#{name} cannot contain NATS wildcards (#{wildcards}): #{value.inspect}"
         end
         raise ArgumentError, "#{name} cannot be empty" if str.strip.empty?
 

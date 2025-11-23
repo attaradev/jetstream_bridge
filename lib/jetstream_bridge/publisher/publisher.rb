@@ -96,8 +96,8 @@ module JetstreamBridge
     # ---- /Outbox path ----
 
     # Retry using strategy pattern
-    def with_retries(&block)
-      @retry_strategy.execute(context: 'Publisher', &block)
+    def with_retries(&)
+      @retry_strategy.execute(context: 'Publisher', &)
     rescue RetryStrategy::RetryExhausted => e
       log_error(false, e)
     end

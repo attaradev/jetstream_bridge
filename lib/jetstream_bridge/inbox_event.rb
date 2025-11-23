@@ -99,7 +99,7 @@ module JetstreamBridge
     # Shim: loud failure if AR isn't present but someone calls the model.
     class InboxEvent
       class << self
-        def method_missing(method_name, *_args, &_block)
+        def method_missing(method_name, *_args, &)
           raise_missing_ar!('Inbox', method_name)
         end
 

@@ -87,7 +87,7 @@ module JetstreamBridge
       end
 
       def conflict_message(target, conflicts)
-        msg = +"Overlapping subjects for stream #{target}:\n"
+        msg = "Overlapping subjects for stream #{target}:\n"
         conflicts.each do |c|
           msg << "- Conflicts with '#{c[:name]}' on:\n"
           c[:pairs].each { |(a, b)| msg << "    • #{a} × #{b}\n" }

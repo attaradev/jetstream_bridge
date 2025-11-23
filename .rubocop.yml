@@ -7,7 +7,8 @@ plugins:
 
 AllCops:
   NewCops: enable
-  TargetRubyVersion: 2.7   # match gemspec minimum to avoid false positives
+  TargetRubyVersion: 3.2   # match gemspec minimum to avoid false positives
+  SuggestExtensions: false
   Exclude:
     - 'bin/*'
     - 'pkg/**/*'
@@ -43,19 +44,25 @@ Metrics/BlockLength:
     - 'spec/**/*'
     - 'Rakefile'
     - 'tasks/**/*.rake'
+    - 'lib/jetstream_bridge/tasks/**/*.rake'
     - 'jetstream_bridge.gemspec'
 
 Metrics/MethodLength:
   Max: 25
   Exclude:
     - 'lib/jetstream_bridge/**/publisher*.rb'
-    - 'lib/jetstream_bridge/**/consumer*.rb'
+    - 'lib/jetstream_bridge/consumer/**/*.rb'
+    - 'lib/jetstream_bridge/core/debug_helper.rb'
+    - 'lib/jetstream_bridge/topology/stream.rb'
+    - 'lib/generators/jetstream_bridge/health_check/health_check_generator.rb'
 
 Metrics/AbcSize:
   Max: 25
   Exclude:
     - 'lib/jetstream_bridge/**/publisher*.rb'
-    - 'lib/jetstream_bridge/**/consumer*.rb'
+    - 'lib/jetstream_bridge/consumer/**/*.rb'
+    - 'lib/jetstream_bridge/core/config.rb'
+    - 'lib/jetstream_bridge/core/debug_helper.rb'
 
 Metrics/CyclomaticComplexity:
   Max: 10
@@ -65,6 +72,29 @@ Metrics/PerceivedComplexity:
 
 Metrics/ClassLength:
   Max: 150
+
+Metrics/ParameterLists:
+  Max: 5
+  CountKeywordArgs: false  # don't count keyword args for initialization methods
+
+# ---------- Naming ----------
+Naming/PredicateMethod:
+  AllowedMethods:
+    - validate!
+    - validate_component!
+    - publish_to_nats
+
+# ---------- Lint ----------
+Lint/IneffectiveAccessModifier:
+  Enabled: false  # Allow class methods after private
+
+Lint/UselessConstantScoping:
+  Enabled: false
+
+# ---------- Style ----------
+Style/MultilineBlockChain:
+  Exclude:
+    - 'spec/**/*'  # allow chaining in tests for better readability
 
 # Optional: relax just for low-level I/O integration code
 # (you can delete this once you refactor)

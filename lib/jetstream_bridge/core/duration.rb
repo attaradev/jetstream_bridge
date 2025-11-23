@@ -37,8 +37,8 @@ module JetstreamBridge
       'd' => 86_400_000   # days to ms
     }.freeze
 
-    NUMBER_RE = /\A\d[\d_]*\z/.freeze
-    TOKEN_RE  = /\A(\d[\d_]*(?:\.\d+)?)\s*(ns|us|µs|ms|s|m|h|d)\z/i.freeze
+    NUMBER_RE = /\A\d[\d_]*\z/
+    TOKEN_RE  = /\A(\d[\d_]*(?:\.\d+)?)\s*(ns|us|µs|ms|s|m|h|d)\z/i
 
     module_function
 
