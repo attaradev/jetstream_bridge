@@ -29,6 +29,8 @@ jobs:
         if: matrix.ruby == '3.3'
         uses: codecov/codecov-action@v5
         with:
+          files: ./coverage/coverage.json
+          flags: rspec
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
