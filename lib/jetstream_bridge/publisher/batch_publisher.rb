@@ -5,7 +5,11 @@ require_relative '../core/logging'
 require_relative '../models/publish_result'
 
 module JetstreamBridge
-  # Batch publisher for efficient bulk event publishing
+  # Batch publisher for efficient bulk event publishing.
+  #
+  # BatchPublisher allows you to queue multiple events and publish them together,
+  # providing detailed results about successes and failures. Each event is published
+  # independently, so partial failures are possible.
   #
   # @example Publishing multiple events
   #   results = JetstreamBridge.publish_batch do |batch|
@@ -15,11 +19,42 @@ module JetstreamBridge
   #   end
   #
   #   puts "Published: #{results.successful_count}, Failed: #{results.failed_count}"
+  #   results.errors.each { |e| logger.error("Failed: #{e[:event_id]}") }
+  #
+  # @example Checking for failures
+  #   results = JetstreamBridge.publish_batch do |batch|
+  #     batch.add(event_type: "order.created", payload: { id: 1 })
+  #     batch.add(event_type: "order.updated", payload: { id: 2 })
+  #   end
+  #
+  #   if results.failure?
+  #     logger.warn "Some events failed to publish"
+  #   end
+  #
   class BatchPublisher
-    # Result object for batch operations
+    # Result object for batch operations.
+    #
+    # Contains aggregated results from a batch publish operation, including
+    # success/failure counts and detailed error information.
+    #
+    # @example Checking results
+    #   results = JetstreamBridge.publish_batch { |b| ... }
+    #   puts "Success: #{results.successful_count}"
+    #   puts "Failed: #{results.failed_count}"
+    #   puts "Partial: #{results.partial_success?}"
+    #
     class BatchResult
-      attr_reader :results, :successful_count, :failed_count, :errors
+      # @return [Array<Models::PublishResult>] All individual publish results
+      attr_reader :results
+      # @return [Integer] Number of successfully published events
+      attr_reader :successful_count
+      # @return [Integer] Number of failed events
+      attr_reader :failed_count
+      # @return [Array<Hash>] Array of error details with event_id and error
+      attr_reader :errors
 
+      # @param results [Array<Models::PublishResult>] Individual publish results
+      # @api private
       def initialize(results)
         @results = results
         @successful_count = results.count(&:success?)
@@ -28,14 +63,23 @@ module JetstreamBridge
         freeze
       end
 
+      # Check if all events published successfully.
+      #
+      # @return [Boolean] True if no failures
       def success?
         @failed_count.zero?
       end
 
+      # Check if any events failed to publish.
+      #
+      # @return [Boolean] True if any failures
       def failure?
         !success?
       end
 
+      # Check if some (but not all) events published successfully.
+      #
+      # @return [Boolean] True if both successes and failures exist
       def partial_success?
         @successful_count.positive? && @failed_count.positive?
       end

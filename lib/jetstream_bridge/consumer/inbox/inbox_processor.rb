@@ -31,7 +31,7 @@ module JetstreamBridge
       repo.persist_post(record)
       true
     rescue StandardError => e
-      repo.persist_failure(record, e) if defined?(repo) && defined?(record)
+      repo.persist_failure(record, e) if repo && record
       Logging.error("Inbox processing failed: #{e.class}: #{e.message}",
                     tag: 'JetstreamBridge::Consumer')
       false

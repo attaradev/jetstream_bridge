@@ -244,6 +244,34 @@ RSpec.describe JetstreamBridge::OutboxRepository do
         repository.persist_pre(mock_record, subject, envelope)
       end
     end
+
+    context 'when record does not respond to enqueued_at' do
+      before do
+        allow(mock_record).to receive(:respond_to?).with(:enqueued_at).and_return(false)
+      end
+
+      it 'does not include enqueued_at in attributes' do
+        expect(JetstreamBridge::ModelUtils).to receive(:assign_known_attrs).with(
+          mock_record,
+          hash_not_including(:enqueued_at)
+        )
+        repository.persist_pre(mock_record, subject, envelope)
+      end
+    end
+
+    context 'when record does not respond to updated_at' do
+      before do
+        allow(mock_record).to receive(:respond_to?).with(:updated_at).and_return(false)
+      end
+
+      it 'does not include updated_at in attributes' do
+        expect(JetstreamBridge::ModelUtils).to receive(:assign_known_attrs).with(
+          mock_record,
+          hash_not_including(:updated_at)
+        )
+        repository.persist_pre(mock_record, subject, envelope)
+      end
+    end
   end
 
   describe '#persist_success' do
@@ -294,6 +322,20 @@ RSpec.describe JetstreamBridge::OutboxRepository do
         repository.persist_success(mock_record)
       end
     end
+
+    context 'when record does not have updated_at' do
+      before do
+        allow(mock_record).to receive(:respond_to?).with(:updated_at).and_return(false)
+      end
+
+      it 'does not include updated_at in attributes' do
+        expect(JetstreamBridge::ModelUtils).to receive(:assign_known_attrs).with(
+          mock_record,
+          hash_not_including(:updated_at)
+        )
+        repository.persist_success(mock_record)
+      end
+    end
   end
 
   describe '#persist_failure' do
@@ -330,6 +372,20 @@ RSpec.describe JetstreamBridge::OutboxRepository do
     it 'saves the record' do
       expect(mock_record).to receive(:save!)
       repository.persist_failure(mock_record, error_message)
+    end
+
+    context 'when record does not have updated_at' do
+      before do
+        allow(mock_record).to receive(:respond_to?).with(:updated_at).and_return(false)
+      end
+
+      it 'does not include updated_at in attributes' do
+        expect(JetstreamBridge::ModelUtils).to receive(:assign_known_attrs).with(
+          mock_record,
+          hash_not_including(:updated_at)
+        )
+        repository.persist_failure(mock_record, error_message)
+      end
     end
   end
 

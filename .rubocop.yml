@@ -66,9 +66,19 @@ Metrics/AbcSize:
 
 Metrics/CyclomaticComplexity:
   Max: 10
+  Exclude:
+    - "lib/jetstream_bridge/models/event.rb" # Hash-like [] accessor with many keys
+    - "lib/jetstream_bridge/test_helpers.rb" # Test helper with complex setup
 
 Metrics/PerceivedComplexity:
   Max: 10
+  Exclude:
+    - "lib/jetstream_bridge/test_helpers.rb" # Test helper with complex setup
+
+Metrics/ModuleLength:
+  Max: 100
+  Exclude:
+    - "lib/jetstream_bridge.rb" # Main module with convenience methods
 
 Metrics/ClassLength:
   Max: 200
@@ -84,7 +94,27 @@ Naming/PredicateMethod:
     - validate_component!
     - publish_to_nats
 
+Naming/PredicatePrefix:
+  Enabled: true
+  Exclude:
+    - "lib/jetstream_bridge/test_helpers.rb" # RSpec matcher convention uses have_*
+
 # ---------- Lint ----------
+Lint/EmptyClass:
+  Enabled: true
+  Exclude:
+    - "lib/jetstream_bridge/consumer/middleware.rb" # Forward declaration for circular dependency
+
+Lint/EmptyBlock:
+  Enabled: true
+  Exclude:
+    - "spec/**/*" # Empty blocks in tests are intentional for testing error handling
+
+Lint/UnusedBlockArgument:
+  Enabled: true
+  Exclude:
+    - "spec/**/*" # Test mocks may not use all arguments
+
 Lint/IneffectiveAccessModifier:
   Enabled: false # Allow class methods after private
 

@@ -144,7 +144,7 @@ module JetstreamBridge
       # Create JetStream context
       @jts = @nc.jetstream
 
-      # --- Compatibility shim: ensure JetStream responds to #nc for older/newer clients ---
+      # Ensure JetStream responds to #nc
       return if @jts.respond_to?(:nc)
 
       nc_ref = @nc

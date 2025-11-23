@@ -12,15 +12,88 @@ require_relative 'subscription_manager'
 require_relative 'inbox/inbox_processor'
 
 module JetstreamBridge
-  # Subscribes to destination subject and processes messages via a pull durable.
+  # Subscribes to destination subject and processes messages via a pull durable consumer.
+  #
+  # The Consumer provides reliable message processing with features like:
+  # - Durable pull-based subscriptions with configurable batch sizes
+  # - Optional idempotent inbox pattern for exactly-once processing
+  # - Middleware support for cross-cutting concerns (logging, metrics, tracing)
+  # - Automatic reconnection and error recovery
+  # - Graceful shutdown with message draining
+  #
+  # @example Basic consumer
+  #   consumer = JetstreamBridge::Consumer.new do |event|
+  #     puts "Received: #{event.type} - #{event.payload.to_h}"
+  #     # Process event...
+  #   end
+  #   consumer.run!
+  #
+  # @example Consumer with middleware
+  #   consumer = JetstreamBridge::Consumer.new(handler)
+  #   consumer.use(JetstreamBridge::Consumer::LoggingMiddleware.new)
+  #   consumer.use(JetstreamBridge::Consumer::MetricsMiddleware.new)
+  #   consumer.run!
+  #
+  # @example Using convenience method
+  #   JetstreamBridge.subscribe do |event|
+  #     ProcessEventJob.perform_later(event.to_h)
+  #   end.run!
+  #
   class Consumer
+    # Default number of messages to fetch in each batch
     DEFAULT_BATCH_SIZE    = 25
+    # Timeout for fetching messages from NATS (seconds)
     FETCH_TIMEOUT_SECS    = 5
+    # Initial sleep duration when no messages available (seconds)
     IDLE_SLEEP_SECS       = 0.05
+    # Maximum sleep duration during idle periods (seconds)
     MAX_IDLE_BACKOFF_SECS = 1.0
 
-    attr_reader :durable, :batch_size
+    # Alias middleware classes for easier access
+    MiddlewareChain = ConsumerMiddleware::MiddlewareChain
+    LoggingMiddleware = ConsumerMiddleware::LoggingMiddleware
+    ErrorHandlingMiddleware = ConsumerMiddleware::ErrorHandlingMiddleware
+    MetricsMiddleware = ConsumerMiddleware::MetricsMiddleware
+    TracingMiddleware = ConsumerMiddleware::TracingMiddleware
+    TimeoutMiddleware = ConsumerMiddleware::TimeoutMiddleware
 
+    # @return [String] Durable consumer name
+    attr_reader :durable
+    # @return [Integer] Batch size for message fetching
+    attr_reader :batch_size
+    # @return [MiddlewareChain] Middleware chain for processing
+    attr_reader :middleware_chain
+
+    # Initialize a new Consumer instance.
+    #
+    # @param handler [Proc, #call, nil] Message handler that processes events.
+    #   Must respond to #call(event) or #call(event, subject, deliveries).
+    # @param durable_name [String, nil] Optional durable consumer name override.
+    #   Defaults to config.durable_name.
+    # @param batch_size [Integer, nil] Number of messages to fetch per batch.
+    #   Defaults to DEFAULT_BATCH_SIZE (25).
+    # @yield [event] Optional block as handler. Receives Models::Event object.
+    #
+    # @raise [ArgumentError] If neither handler nor block provided
+    # @raise [ArgumentError] If destination_app not configured
+    # @raise [ConnectionError] If unable to connect to NATS
+    #
+    # @example With proc handler
+    #   handler = ->(event) { puts "Received: #{event.type}" }
+    #   consumer = JetstreamBridge::Consumer.new(handler)
+    #
+    # @example With block
+    #   consumer = JetstreamBridge::Consumer.new do |event|
+    #     UserEventHandler.process(event)
+    #   end
+    #
+    # @example With custom configuration
+    #   consumer = JetstreamBridge::Consumer.new(
+    #     handler,
+    #     durable_name: "my-consumer",
+    #     batch_size: 10
+    #   )
+    #
     def initialize(handler = nil, durable_name: nil, batch_size: nil, &block)
       @handler = handler || block
       raise ArgumentError, 'handler or block required' unless @handler
@@ -31,17 +104,86 @@ module JetstreamBridge
       @running       = true
       @shutdown_requested = false
       @jts = Connection.connect!
+      @middleware_chain = MiddlewareChain.new
 
       ensure_destination!
 
       @sub_mgr = SubscriptionManager.new(@jts, @durable, JetstreamBridge.config)
-      @processor  = MessageProcessor.new(@jts, @handler)
+      @processor  = MessageProcessor.new(@jts, @handler, middleware_chain: @middleware_chain)
       @inbox_proc = InboxProcessor.new(@processor) if JetstreamBridge.config.use_inbox
 
       ensure_subscription!
       setup_signal_handlers
     end
 
+    # Add middleware to the processing chain.
+    #
+    # Middleware is executed in the order it's added. Each middleware must respond
+    # to #call(event, &block) and yield to continue the chain.
+    #
+    # @param middleware [Object] Middleware that responds to #call(event, &block).
+    #   Must yield to continue processing.
+    # @return [self] Returns self for method chaining
+    #
+    # @example Adding multiple middleware
+    #   consumer = JetstreamBridge.subscribe { |event| process(event) }
+    #   consumer.use(JetstreamBridge::Consumer::LoggingMiddleware.new)
+    #   consumer.use(JetstreamBridge::Consumer::MetricsMiddleware.new)
+    #   consumer.use(JetstreamBridge::Consumer::TimeoutMiddleware.new(timeout: 30))
+    #   consumer.run!
+    #
+    # @example Custom middleware
+    #   class MyMiddleware
+    #     def call(event)
+    #       puts "Before: #{event.type}"
+    #       yield
+    #       puts "After: #{event.type}"
+    #     end
+    #   end
+    #   consumer.use(MyMiddleware.new)
+    #
+    def use(middleware)
+      @middleware_chain.use(middleware)
+      self
+    end
+
+    # Start the consumer and process messages in a blocking loop.
+    #
+    # This method blocks the current thread and continuously fetches and processes
+    # messages until stop! is called or a signal is received (INT/TERM).
+    #
+    # The consumer will:
+    # - Fetch messages in batches (configurable batch_size)
+    # - Process each message through the middleware chain
+    # - Handle errors and reconnection automatically
+    # - Implement exponential backoff during idle periods
+    # - Drain in-flight messages during graceful shutdown
+    #
+    # @return [void]
+    #
+    # @example Basic usage
+    #   consumer = JetstreamBridge::Consumer.new { |event| process(event) }
+    #   consumer.run!  # Blocks here
+    #
+    # @example In a Rake task
+    #   namespace :jetstream do
+    #     task consume: :environment do
+    #       consumer = JetstreamBridge.subscribe { |event| handle(event) }
+    #       trap("TERM") { consumer.stop! }
+    #       consumer.run!
+    #     end
+    #   end
+    #
+    # @example With error handling
+    #   consumer = JetstreamBridge::Consumer.new do |event|
+    #     process(event)
+    #   rescue RecoverableError => e
+    #     raise  # Let NATS retry
+    #   rescue UnrecoverableError => e
+    #     logger.error(e)  # Log but don't raise (moves to DLQ if configured)
+    #   end
+    #   consumer.run!
+    #
     def run!
       Logging.info(
         "Consumer #{@durable} started (batch=#{@batch_size}, dest=#{JetstreamBridge.config.destination_subject})…",
@@ -57,7 +199,31 @@ module JetstreamBridge
       Logging.info("Consumer #{@durable} stopped gracefully", tag: 'JetstreamBridge::Consumer')
     end
 
-    # Allow external callers to stop a long-running loop gracefully.
+    # Stop the consumer gracefully and drain in-flight messages.
+    #
+    # This method signals the consumer to stop processing new messages and drain
+    # any messages that are currently being processed. It's safe to call from
+    # signal handlers or other threads.
+    #
+    # The consumer will:
+    # - Stop fetching new messages
+    # - Complete processing of in-flight messages
+    # - Drain pending messages (up to 5 batches)
+    # - Close the subscription cleanly
+    #
+    # @return [void]
+    #
+    # @example In signal handler
+    #   consumer = JetstreamBridge::Consumer.new { |event| process(event) }
+    #   trap("TERM") { consumer.stop! }
+    #   consumer.run!
+    #
+    # @example Manual control
+    #   consumer = JetstreamBridge::Consumer.new { |event| process(event) }
+    #   Thread.new { consumer.run! }
+    #   sleep 10
+    #   consumer.stop!  # Stop after 10 seconds
+    #
     def stop!
       @shutdown_requested = true
       @running = false

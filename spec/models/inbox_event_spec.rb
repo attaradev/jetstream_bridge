@@ -157,5 +157,225 @@ RSpec.describe JetstreamBridge::InboxEvent do
     it 'handles string column names' do
       expect(described_class.has_column?('event_id')).to be true
     end
+
+    it 'returns false when not connected' do
+      allow(described_class).to receive(:ar_connected?).and_return(false)
+      expect(described_class.has_column?(:event_id)).to be false
+    end
+
+    it 'returns false when ConnectionNotEstablished is raised' do
+      allow(described_class).to receive(:ar_connected?).and_return(true)
+      allow(described_class.connection).to receive(:schema_cache).and_raise(ActiveRecord::ConnectionNotEstablished)
+      expect(described_class.has_column?(:event_id)).to be false
+    end
+
+    it 'returns false when NoDatabaseError is raised' do
+      allow(described_class).to receive(:ar_connected?).and_return(true)
+      allow(described_class.connection).to receive(:schema_cache).and_raise(ActiveRecord::NoDatabaseError)
+      expect(described_class.has_column?(:event_id)).to be false
+    end
+  end
+
+  describe '.ar_connected?' do
+    it 'returns true when connected and pool is active' do
+      ActiveRecord::Base.connection.execute('SELECT 1')
+      result = described_class.ar_connected?
+      expect(result).to be_truthy
+    end
+
+    it 'returns false when ActiveRecord::Base is not connected' do
+      allow(ActiveRecord::Base).to receive(:connected?).and_return(false)
+      expect(described_class.ar_connected?).to be false
+    end
+
+    it 'returns false when connection_pool has no active connection' do
+      allow(ActiveRecord::Base).to receive(:connected?).and_return(true)
+      allow(described_class.connection_pool).to receive(:active_connection?).and_return(false)
+      expect(described_class.ar_connected?).to be false
+    end
+
+    it 'returns false when StandardError is raised' do
+      allow(ActiveRecord::Base).to receive(:connected?).and_raise(StandardError, 'connection error')
+      expect(described_class.ar_connected?).to be false
+    end
+  end
+
+  describe 'scopes' do
+    before do
+      described_class.create!(event_id: 'received-1', subject: 'test.received', status: 'received')
+      described_class.create!(event_id: 'processing-1', subject: 'test.processing', status: 'processing')
+      described_class.create!(event_id: 'processed-1', subject: 'test.processed', status: 'processed')
+      described_class.create!(event_id: 'failed-1', subject: 'test.failed', status: 'failed')
+      described_class.create!(event_id: 'subject-match', subject: 'specific.subject', status: 'received')
+    end
+
+    describe '.received' do
+      it 'returns events with received status' do
+        events = described_class.received
+        expect(events.count).to eq(2)
+        expect(events.pluck(:status).uniq).to eq(['received'])
+      end
+    end
+
+    describe '.processing' do
+      it 'returns events with processing status' do
+        events = described_class.processing
+        expect(events.count).to eq(1)
+        expect(events.first.event_id).to eq('processing-1')
+      end
+    end
+
+    describe '.processed' do
+      it 'returns events with processed status' do
+        events = described_class.processed
+        expect(events.count).to eq(1)
+        expect(events.first.event_id).to eq('processed-1')
+      end
+    end
+
+    describe '.failed' do
+      it 'returns events with failed status' do
+        events = described_class.failed
+        expect(events.count).to eq(1)
+        expect(events.first.event_id).to eq('failed-1')
+      end
+    end
+
+    describe '.by_subject' do
+      it 'returns events matching the subject' do
+        events = described_class.by_subject('specific.subject')
+        expect(events.count).to eq(1)
+        expect(events.first.event_id).to eq('subject-match')
+      end
+
+      it 'returns empty when no matches' do
+        events = described_class.by_subject('nonexistent.subject')
+        expect(events.count).to eq(0)
+      end
+    end
+  end
+
+  describe '#payload_hash' do
+    context 'when payload is nil' do
+      it 'returns nil' do
+        event = described_class.create!(event_id: 'nil-payload', subject: 'test.subject', payload: nil)
+        expect(event.payload_hash).to be_nil
+      end
+    end
+
+    context 'when payload column does not exist' do
+      it 'returns nil for missing column' do
+        event = described_class.create!(event_id: 'no-column', subject: 'test.subject')
+        # When column doesn't exist, self[:payload] returns nil
+        expect(event.payload_hash).to be_nil
+      end
+    end
+  end
+
+  describe 'validation guards when columns missing' do
+    context 'when event_id column does not exist' do
+      before do
+        allow(described_class).to receive(:has_column?).with(:event_id).and_return(false)
+        allow(described_class).to receive(:has_column?).with(:stream_seq).and_return(true)
+        allow(described_class).to receive(:has_column?).with(:stream).and_return(true)
+        allow(described_class).to receive(:has_column?).with(:subject).and_return(true)
+        allow(described_class).to receive(:has_column?).with(:status).and_return(true)
+        allow(described_class).to receive(:has_column?).with(:received_at).and_return(true)
+      end
+
+      it 'validates stream_seq presence instead' do
+        event = described_class.new(subject: 'test.subject', stream: 'test-stream')
+        expect(event.valid?).to be false
+        expect(event.errors[:stream_seq]).to include("can't be blank")
+      end
+
+      it 'validates stream_seq uniqueness scoped to stream' do
+        described_class.create!(stream_seq: 1, stream: 'stream-a', subject: 'test.subject')
+        duplicate = described_class.new(stream_seq: 1, stream: 'stream-a', subject: 'test.subject')
+
+        expect(duplicate.valid?).to be false
+        expect(duplicate.errors[:stream_seq]).to be_present
+      end
+    end
+
+    context 'when neither event_id nor stream column exists' do
+      before do
+        allow(described_class).to receive(:has_column?).with(:event_id).and_return(false)
+        allow(described_class).to receive(:has_column?).with(:stream_seq).and_return(true)
+        allow(described_class).to receive(:has_column?).with(:stream).and_return(false)
+        allow(described_class).to receive(:has_column?).with(:subject).and_return(true)
+        allow(described_class).to receive(:has_column?).with(:status).and_return(true)
+        allow(described_class).to receive(:has_column?).with(:received_at).and_return(true)
+      end
+
+      it 'validates stream_seq uniqueness without scope' do
+        described_class.create!(stream_seq: 1, subject: 'test.subject')
+        duplicate = described_class.new(stream_seq: 1, subject: 'test.subject')
+
+        expect(duplicate.valid?).to be false
+        expect(duplicate.errors[:stream_seq]).to include('has already been taken')
+      end
+    end
+  end
+
+  describe 'before_validation callback with missing columns' do
+    context 'when status column does not exist' do
+      it 'does not error when setting default status' do
+        allow(described_class).to receive(:has_column?).with(:status).and_return(false)
+        allow(described_class).to receive(:has_column?).with(:received_at).and_return(true)
+        allow(described_class).to receive(:has_column?).with(:event_id).and_return(true)
+        allow(described_class).to receive(:has_column?).with(:subject).and_return(true)
+
+        event = described_class.new(event_id: 'test-status', subject: 'test.subject')
+        expect { event.valid? }.not_to raise_error
+      end
+    end
+
+    context 'when received_at column does not exist' do
+      it 'does not error when setting default timestamp' do
+        allow(described_class).to receive(:has_column?).with(:status).and_return(true)
+        allow(described_class).to receive(:has_column?).with(:received_at).and_return(false)
+        allow(described_class).to receive(:has_column?).with(:event_id).and_return(true)
+        allow(described_class).to receive(:has_column?).with(:subject).and_return(true)
+
+        event = described_class.new(event_id: 'test-timestamp', subject: 'test.subject')
+        expect { event.valid? }.not_to raise_error
+      end
+    end
+  end
+
+  describe 'scopes when status column does not exist' do
+    it 'returns empty relation for received scope' do
+      allow(described_class).to receive(:has_column?).with(:status).and_return(false)
+      expect(described_class.received).to be_a(ActiveRecord::Relation)
+      expect(described_class.received.to_a).to be_empty
+    end
+
+    it 'returns empty relation for processing scope' do
+      allow(described_class).to receive(:has_column?).with(:status).and_return(false)
+      expect(described_class.processing).to be_a(ActiveRecord::Relation)
+      expect(described_class.processing.to_a).to be_empty
+    end
+
+    it 'returns empty relation for processed scope' do
+      allow(described_class).to receive(:has_column?).with(:status).and_return(false)
+      expect(described_class.processed).to be_a(ActiveRecord::Relation)
+      expect(described_class.processed.to_a).to be_empty
+    end
+
+    it 'returns empty relation for failed scope' do
+      allow(described_class).to receive(:has_column?).with(:status).and_return(false)
+      expect(described_class.failed).to be_a(ActiveRecord::Relation)
+      expect(described_class.failed.to_a).to be_empty
+    end
+  end
+
+  describe 'by_subject scope when subject column does not exist' do
+    it 'returns empty relation' do
+      allow(described_class).to receive(:has_column?).with(:subject).and_return(false)
+      result = described_class.by_subject('test.subject')
+      expect(result).to be_a(ActiveRecord::Relation)
+      expect(result.to_a).to be_empty
+    end
   end
 end

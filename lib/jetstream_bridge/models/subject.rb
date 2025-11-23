@@ -63,6 +63,7 @@ module JetstreamBridge
       # @return [String, nil] Source application
       def source_app
         return nil if dlq?
+
         @tokens[1]
       end
 

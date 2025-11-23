@@ -282,4 +282,334 @@ RSpec.describe JetstreamBridge::Consumer do
       end.to raise_error(ArgumentError, /destination_app must be configured/)
     end
   end
+
+  describe '#use (middleware)' do
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    it 'adds middleware to the chain' do
+      middleware = double('middleware')
+      expect(consumer.middleware_chain).to receive(:use).with(middleware)
+      consumer.use(middleware)
+    end
+
+    it 'returns self for method chaining' do
+      middleware = double('middleware')
+      allow(consumer.middleware_chain).to receive(:use)
+      expect(consumer.use(middleware)).to eq(consumer)
+    end
+
+    it 'allows multiple middleware to be chained' do
+      middleware1 = double('middleware1')
+      middleware2 = double('middleware2')
+      allow(consumer.middleware_chain).to receive(:use)
+
+      result = consumer.use(middleware1).use(middleware2)
+      expect(result).to eq(consumer)
+    end
+  end
+
+  describe '#run!' do
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    it 'loops while running is true' do
+      allow(subscription).to receive(:fetch).and_return([])
+      allow(consumer).to receive(:sleep)
+
+      # Stop after first iteration
+      call_count = 0
+      allow(consumer).to receive(:process_batch) do
+        call_count += 1
+        consumer.stop! if call_count >= 2
+        0
+      end
+
+      consumer.run!
+      expect(call_count).to eq(2)
+    end
+
+    it 'calls drain_inflight_messages when shutdown is requested' do
+      allow(subscription).to receive(:fetch).and_return([])
+      allow(consumer).to receive(:sleep)
+
+      # Stop immediately
+      consumer.instance_variable_set(:@running, false)
+      consumer.instance_variable_set(:@shutdown_requested, true)
+
+      expect(consumer).to receive(:drain_inflight_messages)
+      consumer.run!
+    end
+
+    it 'does not drain when shutdown not requested' do
+      allow(subscription).to receive(:fetch).and_return([])
+      allow(consumer).to receive(:sleep)
+
+      # Stop without shutdown request
+      consumer.instance_variable_set(:@running, false)
+      consumer.instance_variable_set(:@shutdown_requested, false)
+
+      expect(consumer).not_to receive(:drain_inflight_messages)
+      consumer.run!
+    end
+
+    it 'processes batches and sleeps when idle' do
+      allow(subscription).to receive(:fetch).and_return([])
+
+      sleep_called = false
+      allow(consumer).to receive(:sleep) do
+        sleep_called = true
+        consumer.stop! # Stop after first sleep
+      end
+
+      consumer.run!
+      expect(sleep_called).to be true
+    end
+  end
+
+  describe '#setup_signal_handlers' do
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    it 'traps INT and TERM signals' do
+      # Allow Signal.trap to be called (it will be called twice - once for each signal)
+      allow(Signal).to receive(:trap).and_call_original
+      expect { consumer.send(:setup_signal_handlers) }.not_to raise_error
+    end
+
+    it 'calls stop! when INT signal is received' do
+      # Capture the signal handler block
+      handler_block = nil
+      allow(Signal).to receive(:trap) do |sig, &block|
+        handler_block = block if sig == 'INT'
+      end
+
+      consumer.send(:setup_signal_handlers)
+
+      # Execute the handler to simulate receiving INT signal
+      expect(consumer).to receive(:stop!)
+      handler_block&.call
+    end
+
+    it 'calls stop! when TERM signal is received' do
+      # Capture the signal handler block
+      handler_block = nil
+      allow(Signal).to receive(:trap) do |sig, &block|
+        handler_block = block if sig == 'TERM'
+      end
+
+      consumer.send(:setup_signal_handlers)
+
+      # Execute the handler to simulate receiving TERM signal
+      expect(consumer).to receive(:stop!)
+      handler_block&.call
+    end
+
+    it 'handles ArgumentError when signal handlers unavailable' do
+      allow(Signal).to receive(:trap).and_raise(ArgumentError, 'unavailable')
+      expect { consumer.send(:setup_signal_handlers) }.not_to raise_error
+    end
+  end
+
+  describe '#js_err_code' do
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    it 'extracts error code from message' do
+      message = 'some error err_code=503 occurred'
+      expect(consumer.send(:js_err_code, message)).to eq(503)
+    end
+
+    it 'returns nil when no error code present' do
+      message = 'some error without code'
+      expect(consumer.send(:js_err_code, message)).to be_nil
+    end
+
+    it 'extracts 5-digit error codes' do
+      message = 'error with err_code=10503'
+      expect(consumer.send(:js_err_code, message)).to eq(10_503)
+    end
+  end
+
+  describe '#handle_js_error' do
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    it 'attempts recovery for recoverable errors' do
+      error = NATS::JetStream::Error.new('consumer not found')
+      expect(consumer).to receive(:recoverable_consumer_error?).with(error).and_return(true)
+      expect(sub_mgr).to receive(:ensure_consumer!)
+      expect(sub_mgr).to receive(:subscribe!).and_return(subscription)
+
+      result = consumer.send(:handle_js_error, error)
+      expect(result).to eq(0)
+    end
+
+    it 'does not attempt recovery for non-recoverable errors' do
+      error = NATS::JetStream::Error.new('permission denied')
+      expect(consumer).to receive(:recoverable_consumer_error?).with(error).and_return(false)
+
+      result = consumer.send(:handle_js_error, error)
+      expect(result).to eq(0)
+    end
+  end
+
+  describe 'integration: full message processing flow' do
+    subject(:consumer) { described_class.new { |event| processed_events << event.to_h } }
+
+    let(:processed_events) { [] }
+    let(:msg1) { double('msg1', data: '{"type":"test","payload":{"id":1}}') }
+    let(:msg2) { double('msg2', data: '{"type":"test","payload":{"id":2}}') }
+
+    before do
+      allow(subscription).to receive(:fetch).and_return([msg1, msg2], [])
+      allow(msg1).to receive(:ack)
+      allow(msg2).to receive(:ack)
+      allow(msg1).to receive(:subject).and_return('events.dest.test')
+      allow(msg2).to receive(:subject).and_return('events.dest.test')
+      allow(msg1).to receive(:metadata).and_return(double(num_delivered: 1))
+      allow(msg2).to receive(:metadata).and_return(double(num_delivered: 1))
+    end
+
+    it 'processes multiple batches until stopped' do
+      call_count = 0
+      allow(subscription).to receive(:fetch) do
+        call_count += 1
+        if call_count == 1
+          [msg1, msg2]
+        else
+          consumer.stop!
+          []
+        end
+      end
+
+      allow(consumer).to receive(:sleep)
+      consumer.run!
+
+      expect(call_count).to be >= 1
+    end
+  end
+
+  describe 'error recovery scenarios' do
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    context 'when multiple recoverable errors occur' do
+      it 'continues processing after each recovery' do
+        double('msg')
+        errors = [
+          NATS::JetStream::Error.new('consumer not found'),
+          nil,  # successful fetch
+          NATS::JetStream::Error.new('stream not found'),
+          nil   # successful fetch
+        ]
+        error_index = 0
+
+        allow(subscription).to receive(:fetch) do
+          error = errors[error_index]
+          error_index += 1
+          raise error if error
+
+          consumer.stop! if error_index >= errors.size
+          []
+        end
+
+        allow(consumer).to receive(:sleep)
+        consumer.run!
+
+        # Should have attempted recovery twice (once for initialization)
+        expect(sub_mgr).to have_received(:ensure_consumer!).at_least(3).times
+      end
+    end
+
+    context 'when process_one raises error during batch' do
+      it 'continues processing remaining messages' do
+        msg1 = double('msg1')
+        msg2 = double('msg2')
+        msg3 = double('msg3')
+
+        allow(subscription).to receive(:fetch).and_return([msg1, msg2, msg3], [])
+        allow(processor).to receive(:handle_message).with(msg1)
+        allow(processor).to receive(:handle_message).with(msg2).and_raise(StandardError, 'processing failed')
+        allow(processor).to receive(:handle_message).with(msg3)
+
+        result = consumer.send(:process_batch)
+
+        # Should process 2 messages (msg1 and msg3), msg2 fails
+        expect(result).to eq(2)
+      end
+    end
+  end
+
+  describe 'drain with multiple message batches' do
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    it 'drains up to 5 batches of messages' do
+      msg = double('msg')
+      fetch_count = 0
+
+      allow(subscription).to receive(:fetch) do
+        fetch_count += 1
+        fetch_count <= 5 ? [msg] : []
+      end
+
+      allow(processor).to receive(:handle_message)
+
+      consumer.send(:drain_inflight_messages)
+
+      expect(fetch_count).to eq(5) # 5 batches drained (stops when batch is processed, not when empty)
+    end
+
+    it 'stops draining after empty batch' do
+      msg = double('msg')
+      fetch_count = 0
+
+      allow(subscription).to receive(:fetch) do
+        fetch_count += 1
+        fetch_count <= 2 ? [msg] : []
+      end
+
+      allow(processor).to receive(:handle_message)
+
+      consumer.send(:drain_inflight_messages)
+
+      expect(fetch_count).to eq(3) # 2 with messages + 1 empty
+    end
+
+    it 'handles error at top level of drain_inflight_messages' do
+      allow(subscription).to receive(:fetch).and_raise(StandardError, 'unexpected error')
+
+      # Should catch outer exception
+      expect { consumer.send(:drain_inflight_messages) }.not_to raise_error
+    end
+
+    it 'catches exceptions from the drain loop itself' do
+      # Make Logging.info fail to trigger the outer rescue block
+      # The outer rescue handles errors outside the 5.times loop (e.g., logging errors)
+      allow(JetstreamBridge::Logging).to receive(:info).and_raise(RuntimeError, 'logging failed')
+
+      # Should handle the error in outer rescue block (line 348)
+      expect { consumer.send(:drain_inflight_messages) }.not_to raise_error
+    end
+  end
+
+  describe 'batch_size parameter handling' do
+    it 'converts string batch_size to integer' do
+      consumer = described_class.new(batch_size: '50') { |*| nil }
+      expect(consumer.batch_size).to eq(50)
+    end
+
+    it 'uses DEFAULT_BATCH_SIZE when nil' do
+      consumer = described_class.new(batch_size: nil) { |*| nil }
+      expect(consumer.batch_size).to eq(described_class::DEFAULT_BATCH_SIZE)
+    end
+
+    it 'raises error for invalid batch_size' do
+      expect do
+        described_class.new(batch_size: 'invalid') { |*| nil }
+      end.to raise_error(ArgumentError)
+    end
+  end
+
+  describe 'middleware chain initialization' do
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    it 'initializes with empty middleware chain' do
+      expect(consumer.middleware_chain).to be_a(JetstreamBridge::Consumer::MiddlewareChain)
+    end
+  end
 end

@@ -3,7 +3,9 @@
 require 'oj'
 require 'securerandom'
 require_relative '../core/logging'
+require_relative '../models/event'
 require_relative 'dlq_publisher'
+require_relative 'middleware'
 
 module JetstreamBridge
   # Immutable per-message metadata.
@@ -49,11 +51,14 @@ module JetstreamBridge
   class MessageProcessor
     UNRECOVERABLE_ERRORS = [ArgumentError, TypeError].freeze
 
-    def initialize(jts, handler, dlq: nil, backoff: nil)
-      @jts     = jts
-      @handler = handler
-      @dlq     = dlq || DlqPublisher.new(jts)
-      @backoff = backoff || BackoffStrategy.new
+    attr_reader :middleware_chain
+
+    def initialize(jts, handler, dlq: nil, backoff: nil, middleware_chain: nil)
+      @jts              = jts
+      @handler          = handler
+      @dlq              = dlq || DlqPublisher.new(jts)
+      @backoff          = backoff || BackoffStrategy.new
+      @middleware_chain = middleware_chain || ConsumerMiddleware::MiddlewareChain.new
     end
 
     def handle_message(msg)
@@ -97,8 +102,17 @@ module JetstreamBridge
       nil
     end
 
-    def process_event(msg, event, ctx)
-      @handler.call(event, ctx.subject, ctx.deliveries)
+    def process_event(msg, event_hash, ctx)
+      # Convert hash to Event object
+      event = build_event_object(event_hash, ctx)
+
+      # Call handler through middleware chain
+      if @middleware_chain
+        @middleware_chain.call(event) { call_handler(event, event_hash, ctx) }
+      else
+        call_handler(event, event_hash, ctx)
+      end
+
       msg.ack
       Logging.info(
         "ACK event_id=#{ctx.event_id} subject=#{ctx.subject} seq=#{ctx.seq} deliveries=#{ctx.deliveries}",
@@ -174,6 +188,26 @@ module JetstreamBridge
         "#{e.class} #{e.message}",
         tag: 'JetstreamBridge::Consumer'
       )
+    end
+
+    # Build Event object from hash and context
+    def build_event_object(event_hash, ctx)
+      Models::Event.new(
+        event_hash,
+        metadata: {
+          subject: ctx.subject,
+          deliveries: ctx.deliveries,
+          stream: ctx.stream,
+          sequence: ctx.seq,
+          consumer: ctx.consumer,
+          timestamp: Time.now
+        }
+      )
+    end
+
+    # Call handler with Event object
+    def call_handler(event, _event_hash, _ctx)
+      @handler.call(event)
     end
   end
 end

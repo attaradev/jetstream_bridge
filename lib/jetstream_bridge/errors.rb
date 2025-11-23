@@ -34,6 +34,7 @@ module JetstreamBridge
 
   class PublishFailedError < PublishError; end
   class OutboxError < PublishError; end
+
   class BatchPublishError < PublishError
     attr_reader :failed_events, :successful_count
 

@@ -141,11 +141,11 @@ JetstreamBridge.publish(
 
 ```ruby
 # Create a consumer (e.g., in a rake task or separate process)
-consumer = JetstreamBridge::Consumer.new do |event, subject, deliveries|
-  user_data = event["payload"]
+consumer = JetstreamBridge::Consumer.new do |event|
+  user_data = event.payload
   # Your idempotent business logic here
-  User.find_or_create_by(id: user_data["id"]) do |user|
-    user.email = user_data["email"]
+  User.find_or_create_by(id: user_data.id) do |user|
+    user.email = user_data.email
   end
 end
 
@@ -459,7 +459,7 @@ add_index :jetstream_inbox_events, :status
 
 JetStream Bridge provides two ways to publish events: a convenience method and a direct publisher instance.
 
-### Using the Convenience Method (Recommended)
+### Using the Convenience Method to Consume Events
 
 The simplest way to publish events:
 
@@ -540,6 +540,33 @@ publisher.publish(
 )
 ```
 
+#### Thread Safety
+
+Publisher instances are **thread-safe** and can be shared across multiple threads:
+
+```ruby
+# Safe: Share publisher across threads
+@publisher = JetstreamBridge::Publisher.new
+
+# Multiple threads can publish concurrently
+threads = 10.times.map do |i|
+  Thread.new do
+    @publisher.publish(
+      event_type: "user.created",
+      payload: { id: i, name: "User #{i}" }
+    )
+  end
+end
+
+threads.each(&:join)
+```
+
+The underlying NATS connection is managed through a thread-safe singleton, ensuring safe concurrent access. However, for high-throughput scenarios, consider:
+
+* Using the convenience method `JetstreamBridge.publish(...)` which handles connection management automatically
+* Creating a connection pool if you need isolated error handling per thread
+* Using batch publishing for bulk operations: `JetstreamBridge.publish_batch { ... }`
+
 ### Publishing with Transactions (Outbox Pattern)
 
 When `use_outbox` is enabled, events are saved to the database first:
@@ -568,7 +595,7 @@ If **Outbox** is enabled (`config.use_outbox = true`):
 * ✅ Survives NATS downtime - events queued for retry
 * ✅ Provides audit trail of all published events
 
-### Real-World Examples
+### Real-World Publishing Examples
 
 #### Publishing Domain Events
 
@@ -645,34 +672,81 @@ JetStream Bridge provides two ways to consume events: a convenience method and d
 The simplest way to start consuming events:
 
 ```ruby
-# Start consumer and run in current thread
-consumer = JetstreamBridge.subscribe do |event, subject, deliveries|
-  user_data = event["payload"]
-  User.find_or_create_by(id: user_data["id"]) do |user|
-    user.email = user_data["email"]
+# Start consumer and run in current thread (receives Event object)
+consumer = JetstreamBridge.subscribe do |event|
+  # event is a Models::Event object with structured access
+  puts "Processing: #{event.type}"
+  puts "Payload: #{event.payload.to_h}"
+  puts "Event ID: #{event.event_id}"
+  puts "Deliveries: #{event.deliveries}"
+
+  User.find_or_create_by(id: event.payload.id) do |user|
+    user.email = event.payload.email
   end
 end
 
 consumer.run! # Blocks and processes messages
 ```
 
+**Note:** The consumer handler receives a structured `Models::Event` object (not a raw hash) with convenient accessor methods for event data and metadata.
+
+### Understanding the Event Object
+
+Consumers receive a `JetstreamBridge::Models::Event` object that provides structured access to event data and metadata:
+
+```ruby
+JetstreamBridge.subscribe do |event|
+  # Event data
+  event.event_id       # => "abc-123-def"
+  event.type           # => "user.created" (event_type)
+  event.resource_type  # => "user"
+  event.resource_id    # => "123"
+  event.producer       # => "api_service"
+  event.occurred_at    # => 2025-01-15 10:30:00 UTC (Time object)
+  event.trace_id       # => "xyz789"
+
+  # Payload access (method-style or hash-style)
+  event.payload.id          # => 123
+  event.payload.email       # => "ada@example.com"
+  event.payload["id"]       # => 123 (also works)
+  event.payload.to_h        # => { "id" => 123, "email" => "ada@example.com" }
+
+  # Delivery metadata
+  event.deliveries     # => 1 (delivery attempt count)
+  event.subject        # => "production.api.sync.worker"
+  event.stream         # => "production-jetstream-bridge-stream"
+  event.sequence       # => 42 (stream sequence number)
+
+  # Access all metadata
+  event.metadata.to_h  # => { subject: "...", deliveries: 1, ... }
+
+  # Convert to hash (for backwards compatibility)
+  event.to_h           # => Full event as hash
+  event["event_type"]  # => "user.created" (hash-style access)
+end
+```
+
+This structured approach provides type safety, cleaner code, and better IDE support compared to raw hashes.
+
 ### Consuming Patterns
 
 #### 1. Basic Consumer with Block
 
 ```ruby
-consumer = JetstreamBridge.subscribe do |event, subject, deliveries|
-  # event: parsed envelope hash with all event data
-  # subject: NATS subject the message was published to
-  # deliveries: number of delivery attempts (starts at 1)
+consumer = JetstreamBridge.subscribe do |event|
+  # event: Models::Event object with structured access
+  # event.type: Event type (e.g., "created", "user.created")
+  # event.payload: PayloadAccessor for event data
+  # event.deliveries: Number of delivery attempts (starts at 1)
+  # event.metadata: Delivery metadata (subject, stream, sequence, etc.)
 
-  case event["event_type"]
+  case event.type
   when "created"
-    UserCreatedHandler.call(event["payload"])
+    UserCreatedHandler.call(event.payload.to_h)
   when "updated"
-    UserUpdatedHandler.call(event["payload"])
+    UserUpdatedHandler.call(event.payload.to_h)
   when "deleted"
-    UserDeletedHandler.call(event["payload"])
+    UserDeletedHandler.call(event.payload.to_h)
   end
 end
 
@@ -683,8 +757,8 @@ consumer.run! # Start consuming
 
 ```ruby
 # Returns a Thread instead of Consumer
-thread = JetstreamBridge.subscribe(run: true) do |event, subject, deliveries|
-  ProcessEventJob.perform_later(event)
+thread = JetstreamBridge.subscribe(run: true) do |event|
+  ProcessEventJob.perform_later(event.to_h)
 end
 
 # Consumer runs in background
@@ -698,8 +772,8 @@ thread.kill
 
 ```ruby
 class EventHandler
-  def call(event, subject, deliveries)
-    logger.info "Processing #{event['event_type']} from #{subject} (attempt #{deliveries})"
+  def call(event)
+    logger.info "Processing #{event.type} from #{event.subject} (attempt #{event.deliveries})"
     # Your logic here
   end
 end
@@ -715,11 +789,66 @@ consumer.run!
 consumer = JetstreamBridge.subscribe(
   durable_name: "my-custom-consumer",
   batch_size: 10
-) do |event, subject, deliveries|
+) do |event|
   # Process events in batches of 10
 end
 
 consumer.run!
+```
+
+#### 5. Consumer with Middleware
+
+Add cross-cutting concerns like logging, metrics, and tracing using middleware:
+
+```ruby
+consumer = JetstreamBridge.subscribe do |event|
+  process_event(event)
+end
+
+# Add built-in middleware
+consumer.use(JetstreamBridge::Consumer::LoggingMiddleware.new)
+consumer.use(JetstreamBridge::Consumer::MetricsMiddleware.new(
+  on_success: ->(event, duration) { StatsD.timing("event.process", duration) },
+  on_failure: ->(event, error) { StatsD.increment("event.failed") }
+))
+consumer.use(JetstreamBridge::Consumer::TimeoutMiddleware.new(timeout: 30))
+
+consumer.run!
+```
+
+**Available Middleware:**
+
+* `LoggingMiddleware` - Logs event processing start, completion, and errors
+* `ErrorHandlingMiddleware` - Custom error handling with callbacks
+* `MetricsMiddleware` - Track processing metrics and timing
+* `TracingMiddleware` - Distributed tracing support (sets Current.trace_id)
+* `TimeoutMiddleware` - Prevent long-running handlers from blocking
+
+**Custom Middleware Example:**
+
+```ruby
+class RetryMiddleware
+  def initialize(max_retries: 3)
+    @max_retries = max_retries
+  end
+
+  def call(event)
+    retries = 0
+    begin
+      yield
+    rescue TransientError => e
+      retries += 1
+      if retries < @max_retries
+        sleep(retries)
+        retry
+      else
+        raise
+      end
+    end
+  end
+end
+
+consumer.use(RetryMiddleware.new(max_retries: 5))
 ```
 
 ### Using Consumer Instances Directly
@@ -727,12 +856,10 @@ consumer.run!
 For more control over the consumer lifecycle:
 
 ```ruby
-consumer = JetstreamBridge::Consumer.new do |event, subject, deliveries|
-  # event: parsed envelope
-  # subject: NATS subject
-  # deliveries: number of delivery attempts
+consumer = JetstreamBridge::Consumer.new do |event|
+  # event: Models::Event object with structured access
 
-  logger.info "Processing #{event['event_type']} (attempt #{deliveries})"
+  logger.info "Processing #{event.type} (attempt #{event.deliveries})"
 
   begin
     process_event(event)
@@ -749,22 +876,26 @@ end
 consumer.run! # Start processing
 ```
 
-### Understanding Handler Parameters
+### Understanding the Handler Signature
 
-Your handler receives three parameters:
+Your handler receives a single `Models::Event` parameter with all event and metadata:
 
 ```ruby
-JetstreamBridge.subscribe do |event, subject, deliveries|
-  # event: Hash - the parsed event envelope with payload, event_type, etc.
-  # subject: String - the NATS subject the message was published to
-  # deliveries: Integer - the delivery attempt number (starts at 1)
+JetstreamBridge.subscribe do |event|
+  # event: Models::Event - structured event object
 
-  puts "Event type: #{event['event_type']}"
-  puts "Subject: #{subject}"
-  puts "Delivery attempt: #{deliveries}"
+  puts "Event type: #{event.type}"
+  puts "Event ID: #{event.event_id}"
+  puts "Subject: #{event.subject}"
+  puts "Delivery attempt: #{event.deliveries}"
+  puts "Trace ID: #{event.trace_id}"
+
+  # Access payload
+  puts "User ID: #{event.payload.id}"
+  puts "Email: #{event.payload.email}"
 
   # Implement retry logic based on deliveries if needed
-  raise "Transient error, retry" if deliveries < 3 && some_transient_condition?
+  raise "Transient error, retry" if event.deliveries < 3 && some_transient_condition?
 end
 ```
 
@@ -789,13 +920,13 @@ If **Inbox** is enabled (`config.use_inbox = true`):
 
 ```ruby
 # With inbox enabled, this is automatically idempotent:
-JetstreamBridge.subscribe do |event, subject, deliveries|
+JetstreamBridge.subscribe do |event|
   # Even if message is redelivered, it won't execute twice
-  User.create!(email: event["payload"]["email"])
+  User.create!(email: event.payload.email)
 end
 ```
 
-### Real-World Examples
+### Real-World Consuming Examples
 
 #### Processing in Rake Task
 
@@ -804,16 +935,16 @@ end
 namespace :jetstream do
   desc "Start event consumer"
   task consume: :environment do
-    consumer = JetstreamBridge.subscribe do |event, subject, deliveries|
-      Rails.logger.info "Processing #{event['event_type']} (attempt #{deliveries})"
+    consumer = JetstreamBridge.subscribe do |event|
+      Rails.logger.info "Processing #{event.type} (attempt #{event.deliveries})"
 
-      case event["resource_type"]
+      case event.resource_type
       when "user"
         UserEventHandler.process(event)
       when "order"
         OrderEventHandler.process(event)
       else
-        Rails.logger.warn "Unknown resource type: #{event['resource_type']}"
+        Rails.logger.warn "Unknown resource type: #{event.resource_type}"
       end
     end
 
@@ -829,11 +960,11 @@ end
 
 ```ruby
 # Offload to background jobs for complex processing
-JetstreamBridge.subscribe(run: true) do |event, subject, deliveries|
+JetstreamBridge.subscribe(run: true) do |event|
   ProcessEventJob.perform_later(
-    event: event.to_json,
-    event_id: event["event_id"],
-    trace_id: event["trace_id"]
+    event: event.to_h.to_json,
+    event_id: event.event_id,
+    trace_id: event.trace_id
   )
 end
 
@@ -845,7 +976,7 @@ class ProcessEventJob < ApplicationJob
     event_data = JSON.parse(event)
 
     # Complex processing with retries
-    case event_data["event_type"]
+    case event_data["type"]
     when "user.created"
       SendWelcomeEmailService.call(event_data["payload"])
     when "order.completed"
@@ -863,20 +994,20 @@ end
 ```ruby
 # app/services/event_router.rb
 class EventRouter
-  def self.route(event, subject, deliveries)
-    handler_class = "#{event['resource_type'].camelize}#{event['event_type'].camelize}Handler"
+  def self.route(event)
+    handler_class = "#{event.resource_type.camelize}#{event.type.camelize}Handler"
 
     if Object.const_defined?(handler_class)
-      handler_class.constantize.new.call(event, subject, deliveries)
+      handler_class.constantize.new.call(event)
     else
-      Rails.logger.warn "No handler for #{event['resource_type']}.#{event['event_type']}"
+      Rails.logger.warn "No handler for #{event.resource_type}.#{event.type}"
     end
   end
 end
 
 # Start consumer with router
-JetstreamBridge.subscribe do |event, subject, deliveries|
-  EventRouter.route(event, subject, deliveries)
+JetstreamBridge.subscribe do |event|
+  EventRouter.route(event)
 end.run!
 ```
 
@@ -886,9 +1017,9 @@ end.run!
 # app/consumers/application_consumer.rb
 class ApplicationConsumer
   def self.start!
-    consumer = JetstreamBridge.subscribe do |event, subject, deliveries|
+    consumer = JetstreamBridge.subscribe do |event|
       begin
-        new.process(event, subject, deliveries)
+        new.process(event)
       rescue => e
         Rails.logger.error "Error processing event: #{e.message}"
         raise # Trigger retry/DLQ
@@ -908,27 +1039,27 @@ class ApplicationConsumer
     consumer.run!
   end
 
-  def process(event, subject, deliveries)
+  def process(event)
     # Log for observability
     Rails.logger.info(
       message: "Processing event",
-      event_id: event["event_id"],
-      event_type: event["event_type"],
-      resource_type: event["resource_type"],
-      trace_id: event["trace_id"],
-      subject: subject,
-      deliveries: deliveries
+      event_id: event.event_id,
+      event_type: event.type,
+      resource_type: event.resource_type,
+      trace_id: event.trace_id,
+      subject: event.subject,
+      deliveries: event.deliveries
     )
 
     # Route to specific handler
     handler = handler_for(event)
-    handler.call(event["payload"], event)
+    handler.call(event.payload.to_h, event)
   end
 
   private
 
   def handler_for(event)
-    case [event["resource_type"], event["event_type"]]
+    case [event.resource_type, event.type]
     when ["user", "created"]
       UserCreatedHandler
     when ["user", "updated"]
@@ -997,7 +1128,87 @@ services:
 When enabled, the topology ensures the DLQ subject exists:
 **`{env}.sync.dlq`**
 
-You may run a separate process to subscribe and triage messages that exceed `max_deliver` or are NAK'ed to the DLQ.
+### How DLQ Works
+
+Messages are automatically moved to the DLQ when:
+
+* Delivery attempts exceed `max_deliver` (default: 5)
+* Handler raises an unrecoverable error
+* Message cannot be processed successfully after all retries
+
+### Consuming DLQ Messages
+
+You can run a separate consumer to monitor and process DLQ messages:
+
+```ruby
+# lib/tasks/dlq_consumer.rake
+namespace :jetstream do
+  desc "Process Dead Letter Queue messages"
+  task consume_dlq: :environment do
+    # Create a custom consumer for DLQ subject
+    dlq_subject = JetstreamBridge.config.dlq_subject
+
+    consumer = JetstreamBridge::Consumer.new(
+      durable_name: "#{JetstreamBridge.config.env}-dlq-processor"
+    ) do |event|
+      # Log failed event for manual review
+      Rails.logger.error(
+        "DLQ Event: #{event.event_id}",
+        event_type: event.type,
+        deliveries: event.deliveries,
+        payload: event.payload.to_h,
+        trace_id: event.trace_id
+      )
+
+      # Optionally: store in database for manual intervention
+      FailedEvent.create!(
+        event_id: event.event_id,
+        event_type: event.type,
+        payload: event.payload.to_h,
+        deliveries: event.deliveries,
+        failed_at: Time.current
+      )
+
+      # Or attempt recovery logic
+      case event.type
+      when "payment.processed"
+        # Manual payment reconciliation
+        PaymentReconciliationService.call(event.payload.to_h)
+      else
+        # Alert on-call team
+        AlertService.notify("DLQ event requires attention", event: event.to_h)
+      end
+    end
+
+    # Graceful shutdown
+    trap("TERM") { consumer.stop! }
+
+    Rails.logger.info "DLQ Consumer started on #{dlq_subject}"
+    consumer.run!
+  end
+end
+```
+
+**Run the DLQ consumer:**
+
+```bash
+bundle exec rake jetstream:consume_dlq
+```
+
+### DLQ Monitoring
+
+Monitor DLQ health and volume:
+
+```ruby
+# Check DLQ message count
+stream_info = JetstreamBridge.stream_info
+dlq_count = stream_info[:messages] # Messages in DLQ subject
+
+# Alert if DLQ is growing
+if dlq_count > 100
+  AlertService.notify("DLQ has #{dlq_count} messages")
+end
+```
 
 ---
 

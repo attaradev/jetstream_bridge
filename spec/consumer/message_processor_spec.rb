@@ -5,7 +5,7 @@ require 'oj'
 
 RSpec.describe JetstreamBridge::MessageProcessor do
   let(:jts) { double('jetstream') }
-  let(:handler) { double('handler') }
+  let(:handler) { double('handler', arity: 1) }
   let(:dlq) { instance_double(JetstreamBridge::DlqPublisher) }
   let(:backoff) { instance_double(JetstreamBridge::BackoffStrategy) }
   let(:processor) { described_class.new(jts, handler, dlq: dlq, backoff: backoff) }
@@ -16,7 +16,10 @@ RSpec.describe JetstreamBridge::MessageProcessor do
 
   let(:msg) do
     double('msg',
-           data: Oj.dump({ foo: 'bar' }),
+           data: Oj.dump({
+                           'event_type' => 'user.created',
+                           'payload' => { 'foo' => 'bar' }
+                         }),
            header: { 'nats-msg-id' => 'abc-123' },
            subject: 'test.subject',
            metadata: metadata,
@@ -116,7 +119,11 @@ RSpec.describe JetstreamBridge::MessageProcessor do
     let(:deliveries) { 1 }
 
     it 'acks the message' do
-      expect(handler).to receive(:call).with(Oj.load(msg.data, mode: :strict), msg.subject, deliveries)
+      # Handler receives Event object (new style)
+      expect(handler).to receive(:call) do |event|
+        expect(event).to be_a(JetstreamBridge::Models::Event)
+        expect(event.type).to eq('user.created')
+      end
       expect(msg).to receive(:ack)
       expect(dlq).not_to receive(:publish)
       processor.handle_message(msg)
@@ -252,6 +259,249 @@ RSpec.describe JetstreamBridge::MessageProcessor do
       # When context build fails, we don't have a ctx object so backoff.delay isn't called with specific args
       expect(msg).to receive(:nak)
       processor.handle_message(msg)
+    end
+  end
+
+  describe 'middleware integration' do
+    let(:deliveries) { 1 }
+    let(:middleware) { double('middleware') }
+    let(:middleware_chain) { JetstreamBridge::ConsumerMiddleware::MiddlewareChain.new }
+    let(:processor_with_middleware) do
+      described_class.new(jts, handler, dlq: dlq, backoff: backoff, middleware_chain: middleware_chain)
+    end
+
+    context 'with middleware chain' do
+      it 'processes event through middleware chain' do
+        middleware_chain.use(middleware)
+
+        expect(middleware).to receive(:call) do |event, &block|
+          expect(event).to be_a(JetstreamBridge::Models::Event)
+          block.call(event)
+        end
+
+        expect(handler).to receive(:call) do |event|
+          expect(event).to be_a(JetstreamBridge::Models::Event)
+        end
+
+        expect(msg).to receive(:ack)
+
+        processor_with_middleware.handle_message(msg)
+      end
+    end
+
+    context 'without middleware chain (nil)' do
+      let(:processor_no_middleware) do
+        proc = described_class.new(jts, handler, dlq: dlq, backoff: backoff, middleware_chain: nil)
+        # Set @middleware_chain to nil explicitly
+        proc.instance_variable_set(:@middleware_chain, nil)
+        proc
+      end
+
+      it 'calls handler directly without middleware' do
+        expect(handler).to receive(:call) do |event|
+          expect(event).to be_a(JetstreamBridge::Models::Event)
+        end
+
+        expect(msg).to receive(:ack)
+
+        processor_no_middleware.handle_message(msg)
+      end
+    end
+  end
+
+  describe '#safe_nak' do
+    let(:deliveries) { 3 }
+
+    context 'when ctx and error are present and msg supports nak_with_delay' do
+      it 'calls nak_with_delay with backoff delay' do
+        ctx = JetstreamBridge::MessageContext.build(msg)
+        error = StandardError.new('test error')
+
+        allow(msg).to receive(:respond_to?).with(:nak_with_delay).and_return(true)
+        expect(backoff).to receive(:delay).with(ctx.deliveries, error).and_return(5)
+        expect(msg).to receive(:nak_with_delay).with(5)
+
+        processor.send(:safe_nak, msg, ctx, error)
+      end
+    end
+
+    context 'when ctx is nil' do
+      it 'calls regular nak' do
+        expect(msg).to receive(:nak)
+        expect(msg).not_to receive(:nak_with_delay)
+
+        processor.send(:safe_nak, msg, nil, StandardError.new('error'))
+      end
+    end
+
+    context 'when error is nil' do
+      it 'calls regular nak' do
+        ctx = JetstreamBridge::MessageContext.build(msg)
+
+        expect(msg).to receive(:nak)
+        expect(msg).not_to receive(:nak_with_delay)
+
+        processor.send(:safe_nak, msg, ctx, nil)
+      end
+    end
+
+    context 'when msg does not respond to nak_with_delay' do
+      it 'calls regular nak' do
+        ctx = JetstreamBridge::MessageContext.build(msg)
+        error = StandardError.new('test error')
+
+        allow(msg).to receive(:respond_to?).with(:nak_with_delay).and_return(false)
+        expect(msg).to receive(:nak)
+        expect(msg).not_to receive(:nak_with_delay)
+
+        processor.send(:safe_nak, msg, ctx, error)
+      end
+    end
+
+    context 'when nak raises an error' do
+      it 'logs error and does not crash' do
+        ctx = JetstreamBridge::MessageContext.build(msg)
+
+        allow(msg).to receive(:nak).and_raise(StandardError, 'nak error')
+
+        expect(JetstreamBridge::Logging).to receive(:error).with(
+          /Failed to NAK.*nak error/,
+          tag: 'JetstreamBridge::Consumer'
+        )
+
+        expect { processor.send(:safe_nak, msg, ctx, nil) }.not_to raise_error
+      end
+    end
+
+    context 'when nak_with_delay raises an error' do
+      it 'logs error and does not crash' do
+        ctx = JetstreamBridge::MessageContext.build(msg)
+        error = StandardError.new('test error')
+
+        allow(msg).to receive(:respond_to?).with(:nak_with_delay).and_return(true)
+        allow(backoff).to receive(:delay).and_return(2)
+        allow(msg).to receive(:nak_with_delay).and_raise(StandardError, 'nak_with_delay error')
+
+        expect(JetstreamBridge::Logging).to receive(:error).with(
+          /Failed to NAK.*nak_with_delay error/,
+          tag: 'JetstreamBridge::Consumer'
+        )
+
+        expect { processor.send(:safe_nak, msg, ctx, error) }.not_to raise_error
+      end
+    end
+  end
+
+  describe '#build_event_object' do
+    let(:deliveries) { 2 }
+
+    it 'creates Event object with metadata from context' do
+      ctx = JetstreamBridge::MessageContext.build(msg)
+      event_hash = { 'event_type' => 'test.event', 'payload' => { 'data' => 'value' } }
+
+      event = processor.send(:build_event_object, event_hash, ctx)
+
+      expect(event).to be_a(JetstreamBridge::Models::Event)
+      expect(event.type).to eq('test.event')
+      expect(event.metadata.subject).to eq(ctx.subject)
+      expect(event.metadata.deliveries).to eq(ctx.deliveries)
+      expect(event.metadata.stream).to eq(ctx.stream)
+      expect(event.metadata.sequence).to eq(ctx.seq)
+      expect(event.metadata.consumer).to eq(ctx.consumer)
+    end
+  end
+
+  describe 'error logging and backtrace' do
+    let(:deliveries) { 1 }
+
+    it 'handles and naks when handler crashes' do
+      allow(handler).to receive(:call).and_raise(StandardError, 'handler crash')
+      allow(msg).to receive(:respond_to?).with(:nak_with_delay).and_return(true)
+      expect(msg).to receive(:nak_with_delay)
+
+      # Should not crash, should call safe_nak
+      expect { processor.handle_message(msg) }.not_to raise_error
+    end
+  end
+
+  describe 'MessageContext.build with edge cases' do
+    context 'when header nats-msg-id is empty string' do
+      let(:deliveries) { 1 }
+      let(:msg_empty_id) do
+        double('msg',
+               data: Oj.dump({ 'foo' => 'bar' }),
+               header: { 'nats-msg-id' => '' },
+               subject: 'test.subject',
+               metadata: metadata)
+      end
+
+      it 'uses empty string from header' do
+        ctx = JetstreamBridge::MessageContext.build(msg_empty_id)
+        # MessageContext.build uses header['nats-msg-id'] || UUID
+        # Empty string is truthy, so it uses empty string
+        expect(ctx.event_id).to eq('')
+      end
+    end
+
+    context 'when header is empty hash (no nats-msg-id key)' do
+      let(:deliveries) { 1 }
+      let(:msg_no_id_key) do
+        double('msg',
+               data: Oj.dump({ 'foo' => 'bar' }),
+               header: {},
+               subject: 'test.subject',
+               metadata: metadata)
+      end
+
+      it 'generates UUID when key is missing' do
+        ctx = JetstreamBridge::MessageContext.build(msg_no_id_key)
+        expect(ctx.event_id).to match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+      end
+    end
+  end
+
+  describe 'DLQ delivery path coverage' do
+    let(:deliveries) { 1 }
+
+    context 'when parse_message returns nil after DLQ success' do
+      let(:bad_msg) do
+        double('msg',
+               data: 'invalid json {',
+               header: { 'nats-msg-id' => 'bad-json' },
+               subject: 'test.subject',
+               metadata: metadata,
+               ack: nil,
+               nak: nil)
+      end
+
+      it 'returns early without calling process_event' do
+        expect(dlq).to receive(:publish).and_return(true)
+        expect(bad_msg).to receive(:ack)
+        expect(handler).not_to receive(:call)
+
+        processor.handle_message(bad_msg)
+      end
+    end
+
+    context 'when parse_message returns nil after DLQ failure' do
+      let(:bad_msg) do
+        double('msg',
+               data: 'invalid json {',
+               header: { 'nats-msg-id' => 'bad-json' },
+               subject: 'test.subject',
+               metadata: metadata,
+               nak: nil,
+               nak_with_delay: nil)
+      end
+
+      it 'returns early without calling process_event' do
+        allow(bad_msg).to receive(:respond_to?).with(:nak_with_delay).and_return(true)
+        expect(dlq).to receive(:publish).and_return(false)
+        expect(bad_msg).to receive(:nak_with_delay)
+        expect(handler).not_to receive(:call)
+
+        processor.handle_message(bad_msg)
+      end
     end
   end
 end

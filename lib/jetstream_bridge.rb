@@ -8,6 +8,7 @@ require_relative 'jetstream_bridge/core/connection'
 require_relative 'jetstream_bridge/publisher/publisher'
 require_relative 'jetstream_bridge/publisher/batch_publisher'
 require_relative 'jetstream_bridge/consumer/consumer'
+require_relative 'jetstream_bridge/consumer/middleware'
 require_relative 'jetstream_bridge/models/publish_result'
 require_relative 'jetstream_bridge/models/event'
 
@@ -18,7 +19,46 @@ require_relative 'jetstream_bridge/railtie' if defined?(Rails::Railtie)
 require_relative 'jetstream_bridge/models/inbox_event'
 require_relative 'jetstream_bridge/models/outbox_event'
 
-# JetstreamBridge main module.
+# JetStream Bridge - Production-safe realtime data bridge using NATS JetStream.
+#
+# JetStream Bridge provides a reliable, production-ready way to publish and consume
+# events using NATS JetStream with features like:
+#
+# - Transactional Outbox pattern for guaranteed event publishing
+# - Idempotent Inbox pattern for exactly-once message processing
+# - Dead Letter Queue (DLQ) for poison message handling
+# - Automatic stream provisioning and overlap detection
+# - Built-in health checks and monitoring
+# - Middleware support for cross-cutting concerns
+# - Rails integration with generators and migrations
+#
+# @example Quick start
+#   # Configure
+#   JetstreamBridge.configure do |config|
+#     config.nats_urls = "nats://localhost:4222"
+#     config.env = "development"
+#     config.app_name = "my_app"
+#     config.destination_app = "other_app"
+#     config.use_outbox = true
+#     config.use_inbox = true
+#   end
+#
+#   # Publish events
+#   JetstreamBridge.publish(
+#     event_type: "user.created",
+#     payload: { id: 1, email: "ada@example.com" }
+#   )
+#
+#   # Consume events
+#   JetstreamBridge.subscribe do |event|
+#     puts "Received: #{event.type} - #{event.payload.to_h}"
+#   end.run!
+#
+# @see Publisher For publishing events
+# @see Consumer For consuming events
+# @see Config For configuration options
+# @see TestHelpers For testing utilities
+#
 module JetstreamBridge
   class << self
     def config
@@ -44,7 +84,7 @@ module JetstreamBridge
     # @param preset [Symbol] Preset name (:development, :test, :production, etc.)
     # @yield [Config] Configuration object
     # @return [Config] Configured instance
-    def configure_for(preset, &block)
+    def configure_for(preset)
       configure do |cfg|
         cfg.apply_preset(preset)
         yield(cfg) if block_given?
@@ -168,7 +208,10 @@ module JetstreamBridge
     # @raise [PublishError] If publishing fails
     def publish!(...)
       result = publish(...)
-      raise PublishError.new(result.error&.message, event_id: result.event_id, subject: result.subject) if result.failure?
+      if result.failure?
+        raise PublishError.new(result.error&.message, event_id: result.event_id,
+                                                      subject: result.subject)
+      end
 
       result
     end
@@ -185,7 +228,7 @@ module JetstreamBridge
     #
     # @yield [BatchPublisher] Batch publisher instance
     # @return [BatchPublisher::BatchResult] Result with success/failure counts
-    def publish_batch(&block)
+    def publish_batch
       batch = BatchPublisher.new
       yield(batch) if block_given?
       batch.publish
@@ -196,19 +239,19 @@ module JetstreamBridge
     # Supports two usage patterns:
     #
     # 1. With a block (recommended):
-    #    consumer = JetstreamBridge.subscribe do |event, subject, deliveries|
-    #      puts "Received: #{event['event_type']} on #{subject} (attempt #{deliveries})"
+    #    consumer = JetstreamBridge.subscribe do |event|
+    #      puts "Received: #{event.type} on #{event.subject} (attempt #{event.deliveries})"
     #    end
     #    consumer.run!
     #
     # 2. With auto-run (returns Thread):
-    #    thread = JetstreamBridge.subscribe(run: true) do |event, subject, deliveries|
-    #      puts "Received: #{event['event_type']}"
+    #    thread = JetstreamBridge.subscribe(run: true) do |event|
+    #      puts "Received: #{event.type}"
     #    end
     #    thread.join # Wait for consumer to finish
     #
     # 3. With a handler object:
-    #    handler = ->(event, subject, deliveries) { puts event['event_type'] }
+    #    handler = ->(event) { puts event.type }
     #    consumer = JetstreamBridge.subscribe(handler)
     #    consumer.run!
     #
@@ -216,7 +259,7 @@ module JetstreamBridge
     # @param run [Boolean] If true, automatically runs consumer in a background thread
     # @param durable_name [String, nil] Optional durable consumer name override
     # @param batch_size [Integer, nil] Optional batch size override
-    # @yield [event, subject, deliveries] Yields event hash, NATS subject, and delivery count to block
+    # @yield [event] Yields Models::Event object to block
     # @return [Consumer, Thread] Consumer instance or Thread if run: true
     def subscribe(handler = nil, run: false, durable_name: nil, batch_size: nil, &block)
       handler ||= block

@@ -5,17 +5,14 @@
 module JetstreamBridge
   # Utility for parsing human-friendly durations into milliseconds.
   #
-  # Defaults to an :auto heuristic for Integer/Float values to preserve
-  # backward compatibility:
-  #   - Integers < 1000 are treated as seconds (e.g., 30 -> 30_000ms)
-  #   - Integers >= 1000 are treated as milliseconds (e.g., 1500 -> 1500ms)
-  # Prefer setting `default_unit:` to :s or :ms for unambiguous behavior.
+  # Uses auto-detection heuristic by default: integers <1000 are treated as
+  # seconds, >=1000 as milliseconds. Strings with unit suffixes are supported
+  # (e.g., "30s", "500ms", "1h").
   #
   # Examples:
-  #   Duration.to_millis(30)                        #=> 30000   (auto)
-  #   Duration.to_millis(1500)                      #=> 1500    (auto)
-  #   Duration.to_millis("1500")                    #=> 1500    (auto)
-  #   Duration.to_millis(1500, default_unit: :s)    #=> 1_500_000
+  #   Duration.to_millis(2)                         #=> 2000 (auto: seconds)
+  #   Duration.to_millis(1500)                      #=> 1500 (auto: milliseconds)
+  #   Duration.to_millis(30, default_unit: :s)      #=> 30000
   #   Duration.to_millis("30s")                     #=> 30000
   #   Duration.to_millis("500ms")                   #=> 500
   #   Duration.to_millis("250us")                   #=> 0
@@ -43,8 +40,9 @@ module JetstreamBridge
     module_function
 
     # default_unit:
-    #   :auto (heuristic: int<1000 -> seconds, >=1000 -> ms)
-    #   :ns, :us, :ms, :s, :m, :h, :d (explicit)
+    #   :auto (default: heuristic - <1000 => seconds, >=1000 => milliseconds)
+    #   :ms (explicit milliseconds)
+    #   :ns, :us, :s, :m, :h, :d (explicit units)
     def to_millis(val, default_unit: :auto)
       case val
       when Integer then int_to_ms(val, default_unit: default_unit)
@@ -69,20 +67,7 @@ module JetstreamBridge
     # --- internal helpers ---
 
     def int_to_ms(num, default_unit:)
-      case default_unit
-      when :auto
-        # Preserve existing heuristic for compatibility but log deprecation warning
-        if defined?(Logging) && num.positive? && num < 1_000
-          Logging.debug(
-            "Duration :auto heuristic treating #{num} as seconds. " \
-            "Consider specifying default_unit: :s or :ms for clarity.",
-            tag: 'JetstreamBridge::Duration'
-          )
-        end
-        num >= 1_000 ? num : num * 1_000
-      else
-        coerce_numeric_to_ms(num.to_f, default_unit)
-      end
+      coerce_numeric_to_ms(num.to_f, default_unit)
     end
 
     def float_to_ms(flt, default_unit:)
@@ -104,17 +89,16 @@ module JetstreamBridge
     end
 
     def coerce_numeric_to_ms(num, unit)
-      case unit
-      when :auto
-        # For floats, :auto treats as seconds (common developer intent)
-        (num * 1_000).round
-      else
-        u = unit.to_s
-        mult = MULTIPLIER_MS[u]
-        raise ArgumentError, "invalid unit for default_unit: #{unit.inspect}" unless mult
-
-        (num * mult).round
+      # Handle :auto unit with heuristic: <1000 => seconds, >=1000 => milliseconds
+      if unit == :auto
+        return (num < 1000 ? num * 1_000 : num).round
       end
+
+      u = unit.to_s
+      mult = MULTIPLIER_MS[u]
+      raise ArgumentError, "invalid unit for default_unit: #{unit.inspect}" unless mult
+
+      (num * mult).round
     end
   end
 end

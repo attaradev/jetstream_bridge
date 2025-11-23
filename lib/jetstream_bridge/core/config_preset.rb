@@ -79,7 +79,7 @@ module JetstreamBridge
     #
     # @return [Array<Symbol>] List of available preset names
     def self.available_presets
-      %i[development test production staging high_throughput maximum_reliability]
+      [:development, :test, :production, :staging, :high_throughput, :maximum_reliability]
     end
 
     # Apply a preset by name

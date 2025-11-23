@@ -40,7 +40,8 @@ RSpec.describe JetstreamBridge do
         event_type: 'created',
         payload: { id: 1, name: 'Ada' }
       )
-      expect(result).to be(true)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'publishes with simplified hash (infers resource_type)' do
@@ -56,7 +57,8 @@ RSpec.describe JetstreamBridge do
         event_type: 'user.created',
         payload: { id: 1, name: 'Ada' }
       )
-      expect(result).to be(true)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'publishes with complete envelope hash' do
@@ -72,7 +74,8 @@ RSpec.describe JetstreamBridge do
         payload: { id: 1 },
         event_id: 'custom-123'
       )
-      expect(result).to be(true)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
   end
 
@@ -350,6 +353,171 @@ RSpec.describe JetstreamBridge do
       described_class.configure { |c| c.env = 'custom' }
       described_class.reset!
       expect(described_class.config.env).to eq('development')
+    end
+  end
+
+  describe '.configure_for' do
+    before { described_class.reset! }
+
+    it 'applies preset configuration' do
+      described_class.configure_for(:production) do |c|
+        c.app_name = 'my_app'
+        c.destination_app = 'dest'
+      end
+
+      # Preset applies reliability features, not env
+      expect(described_class.config.use_outbox).to be true
+      expect(described_class.config.use_inbox).to be true
+      expect(described_class.config.use_dlq).to be true
+      expect(described_class.config.app_name).to eq('my_app')
+      expect(described_class.config.preset_applied).to eq(:production)
+    end
+
+    it 'applies preset without block' do
+      described_class.reset!
+      described_class.configure_for(:test)
+      expect(described_class.config.use_outbox).to be false
+      expect(described_class.config.use_inbox).to be false
+      expect(described_class.config.max_deliver).to eq(2)
+      expect(described_class.config.preset_applied).to eq(:test)
+    end
+
+    it 'applies development preset' do
+      described_class.reset!
+      described_class.configure_for(:development)
+      expect(described_class.config.use_outbox).to be false
+      expect(described_class.config.use_dlq).to be false
+      expect(described_class.config.max_deliver).to eq(3)
+      expect(described_class.config.preset_applied).to eq(:development)
+    end
+  end
+
+  describe '.publish!' do
+    it 'returns result on success' do
+      expect(jts).to receive(:publish).and_return(double(duplicate?: false, error: nil))
+
+      result = described_class.publish!(
+        event_type: 'user.created',
+        payload: { id: 1 }
+      )
+
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be true
+    end
+
+    it 'raises PublishError on failure' do
+      error_obj = StandardError.new('Stream not found')
+      error_response = double(
+        duplicate?: false,
+        error: error_obj
+      )
+      expect(jts).to receive(:publish).and_return(error_response)
+
+      expect do
+        described_class.publish!(
+          event_type: 'user.created',
+          payload: { id: 1 }
+        )
+      end.to raise_error(JetstreamBridge::PublishError, /Stream not found/)
+    end
+
+    it 'includes event_id and subject in raised error' do
+      error_obj = StandardError.new('Publish failed')
+      error_response = double(
+        duplicate?: false,
+        error: error_obj
+      )
+      expect(jts).to receive(:publish).and_return(error_response)
+
+      begin
+        described_class.publish!(
+          event_type: 'user.created',
+          payload: { id: 1 }
+        )
+        raise 'Expected PublishError to be raised'
+      rescue JetstreamBridge::PublishError => e
+        expect(e.event_id).not_to be_nil
+        expect(e.subject).not_to be_nil
+      end
+    end
+  end
+
+  describe '.publish_batch' do
+    let(:batch_publisher) { instance_double(JetstreamBridge::BatchPublisher) }
+    let(:batch_result) do
+      double('BatchResult',
+             successful_count: 2,
+             failed_count: 0,
+             results: [])
+    end
+
+    before do
+      allow(JetstreamBridge::BatchPublisher).to receive(:new).and_return(batch_publisher)
+      allow(batch_publisher).to receive(:add)
+      allow(batch_publisher).to receive(:publish).and_return(batch_result)
+    end
+
+    it 'creates batch publisher and yields it' do
+      expect(JetstreamBridge::BatchPublisher).to receive(:new).and_return(batch_publisher)
+
+      described_class.publish_batch do |batch|
+        expect(batch).to eq(batch_publisher)
+      end
+    end
+
+    it 'calls publish on batch publisher' do
+      expect(batch_publisher).to receive(:publish).and_return(batch_result)
+
+      result = described_class.publish_batch do |batch|
+        batch.add(event_type: 'user.created', payload: { id: 1 })
+        batch.add(event_type: 'user.updated', payload: { id: 2 })
+      end
+
+      expect(result).to eq(batch_result)
+    end
+
+    it 'works without block' do
+      result = described_class.publish_batch
+      expect(result).to eq(batch_result)
+    end
+
+    it 'returns batch result with counts' do
+      result = described_class.publish_batch do |batch|
+        batch.add(event_type: 'test.event', payload: {})
+      end
+
+      expect(result.successful_count).to eq(2)
+      expect(result.failed_count).to eq(0)
+    end
+  end
+
+  describe '.health_check edge cases' do
+    let(:conn_instance) do
+      double('Connection',
+             connected?: true,
+             connected_at: nil)
+    end
+
+    let(:stream_info_data) do
+      double('StreamInfo',
+             config: double(subjects: ['test.*']),
+             state: double(messages: 0))
+    end
+
+    before do
+      allow(JetstreamBridge::Connection).to receive(:instance).and_return(conn_instance)
+      allow(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
+      allow(jts).to receive(:stream_info).and_return(stream_info_data)
+    end
+
+    it 'handles nil connected_at timestamp' do
+      result = described_class.health_check
+      expect(result[:connected_at]).to be_nil
+    end
+
+    it 'handles stream with zero messages' do
+      result = described_class.health_check
+      expect(result[:stream][:messages]).to eq(0)
     end
   end
 end

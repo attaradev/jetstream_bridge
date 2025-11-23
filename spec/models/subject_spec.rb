@@ -172,4 +172,177 @@ RSpec.describe JetstreamBridge::Models::Subject do
       expect(subject.to_s).to eq('env-staging.user_service.sync.email-service')
     end
   end
+
+  describe '#env' do
+    it 'returns first token as environment' do
+      subject = described_class.new('production.app.sync.dest')
+      expect(subject.env).to eq('production')
+    end
+
+    it 'returns nil when no tokens exist' do
+      # Single token without separator
+      subject = described_class.new('production')
+      expect(subject.env).to eq('production')
+    end
+  end
+
+  describe '#source_app' do
+    it 'returns second token as source app' do
+      subject = described_class.new('production.orders.sync.warehouse')
+      expect(subject.source_app).to eq('orders')
+    end
+
+    it 'returns nil for DLQ subjects' do
+      dlq_subject = described_class.dlq(env: 'production')
+      expect(dlq_subject.source_app).to be_nil
+    end
+
+    it 'returns nil when second token does not exist' do
+      subject = described_class.new('production')
+      expect(subject.source_app).to be_nil
+    end
+  end
+
+  describe '#dest_app' do
+    it 'returns fourth token as destination app' do
+      subject = described_class.new('production.orders.sync.warehouse')
+      expect(subject.dest_app).to eq('warehouse')
+    end
+
+    it 'returns nil when fourth token does not exist' do
+      subject = described_class.new('production.orders.sync')
+      expect(subject.dest_app).to be_nil
+    end
+  end
+
+  describe '#dlq?' do
+    it 'returns true for DLQ subjects' do
+      subject = described_class.dlq(env: 'production')
+      expect(subject.dlq?).to be true
+    end
+
+    it 'returns false for regular subjects' do
+      subject = described_class.new('production.orders.sync.warehouse')
+      expect(subject.dlq?).to be false
+    end
+
+    it 'returns false when second token is not sync' do
+      subject = described_class.new('production.orders.other.dlq')
+      expect(subject.dlq?).to be false
+    end
+
+    it 'returns false when third token is not dlq' do
+      subject = described_class.new('production.sync.other')
+      expect(subject.dlq?).to be false
+    end
+
+    it 'returns false for short subjects' do
+      subject = described_class.new('production.sync')
+      expect(subject.dlq?).to be false
+    end
+  end
+
+  describe '.dlq' do
+    it 'creates a DLQ subject' do
+      subject = described_class.dlq(env: 'production')
+      expect(subject.to_s).to eq('production.sync.dlq')
+      expect(subject.dlq?).to be true
+    end
+
+    it 'creates DLQ subject for different environments' do
+      subject = described_class.dlq(env: 'staging')
+      expect(subject.to_s).to eq('staging.sync.dlq')
+    end
+  end
+
+  describe '.validate_component!' do
+    it 'accepts valid component' do
+      expect(described_class.validate_component!('valid_name', 'app_name')).to be true
+    end
+
+    it 'rejects component with dot separator' do
+      expect do
+        described_class.validate_component!('invalid.name', 'app_name')
+      end.to raise_error(ArgumentError, /cannot contain NATS wildcards/)
+    end
+
+    it 'rejects component with single wildcard' do
+      expect do
+        described_class.validate_component!('invalid*name', 'app_name')
+      end.to raise_error(ArgumentError, /cannot contain NATS wildcards/)
+    end
+
+    it 'rejects component with multi wildcard' do
+      expect do
+        described_class.validate_component!('invalid>name', 'app_name')
+      end.to raise_error(ArgumentError, /cannot contain NATS wildcards/)
+    end
+
+    it 'rejects empty component' do
+      expect do
+        described_class.validate_component!('', 'app_name')
+      end.to raise_error(ArgumentError, /cannot be empty/)
+    end
+
+    it 'rejects component with only whitespace' do
+      expect do
+        described_class.validate_component!('   ', 'app_name')
+      end.to raise_error(ArgumentError, /cannot be empty/)
+    end
+
+    it 'converts non-string values to string' do
+      expect(described_class.validate_component!(123, 'id')).to be true
+    end
+  end
+
+  describe 'validation in initialize' do
+    it 'rejects subject with only separators' do
+      expect do
+        described_class.new('...')
+      end.to raise_error(ArgumentError, /only separators/)
+    end
+
+    it 'rejects subject with spaces' do
+      expect do
+        described_class.new('invalid subject')
+      end.to raise_error(ArgumentError, /invalid format/)
+    end
+
+    it 'rejects subject with tabs' do
+      expect do
+        described_class.new("invalid\tsubject")
+      end.to raise_error(ArgumentError, /invalid format/)
+    end
+
+    it 'rejects subject with newlines' do
+      expect do
+        described_class.new("invalid\nsubject")
+      end.to raise_error(ArgumentError, /invalid format/)
+    end
+  end
+
+  describe '#eql?' do
+    it 'is an alias for ==' do
+      subject1 = described_class.new('dev.app.sync.dest')
+      subject2 = described_class.new('dev.app.sync.dest')
+
+      expect(subject1.eql?(subject2)).to be true
+    end
+  end
+
+  describe '#hash' do
+    it 'returns consistent hash for same value' do
+      subject1 = described_class.new('dev.app.sync.dest')
+      subject2 = described_class.new('dev.app.sync.dest')
+
+      expect(subject1.hash).to eq(subject2.hash)
+    end
+
+    it 'returns different hash for different values' do
+      subject1 = described_class.new('dev.app.sync.dest')
+      subject2 = described_class.new('prod.app.sync.dest')
+
+      expect(subject1.hash).not_to eq(subject2.hash)
+    end
+  end
 end

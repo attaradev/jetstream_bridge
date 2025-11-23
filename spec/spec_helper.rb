@@ -12,8 +12,9 @@ SimpleCov.start do
   enable_coverage :branch
   minimum_coverage line: 80, branch: 70
 
-  # Use JSON formatter for Codecov
-  formatter SimpleCov::Formatter::JSONFormatter
+  # Use both JSON and HTML formatters
+  formatter SimpleCov::Formatter::MultiFormatter.new([SimpleCov::Formatter::HTMLFormatter,
+                                                      SimpleCov::Formatter::JSONFormatter])
 end
 
 # Load the gem

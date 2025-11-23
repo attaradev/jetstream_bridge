@@ -11,8 +11,34 @@ require_relative '../models/publish_result'
 require_relative 'outbox_repository'
 
 module JetstreamBridge
-  # Publishes to "{env}.{app}.sync.{dest}".
+  # Publishes events to NATS JetStream with reliability features.
+  #
+  # Publishes events to "{env}.{app}.sync.{dest}" subject pattern.
+  # Supports optional transactional outbox pattern for guaranteed delivery.
+  #
+  # @example Basic publishing
+  #   publisher = JetstreamBridge::Publisher.new
+  #   result = publisher.publish(
+  #     resource_type: "user",
+  #     event_type: "created",
+  #     payload: { id: 1, email: "ada@example.com" }
+  #   )
+  #   puts "Published: #{result.event_id}" if result.success?
+  #
+  # @example Publishing with custom retry strategy
+  #   custom_strategy = MyRetryStrategy.new(max_attempts: 5)
+  #   publisher = JetstreamBridge::Publisher.new(retry_strategy: custom_strategy)
+  #   result = publisher.publish(event_type: "user.created", payload: { id: 1 })
+  #
+  # @example Using convenience method
+  #   JetstreamBridge.publish(event_type: "user.created", payload: { id: 1 })
+  #
   class Publisher
+    # Initialize a new Publisher instance.
+    #
+    # @param retry_strategy [RetryStrategy, nil] Optional custom retry strategy for handling transient failures.
+    #   Defaults to PublisherRetryStrategy with exponential backoff.
+    # @raise [ConnectionError] If unable to connect to NATS server
     def initialize(retry_strategy: nil)
       @jts = Connection.connect!
       @retry_strategy = retry_strategy || PublisherRetryStrategy.new
@@ -20,28 +46,62 @@ module JetstreamBridge
 
     # Publishes an event to NATS JetStream.
     #
-    # Supports two usage patterns:
+    # Supports multiple usage patterns for flexibility:
     #
     # 1. Structured parameters (recommended):
     #    publish(resource_type: 'user', event_type: 'created', payload: { id: 1, name: 'Ada' })
     #
-    # 2. Hash/envelope (advanced):
-    #    publish({ event_type: 'user.created', payload: {...}, event_id: '...', ... }, subject: 'custom.subject')
+    # 2. Hash/envelope with dot notation (auto-infers resource_type):
+    #    publish(event_type: 'user.created', payload: {...})
     #
-    # @example Check result status
-    #   result = publisher.publish(event_type: "user.created", payload: { id: 1 })
-    #   if result.success?
-    #     puts "Published event #{result.event_id}"
-    #   else
-    #     puts "Failed: #{result.error.message}"
+    # 3. Complete envelope (advanced):
+    #    publish({ event_type: 'created', resource_type: 'user', payload: {...}, event_id: '...' })
+    #
+    # When use_outbox is enabled, events are persisted to database first for reliability.
+    # The event_id is used for deduplication via NATS message ID header.
+    #
+    # @param event_or_hash [Hash, nil] Complete event envelope (if using pattern 3)
+    # @param resource_type [String, nil] Resource type (e.g., 'user', 'order'). Required for pattern 1.
+    # @param event_type [String, nil] Event type (e.g., 'created', 'user.created'). Required for all patterns.
+    # @param payload [Hash, nil] Event payload data. Required for all patterns.
+    # @param subject [String, nil] Optional NATS subject override. Defaults to config.source_subject.
+    # @param options [Hash] Additional options:
+    #   - event_id [String] Custom event ID (auto-generated if not provided)
+    #   - trace_id [String] Distributed trace ID
+    #   - occurred_at [Time, String] Event timestamp (defaults to current time)
+    #
+    # @return [Models::PublishResult] Result object containing:
+    #   - success [Boolean] Whether publish succeeded
+    #   - event_id [String] The published event ID
+    #   - subject [String] NATS subject used
+    #   - error [Exception, nil] Error if publish failed
+    #   - duplicate [Boolean] Whether NATS detected as duplicate
+    #
+    # @raise [ArgumentError] If required parameters are missing or invalid
+    #
+    # @example Structured parameters
+    #   result = publisher.publish(
+    #     resource_type: "user",
+    #     event_type: "created",
+    #     payload: { id: 1, email: "ada@example.com" }
+    #   )
+    #   puts "Published: #{result.event_id}" if result.success?
+    #
+    # @example With options
+    #   result = publisher.publish(
+    #     event_type: "user.created",
+    #     payload: { id: 1 },
+    #     event_id: "custom-id-123",
+    #     trace_id: request_id,
+    #     occurred_at: Time.now.utc
+    #   )
+    #
+    # @example Error handling
+    #   result = publisher.publish(event_type: "order.created", payload: { id: 1 })
+    #   if result.failure?
+    #     logger.error "Failed to publish: #{result.error.message}"
     #   end
     #
-    # @param event_or_hash [Hash] Either structured params or a complete event envelope
-    # @param resource_type [String, nil] Resource type (e.g., 'user', 'order')
-    # @param event_type [String, nil] Event type (e.g., 'created', 'updated')
-    # @param payload [Hash, nil] Event payload data
-    # @param subject [String, nil] Optional subject override
-    # @return [Models::PublishResult] Result object with success status and metadata
     def publish(event_or_hash = nil, resource_type: nil, event_type: nil, payload: nil, subject: nil, **options)
       ensure_destination!
 
@@ -50,7 +110,7 @@ module JetstreamBridge
       envelope, resolved_subject = route_publish_params(params)
 
       do_publish(resolved_subject, envelope)
-    rescue ArgumentError => e
+    rescue ArgumentError
       # Re-raise validation errors for invalid parameters
       raise
     rescue StandardError => e
@@ -63,6 +123,15 @@ module JetstreamBridge
       )
     end
 
+    # Internal publish method that routes to appropriate publish strategy.
+    #
+    # Routes to outbox-based publishing if use_outbox is enabled, otherwise
+    # publishes directly to NATS with retry logic.
+    #
+    # @param subject [String] NATS subject to publish to
+    # @param envelope [Hash] Complete event envelope
+    # @return [Models::PublishResult] Result object
+    # @api private
     def do_publish(subject, envelope)
       if JetstreamBridge.config.use_outbox
         publish_via_outbox(subject, envelope)
@@ -205,8 +274,8 @@ module JetstreamBridge
     # ---- /Outbox path ----
 
     # Retry using strategy pattern
-    def with_retries(&block)
-      @retry_strategy.execute(context: 'Publisher', &block)
+    def with_retries(&)
+      @retry_strategy.execute(context: 'Publisher', &)
     rescue RetryStrategy::RetryExhausted => e
       Logging.error(
         "Publish failed after retries: #{e.class} #{e.message}",

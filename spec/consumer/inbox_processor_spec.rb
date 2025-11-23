@@ -149,6 +149,126 @@ RSpec.describe JetstreamBridge::InboxProcessor do
         result = processor.process(mock_nats_msg)
         expect(result).to be true
       end
+
+      it 'logs warning when inbox model is not ActiveRecord class' do
+        expect(JetstreamBridge::Logging).to receive(:warn).with(
+          /Inbox model.*is not an ActiveRecord model/,
+          tag: 'JetstreamBridge::Consumer'
+        )
+        processor.process(mock_nats_msg)
+      end
+
+      it 'returns true even when processing directly' do
+        result = processor.process(mock_nats_msg)
+        expect(result).to be true
+      end
+    end
+
+    context 'process_direct? when called explicitly with non-AR class' do
+      let(:non_ar_class) { String }
+
+      it 'handles non-AR class gracefully' do
+        allow(JetstreamBridge.config).to receive(:inbox_model).and_return('String')
+        allow(JetstreamBridge::ModelUtils).to receive(:constantize).and_return(non_ar_class)
+        allow(JetstreamBridge::ModelUtils).to receive(:ar_class?).and_return(false)
+
+        result = processor.process(mock_nats_msg)
+        expect(result).to be true
+      end
+    end
+  end
+
+  describe 'error handling edge cases' do
+    let(:inbox_model_class) { class_double('InboxEvent') }
+    let(:mock_inbox_message) { instance_double('JetstreamBridge::InboxMessage', ack: true) }
+    let(:mock_repository) { instance_double('JetstreamBridge::InboxRepository') }
+
+    before do
+      allow(JetstreamBridge.config).to receive(:inbox_model).and_return('InboxEvent')
+      allow(JetstreamBridge::ModelUtils).to receive(:constantize).and_return(inbox_model_class)
+      allow(JetstreamBridge::ModelUtils).to receive(:ar_class?).and_return(true)
+      allow(JetstreamBridge::InboxMessage).to receive(:from_nats).and_return(mock_inbox_message)
+      allow(JetstreamBridge::InboxRepository).to receive(:new).and_return(mock_repository)
+    end
+
+    it 'handles error during already_processed? check' do
+      mock_record = double('InboxRecord')
+      allow(mock_repository).to receive(:find_or_build).and_return(mock_record)
+      allow(mock_repository).to receive(:already_processed?).and_raise(StandardError, 'DB error')
+      allow(mock_repository).to receive(:persist_failure)
+
+      result = processor.process(mock_nats_msg)
+      expect(result).to be false
+    end
+
+    it 'handles error during persist_pre' do
+      mock_record = double('InboxRecord')
+      allow(mock_repository).to receive(:find_or_build).and_return(mock_record)
+      allow(mock_repository).to receive(:already_processed?).and_return(false)
+      allow(mock_repository).to receive(:persist_pre).and_raise(StandardError, 'Persist error')
+      allow(mock_repository).to receive(:persist_failure)
+
+      result = processor.process(mock_nats_msg)
+      expect(result).to be false
+    end
+
+    it 'handles error during persist_post' do
+      mock_record = double('InboxRecord')
+      allow(mock_repository).to receive(:find_or_build).and_return(mock_record)
+      allow(mock_repository).to receive(:already_processed?).and_return(false)
+      allow(mock_repository).to receive(:persist_pre)
+      allow(mock_message_processor).to receive(:handle_message)
+      allow(mock_repository).to receive(:persist_post).and_raise(StandardError, 'Post-persist error')
+      allow(mock_repository).to receive(:persist_failure)
+
+      result = processor.process(mock_nats_msg)
+      expect(result).to be false
+    end
+
+    it 'logs error when processing fails' do
+      mock_record = double('InboxRecord')
+      allow(mock_repository).to receive(:find_or_build).and_return(mock_record)
+      allow(mock_repository).to receive(:already_processed?).and_return(false)
+      allow(mock_repository).to receive(:persist_pre)
+      allow(mock_message_processor).to receive(:handle_message).and_raise(StandardError, 'Handler error')
+      allow(mock_repository).to receive(:persist_failure)
+
+      expect(JetstreamBridge::Logging).to receive(:error).with(
+        /Inbox processing failed/,
+        tag: 'JetstreamBridge::Consumer'
+      )
+
+      processor.process(mock_nats_msg)
+    end
+
+    it 'handles error when repo or record are nil' do
+      # Make InboxRepository.new fail, which happens before record is assigned
+      allow(JetstreamBridge::InboxRepository).to receive(:new).and_raise(StandardError, 'Repository init failed')
+
+      expect(JetstreamBridge::Logging).to receive(:error).with(
+        /Inbox processing failed/,
+        tag: 'JetstreamBridge::Consumer'
+      )
+
+      # Should not attempt to call persist_failure since repo is nil
+      result = processor.process(mock_nats_msg)
+      expect(result).to be false
+    end
+  end
+
+  describe '#process_direct? with ActiveRecord class' do
+    let(:ar_class) { class_double('InboxEvent') }
+    let(:processor_instance) { described_class.new(mock_message_processor) }
+
+    it 'does not log warning when class is ActiveRecord' do
+      # Simulate calling process_direct? with an AR class
+      allow(JetstreamBridge::ModelUtils).to receive(:ar_class?).with(ar_class).and_return(true)
+
+      expect(JetstreamBridge::Logging).not_to receive(:warn)
+      expect(mock_message_processor).to receive(:handle_message).with(mock_nats_msg)
+
+      result = processor_instance.send(:process_direct?, mock_nats_msg, ar_class)
+      expect(result).to be true
     end
   end
 end

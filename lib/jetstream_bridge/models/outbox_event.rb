@@ -38,28 +38,22 @@ module JetstreamBridge
                 presence: true,
                 if: -> { self.class.has_column?(:payload) }
 
-      # Preferred path when event_id exists
       validates :event_id,
                 presence: true,
                 uniqueness: true,
                 if: -> { self.class.has_column?(:event_id) }
 
-      # Fallback legacy fields when event_id is absent
       validates :resource_type,
                 presence: true,
-                if: lambda {
-                  !self.class.has_column?(:event_id) && self.class.has_column?(:resource_type)
-                }
+                if: -> { self.class.has_column?(:resource_type) }
 
       validates :resource_id,
                 presence: true,
-                if: lambda {
-                  !self.class.has_column?(:event_id) && self.class.has_column?(:resource_id)
-                }
+                if: -> { self.class.has_column?(:resource_id) }
 
       validates :event_type,
                 presence: true,
-                if: -> { !self.class.has_column?(:event_id) && self.class.has_column?(:event_type) }
+                if: -> { self.class.has_column?(:event_type) }
 
       validates :subject,
                 presence: true,
@@ -126,13 +120,13 @@ module JetstreamBridge
       def mark_sent!
         now = Time.now.utc
         self.status  = JetstreamBridge::Config::Status::SENT if self.class.has_column?(:status)
-        self.sent_at = now    if self.class.has_column?(:sent_at)
+        self.sent_at = now if self.class.has_column?(:sent_at)
         save!
       end
 
       def mark_failed!(err_msg)
         self.status     = JetstreamBridge::Config::Status::FAILED if self.class.has_column?(:status)
-        self.last_error = err_msg  if self.class.has_column?(:last_error)
+        self.last_error = err_msg if self.class.has_column?(:last_error)
         save!
       end
 

@@ -98,9 +98,7 @@ module JetstreamBridge
       # @example
       #   event.payload.user_id  # Same as event.payload["user_id"]
       #   event.payload.to_h     # Get raw payload hash
-      def payload
-        @payload
-      end
+      attr_reader :payload
 
       # Get raw envelope hash
       #

@@ -32,9 +32,11 @@ RSpec.describe JetstreamBridge::Publisher do
         ack
       end
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
-      ).to be(true)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
+      expect(result.event_id).to be_a(String)
+      expect(result.subject).to eq('test.source.sync.dest')
     end
   end
 
@@ -50,9 +52,9 @@ RSpec.describe JetstreamBridge::Publisher do
         ack
       end
 
-      expect(
-        publisher.publish(event_type: 'user.created', payload: payload)
-      ).to be(true)
+      result = publisher.publish(event_type: 'user.created', payload: payload)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'publishes with complete envelope hash' do
@@ -73,7 +75,9 @@ RSpec.describe JetstreamBridge::Publisher do
         ack
       end
 
-      expect(publisher.publish(event_hash)).to be(true)
+      result = publisher.publish(event_hash)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'requires event_type in hash' do
@@ -106,26 +110,26 @@ RSpec.describe JetstreamBridge::Publisher do
 
   describe '#publish with custom subject' do
     it 'uses custom subject when provided' do
-      expect(jts).to receive(:publish) do |subject, data, header:|
+      expect(jts).to receive(:publish) do |subject, _data, header:|
         expect(subject).to eq('custom.subject')
         ack
       end
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: payload, subject: 'custom.subject')
-      ).to be(true)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload, subject: 'custom.subject')
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'uses subject from options' do
-      expect(jts).to receive(:publish) do |subject, data, header:|
+      expect(jts).to receive(:publish) do |subject, _data, header:|
         expect(subject).to eq('options.subject')
         ack
       end
 
       event_hash = { event_type: 'created', payload: payload }
-      expect(
-        publisher.publish(event_hash, subject: 'options.subject')
-      ).to be(true)
+      result = publisher.publish(event_hash, subject: 'options.subject')
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
   end
 
@@ -138,9 +142,9 @@ RSpec.describe JetstreamBridge::Publisher do
         ack
       end
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: payload, event_id: 'custom-event-id')
-      ).to be(true)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload, event_id: 'custom-event-id')
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'accepts custom occurred_at' do
@@ -151,9 +155,9 @@ RSpec.describe JetstreamBridge::Publisher do
         ack
       end
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: payload, occurred_at: custom_time)
-      ).to be(true)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload, occurred_at: custom_time)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'accepts custom trace_id' do
@@ -163,9 +167,9 @@ RSpec.describe JetstreamBridge::Publisher do
         ack
       end
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: payload, trace_id: 'custom-trace-id')
-      ).to be(true)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload, trace_id: 'custom-trace-id')
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
   end
 
@@ -174,18 +178,18 @@ RSpec.describe JetstreamBridge::Publisher do
       duplicate_ack = double('ack', duplicate?: true, error: nil)
       allow(jts).to receive(:publish).and_return(duplicate_ack)
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
-      ).to be(true)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'logs error when ack has error' do
       error_ack = double('ack', duplicate?: false, error: 'some error')
       allow(jts).to receive(:publish).and_return(error_ack)
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
-      ).to be(false)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.failure?).to be(true)
     end
 
     it 'handles ack without duplicate? method' do
@@ -194,9 +198,9 @@ RSpec.describe JetstreamBridge::Publisher do
       allow(simple_ack).to receive(:respond_to?).with(:error).and_return(false)
       allow(jts).to receive(:publish).and_return(simple_ack)
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
-      ).to be(true)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
   end
 
@@ -204,9 +208,9 @@ RSpec.describe JetstreamBridge::Publisher do
     it 'catches and logs publish errors' do
       allow(jts).to receive(:publish).and_raise(StandardError, 'NATS error')
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
-      ).to be(false)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.failure?).to be(true)
     end
 
     it 're-raises ArgumentError validation errors' do
@@ -238,46 +242,46 @@ RSpec.describe JetstreamBridge::Publisher do
       expect(jts).to receive(:publish).and_return(ack)
       expect(outbox_repo).to receive(:persist_success).with(record)
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
-      ).to be(true)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'skips publish if already sent' do
       allow(outbox_repo).to receive(:already_sent?).and_return(true)
       expect(jts).not_to receive(:publish)
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
-      ).to be(true)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'persists failure when publish returns false' do
       error_ack = double('ack', duplicate?: false, error: 'publish error')
       allow(jts).to receive(:publish).and_return(error_ack)
-      expect(outbox_repo).to receive(:persist_failure).with(record, 'Publish returned false')
+      expect(outbox_repo).to receive(:persist_failure).with(record, 'publish error')
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
-      ).to be(false)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.failure?).to be(true)
     end
 
     it 'persists exception when publish raises error' do
       allow(jts).to receive(:publish).and_raise(StandardError, 'NATS error')
       expect(outbox_repo).to receive(:persist_exception).with(record, kind_of(StandardError))
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
-      ).to be(false)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.failure?).to be(true)
     end
 
     it 'falls back to direct publish when outbox model is not ActiveRecord' do
       allow(JetstreamBridge::ModelUtils).to receive(:ar_class?).and_return(false)
       expect(jts).to receive(:publish).and_return(ack)
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
-      ).to be(true)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
   end
 
@@ -289,9 +293,9 @@ RSpec.describe JetstreamBridge::Publisher do
         ack
       end
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: { id: 123 })
-      ).to be(true)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: { id: 123 })
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'extracts resource_id from payload["id"]' do
@@ -301,9 +305,9 @@ RSpec.describe JetstreamBridge::Publisher do
         ack
       end
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: { 'id' => '456' })
-      ).to be(true)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: { 'id' => '456' })
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'handles payload without id' do
@@ -313,9 +317,9 @@ RSpec.describe JetstreamBridge::Publisher do
         ack
       end
 
-      expect(
-        publisher.publish(resource_type: 'user', event_type: 'created', payload: { name: 'Test' })
-      ).to be(true)
+      result = publisher.publish(resource_type: 'user', event_type: 'created', payload: { name: 'Test' })
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'extracts resource_id from payload with resource_id field' do
@@ -326,7 +330,9 @@ RSpec.describe JetstreamBridge::Publisher do
       end
 
       event_hash = { event_type: 'user.created', payload: { resource_id: 'res-789' } }
-      expect(publisher.publish(event_hash)).to be(true)
+      result = publisher.publish(event_hash)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'handles nil payload gracefully' do
@@ -345,9 +351,9 @@ RSpec.describe JetstreamBridge::Publisher do
         ack
       end
 
-      expect(
-        publisher.publish(event_type: 'order.shipped', payload: payload)
-      ).to be(true)
+      result = publisher.publish(event_type: 'order.shipped', payload: payload)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'does not override explicit resource_type' do
@@ -358,7 +364,9 @@ RSpec.describe JetstreamBridge::Publisher do
       end
 
       event_hash = { event_type: 'order.shipped', resource_type: 'custom', payload: payload }
-      expect(publisher.publish(event_hash)).to be(true)
+      result = publisher.publish(event_hash)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'uses "event" as default resource_type when no inference possible' do
@@ -368,9 +376,9 @@ RSpec.describe JetstreamBridge::Publisher do
         ack
       end
 
-      expect(
-        publisher.publish(event_type: 'something_happened', payload: payload)
-      ).to be(true)
+      result = publisher.publish(event_type: 'something_happened', payload: payload)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'preserves custom schema_version' do
@@ -381,7 +389,9 @@ RSpec.describe JetstreamBridge::Publisher do
       end
 
       event_hash = { event_type: 'user.created', payload: payload, schema_version: 2 }
-      expect(publisher.publish(event_hash)).to be(true)
+      result = publisher.publish(event_hash)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
 
     it 'preserves custom producer' do
@@ -392,7 +402,9 @@ RSpec.describe JetstreamBridge::Publisher do
       end
 
       event_hash = { event_type: 'user.created', payload: payload, producer: 'custom-producer' }
-      expect(publisher.publish(event_hash)).to be(true)
+      result = publisher.publish(event_hash)
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
     end
   end
 end
