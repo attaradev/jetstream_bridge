@@ -129,6 +129,8 @@ RSpec.describe JetstreamBridge do
              connected_at: Time.utc(2024, 1, 1, 12, 0, 0))
     end
 
+    let(:mock_nc) { double('NATS::Client', rtt: 0.005) }
+
     let(:stream_info_data) do
       double('StreamInfo',
              config: double(subjects: ['test.*']),
@@ -138,7 +140,9 @@ RSpec.describe JetstreamBridge do
     before do
       allow(JetstreamBridge::Connection).to receive(:instance).and_return(conn_instance)
       allow(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
+      allow(JetstreamBridge::Connection).to receive(:nc).and_return(mock_nc)
       allow(jts).to receive(:stream_info).and_return(stream_info_data)
+      allow(JetstreamBridge::Logging).to receive(:warn)
     end
 
     it 'returns health status hash' do
@@ -147,6 +151,7 @@ RSpec.describe JetstreamBridge do
       expect(result).to have_key(:healthy)
       expect(result).to have_key(:nats_connected)
       expect(result).to have_key(:stream)
+      expect(result).to have_key(:performance)
       expect(result).to have_key(:config)
       expect(result).to have_key(:version)
     end
@@ -196,6 +201,11 @@ RSpec.describe JetstreamBridge do
         expect(jts).not_to receive(:stream_info)
         described_class.health_check
       end
+
+      it 'does not measure RTT' do
+        expect(mock_nc).not_to receive(:rtt)
+        described_class.health_check
+      end
     end
 
     context 'when stream does not exist' do
@@ -212,6 +222,39 @@ RSpec.describe JetstreamBridge do
       it 'still reports as unhealthy' do
         result = described_class.health_check
         expect(result[:healthy]).to be false
+      end
+    end
+
+    it 'includes performance metrics' do
+      result = described_class.health_check
+      expect(result[:performance]).to be_a(Hash)
+      expect(result[:performance][:nats_rtt_ms]).to be_a(Numeric)
+      expect(result[:performance][:health_check_duration_ms]).to be_a(Numeric)
+      expect(result[:performance][:health_check_duration_ms]).to be > 0
+    end
+
+    it 'measures NATS RTT actively' do
+      expect(mock_nc).to receive(:rtt)
+      described_class.health_check
+    end
+
+    context 'when RTT measurement fails' do
+      before do
+        allow(mock_nc).to receive(:rtt).and_raise(StandardError, 'RTT failed')
+      end
+
+      it 'returns nil for RTT and logs warning' do
+        result = described_class.health_check
+        expect(result[:performance][:nats_rtt_ms]).to be_nil
+        expect(JetstreamBridge::Logging).to have_received(:warn).with(
+          /Failed to measure NATS RTT/,
+          tag: 'JetstreamBridge'
+        )
+      end
+
+      it 'still reports as healthy if connection works' do
+        result = described_class.health_check
+        expect(result[:healthy]).to be true
       end
     end
 
@@ -498,6 +541,8 @@ RSpec.describe JetstreamBridge do
              connected_at: nil)
     end
 
+    let(:mock_nc) { double('NATS::Client', rtt: 0.005) }
+
     let(:stream_info_data) do
       double('StreamInfo',
              config: double(subjects: ['test.*']),
@@ -507,6 +552,7 @@ RSpec.describe JetstreamBridge do
     before do
       allow(JetstreamBridge::Connection).to receive(:instance).and_return(conn_instance)
       allow(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
+      allow(JetstreamBridge::Connection).to receive(:nc).and_return(mock_nc)
       allow(jts).to receive(:stream_info).and_return(stream_info_data)
     end
 

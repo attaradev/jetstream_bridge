@@ -48,7 +48,10 @@ module JetstreamBridge
       def list_streams_with_subjects(jts)
         list_stream_names(jts).map do |name|
           info = jts.stream_info(name)
-          { name: name, subjects: Array(info.config.subjects || []) }
+          # Handle both object-style and hash-style access for compatibility
+          config_data = info.config
+          subjects = config_data.respond_to?(:subjects) ? config_data.subjects : config_data[:subjects]
+          { name: name, subjects: Array(subjects || []) }
         end
       end
 

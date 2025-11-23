@@ -115,21 +115,39 @@ module JetstreamBridge
       Connection.jetstream
     end
 
-    # Health check for monitoring and readiness probes
+    # Active health check for monitoring and readiness probes
+    #
+    # Performs actual operations to verify system health:
+    # - Checks NATS connection (active: calls account_info API)
+    # - Verifies stream exists and is accessible (active: queries stream info)
+    # - Tests NATS round-trip communication (active: RTT measurement)
     #
     # @return [Hash] Health status including NATS connection, stream, and version
     def health_check
+      start_time = Time.now
       conn_instance = Connection.instance
+
+      # Active check: calls @jts.account_info internally
       connected = conn_instance.connected?
       connected_at = conn_instance.connected_at
 
+      # Active check: queries actual stream from NATS server
       stream_info = fetch_stream_info if connected
+
+      # Active check: measure NATS round-trip time
+      rtt_ms = measure_nats_rtt if connected
+
+      health_check_duration_ms = ((Time.now - start_time) * 1000).round(2)
 
       {
         healthy: connected && stream_info&.fetch(:exists, false),
         nats_connected: connected,
         connected_at: connected_at&.iso8601,
         stream: stream_info,
+        performance: {
+          nats_rtt_ms: rtt_ms,
+          health_check_duration_ms: health_check_duration_ms
+        },
         config: {
           env: config.env,
           app_name: config.app_name,
@@ -281,11 +299,18 @@ module JetstreamBridge
     def fetch_stream_info
       jts = Connection.jetstream
       info = jts.stream_info(config.stream_name)
+
+      # Handle both object-style and hash-style access for compatibility
+      config_data = info.config
+      state_data = info.state
+      subjects = config_data.respond_to?(:subjects) ? config_data.subjects : config_data[:subjects]
+      messages = state_data.respond_to?(:messages) ? state_data.messages : state_data[:messages]
+
       {
         exists: true,
         name: config.stream_name,
-        subjects: info.config.subjects,
-        messages: info.state.messages
+        subjects: subjects,
+        messages: messages
       }
     rescue StandardError => e
       {
@@ -293,6 +318,20 @@ module JetstreamBridge
         name: config.stream_name,
         error: "#{e.class}: #{e.message}"
       }
+    end
+
+    def measure_nats_rtt
+      # Measure round-trip time using NATS RTT method
+      nc = Connection.nc
+      start = Time.now
+      nc.rtt
+      ((Time.now - start) * 1000).round(2)
+    rescue StandardError => e
+      Logging.warn(
+        "Failed to measure NATS RTT: #{e.class} #{e.message}",
+        tag: 'JetstreamBridge'
+      )
+      nil
     end
 
     def assign!(cfg, key, val)

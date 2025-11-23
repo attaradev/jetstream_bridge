@@ -127,11 +127,15 @@ module JetstreamBridge
       private
 
       def ensure_update(jts, name, info, desired_subjects)
-        existing = StreamSupport.normalize_subjects(info.config.subjects || [])
+        # Handle both object-style and hash-style access for compatibility
+        config_data = info.config
+        subjects = config_data.respond_to?(:subjects) ? config_data.subjects : config_data[:subjects]
+        existing = StreamSupport.normalize_subjects(subjects || [])
         to_add   = StreamSupport.missing_subjects(existing, desired_subjects)
 
         # Retention is immutable; if different, skip all updates to avoid 10052 error.
-        have_ret = info.config.retention.to_s.downcase
+        retention = config_data.respond_to?(:retention) ? config_data.retention : config_data[:retention]
+        have_ret = retention.to_s.downcase
         if have_ret != RETENTION
           StreamSupport.log_retention_mismatch(name, have: have_ret, want: RETENTION)
           return
@@ -140,7 +144,8 @@ module JetstreamBridge
         add_subjects(jts, name, existing, to_add) if to_add.any?
 
         # Storage can be updated; do it without passing retention.
-        have_storage = info.config.storage.to_s.downcase
+        storage = config_data.respond_to?(:storage) ? config_data.storage : config_data[:storage]
+        have_storage = storage.to_s.downcase
         if have_storage != STORAGE
           apply_update(jts, name, existing, storage: STORAGE)
           StreamSupport.log_config_updated(name, storage: STORAGE)
