@@ -403,13 +403,13 @@ RSpec.describe JetstreamBridge::InboxEvent do
 
     it 'returns events ordered by received_at desc' do
       events = described_class.recent(10)
-      expect(events.pluck(:event_id)).to eq(['newest', 'recent', 'old'])
+      expect(events.pluck(:event_id)).to eq(%w[newest recent old])
     end
 
     it 'limits results to specified count' do
       events = described_class.recent(2)
       expect(events.count).to eq(2)
-      expect(events.pluck(:event_id)).to eq(['newest', 'recent'])
+      expect(events.pluck(:event_id)).to eq(%w[newest recent])
     end
 
     it 'defaults to 100 limit' do
@@ -428,7 +428,7 @@ RSpec.describe JetstreamBridge::InboxEvent do
     it 'returns events that are not processed' do
       events = described_class.unprocessed
       expect(events.count).to eq(3)
-      expect(events.pluck(:event_id)).to match_array(['pending', 'processing', 'failed'])
+      expect(events.pluck(:event_id)).to match_array(%w[pending processing failed])
     end
 
     it 'excludes processed events' do

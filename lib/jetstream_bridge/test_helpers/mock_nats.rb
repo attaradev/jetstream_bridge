@@ -50,7 +50,7 @@ module JetstreamBridge
 
         # Simulate JetStream API requests
         # Used by overlap_guard.rb for stream management operations
-        def request(subject, payload, timeout: 1)
+        def request(subject, _payload, timeout: 1)
           raise NATS::IO::NoRespondersError, 'Not connected' unless @connected
 
           # Parse the API request

@@ -40,14 +40,12 @@ module JetstreamBridge
         end
 
         # Auto-enable test mode in test environment if NATS_URLS not set
-        if Rails.env.test? && ENV['NATS_URLS'].blank?
-          unless defined?(JetstreamBridge::TestHelpers) &&
+        if Rails.env.test? && ENV['NATS_URLS'].blank? && !(defined?(JetstreamBridge::TestHelpers) &&
                  JetstreamBridge::TestHelpers.respond_to?(:test_mode?) &&
-                 JetstreamBridge::TestHelpers.test_mode?
-            Rails.logger.info '[JetStream Bridge] Auto-enabling test mode (NATS_URLS not set)'
-            require_relative 'test_helpers'
-            JetstreamBridge::TestHelpers.enable_test_mode!
-          end
+                 JetstreamBridge::TestHelpers.test_mode?)
+          Rails.logger.info '[JetStream Bridge] Auto-enabling test mode (NATS_URLS not set)'
+          require_relative 'test_helpers'
+          JetstreamBridge::TestHelpers.enable_test_mode!
         end
 
         # Log helpful connection info in development

@@ -14,9 +14,7 @@ if ENV['COVERAGE'] != 'false'
     minimum_coverage line: 85, branch: 75
 
     # Merge results from parallel test processes
-    if ENV['TEST_ENV_NUMBER']
-      command_name "RSpec-#{ENV['TEST_ENV_NUMBER']}"
-    end
+    command_name "RSpec-#{ENV['TEST_ENV_NUMBER']}" if ENV['TEST_ENV_NUMBER']
 
     # Use both JSON and HTML formatters
     formatter SimpleCov::Formatter::MultiFormatter.new([SimpleCov::Formatter::HTMLFormatter,
