@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-class CreateJetstreamOutboxEvents < ActiveRecord::Migration[7.0]
+class CreateJetstreamOutboxEvents < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
   def change
     create_table :jetstream_outbox_events do |t|
       t.string  :event_id, null: false

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-class CreateJetstreamInboxEvents < ActiveRecord::Migration[7.0]
+class CreateJetstreamInboxEvents < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
   def change
     create_table :jetstream_inbox_events do |t|
       t.string   :event_id                              # preferred dedupe key
