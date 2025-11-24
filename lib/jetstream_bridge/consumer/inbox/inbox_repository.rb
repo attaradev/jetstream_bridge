@@ -11,13 +11,13 @@ module JetstreamBridge
     end
 
     def find_or_build(msg)
-      if ModelUtils.has_columns?(@klass, :event_id)
-        record = @klass.find_or_initialize_by(event_id: msg.event_id)
-      elsif ModelUtils.has_columns?(@klass, :stream_seq)
-        record = @klass.find_or_initialize_by(stream_seq: msg.seq)
-      else
-        record = @klass.new
-      end
+      record = if ModelUtils.has_columns?(@klass, :event_id)
+                 @klass.find_or_initialize_by(event_id: msg.event_id)
+               elsif ModelUtils.has_columns?(@klass, :stream_seq)
+                 @klass.find_or_initialize_by(stream_seq: msg.seq)
+               else
+                 @klass.new
+               end
 
       lock_record(record)
     end

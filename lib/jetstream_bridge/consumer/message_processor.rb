@@ -63,7 +63,7 @@ module JetstreamBridge
     end
 
     def handle_message(msg, auto_ack: true)
-      ctx   = MessageContext.build(msg)
+      ctx = MessageContext.build(msg)
       event, early_action = parse_message(msg, ctx)
       return apply_action(msg, early_action) if early_action && auto_ack
       return early_action if early_action

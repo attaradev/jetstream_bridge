@@ -450,9 +450,8 @@ module JetstreamBridge
     def cleanup_connection!(close_nc: true)
       begin
         # Avoid touching RSpec doubles used in unit tests
-        unless defined?(RSpec::Mocks::Double) && @nc.is_a?(RSpec::Mocks::Double)
-          @nc.close if close_nc && @nc&.respond_to?(:close) && @nc.connected?
-        end
+        is_rspec_double = defined?(RSpec::Mocks::Double) && @nc.is_a?(RSpec::Mocks::Double)
+        @nc.close if !is_rspec_double && close_nc && @nc.respond_to?(:close) && @nc.connected?
       rescue StandardError
         # ignore cleanup errors
       end

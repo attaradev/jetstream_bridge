@@ -232,7 +232,6 @@ module JetstreamBridge
       TestHelpers.record_consumed_event(event.to_h) if TestHelpers.test_mode?
       handler.call(event)
     end
-
   end
 end
 

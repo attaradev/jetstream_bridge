@@ -31,11 +31,10 @@ module JetstreamBridge
         auto_enable_test_mode!
 
         if autostart_disabled?
-          Logging.info(
-            "Auto-start skipped (reason: #{autostart_skip_reason}; " \
-            'enable via lazy_connect=false, unset JETSTREAM_BRIDGE_DISABLE_AUTOSTART, or set JETSTREAM_BRIDGE_FORCE_AUTOSTART=1)',
-            tag: 'JetstreamBridge::Railtie'
-          )
+          message = "Auto-start skipped (reason: #{autostart_skip_reason}; " \
+                    'enable via lazy_connect=false, unset JETSTREAM_BRIDGE_DISABLE_AUTOSTART, ' \
+                    'or set JETSTREAM_BRIDGE_FORCE_AUTOSTART=1)'
+          Logging.info(message, tag: 'JetstreamBridge::Railtie')
           return
         end
 
@@ -85,7 +84,7 @@ module JetstreamBridge
       end
 
       def env_disables_autostart?
-        value = ENV['JETSTREAM_BRIDGE_DISABLE_AUTOSTART']
+        value = ENV.fetch('JETSTREAM_BRIDGE_DISABLE_AUTOSTART', nil)
         return false if value.nil?
 
         normalized = value.to_s.strip.downcase
@@ -95,7 +94,7 @@ module JetstreamBridge
       end
 
       def force_autostart?
-        value = ENV['JETSTREAM_BRIDGE_FORCE_AUTOSTART']
+        value = ENV.fetch('JETSTREAM_BRIDGE_FORCE_AUTOSTART', nil)
         return false if value.nil?
 
         normalized = value.to_s.strip.downcase

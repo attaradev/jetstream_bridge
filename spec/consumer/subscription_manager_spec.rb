@@ -75,13 +75,13 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
       expect(manager.desired_consumer_cfg[:max_deliver]).to eq(5)
     end
 
-      it 'converts ack_wait to seconds' do
-        expect(manager.desired_consumer_cfg[:ack_wait]).to eq(30)
-      end
+    it 'converts ack_wait to seconds' do
+      expect(manager.desired_consumer_cfg[:ack_wait]).to eq(30)
+    end
 
-      it 'converts backoff array to seconds' do
-        expect(manager.desired_consumer_cfg[:backoff]).to eq([1, 5, 10])
-      end
+    it 'converts backoff array to seconds' do
+      expect(manager.desired_consumer_cfg[:backoff]).to eq([1, 5, 10])
+    end
   end
 
   describe '#ensure_consumer!' do
@@ -281,8 +281,8 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
             ack_policy: 'explicit',
             deliver_policy: 'all',
             max_deliver: 5,
-            ack_wait: 30 * ::NATS::NANOSECONDS,
-            backoff: [1, 5].map { |s| s * ::NATS::NANOSECONDS }
+            ack_wait: 30 * NATS::NANOSECONDS,
+            backoff: [1, 5].map { |s| s * NATS::NANOSECONDS }
           },
           delivered: { consumer_seq: 0, stream_seq: 0, last_active: created_at },
           ack_floor: { consumer_seq: 0, stream_seq: 0, last_active: created_at },

@@ -30,7 +30,7 @@ Style/FrozenStringLiteralComment:
 
 Style/StringLiterals:
   EnforcedStyle: single_quotes
-  ConsistentQuotesInMultiline: true
+  ConsistentQuotesInMultiline: false
 
 Style/SymbolArray:
   EnforcedStyle: brackets
@@ -80,6 +80,7 @@ Metrics/CyclomaticComplexity:
     - "lib/jetstream_bridge/test_helpers.rb" # Test helper with complex setup
     - "lib/jetstream_bridge/core/logging.rb" # URL sanitization with multiple branches
     - "lib/jetstream_bridge/consumer/inbox/inbox_message.rb" # NATS message parsing
+    - "lib/jetstream_bridge/consumer/inbox/inbox_processor.rb" # Inbox processing with multiple branches
     - "lib/jetstream_bridge/core/connection.rb" # Connection validation with multiple checks
     - "lib/jetstream_bridge/core/debug_helper.rb" # Stream info with compatibility checks
     - "lib/jetstream_bridge/test_helpers/mock_nats.rb" # Mock NATS implementation
@@ -99,6 +100,7 @@ Metrics/ModuleLength:
   Exclude:
     - "lib/jetstream_bridge.rb" # Main module with convenience methods
     - "lib/jetstream_bridge/core/debug_helper.rb" # Debug helper with stream info methods
+    - "lib/jetstream_bridge/rails/integration.rb" # Rails integration with autostart logic
 
 Metrics/ClassLength:
   Max: 200
@@ -124,6 +126,7 @@ Naming/PredicatePrefix:
   Enabled: true
   Exclude:
     - "lib/jetstream_bridge/test_helpers.rb" # RSpec matcher convention uses have_*
+    - "lib/jetstream_bridge/test_helpers/matchers.rb" # RSpec matcher convention uses have_*
     - "lib/jetstream_bridge/core/model_utils.rb" # ActiveRecord introspection uses has_*
     - "lib/jetstream_bridge/models/outbox_event.rb" # ActiveRecord introspection uses has_*
     - "lib/jetstream_bridge/models/inbox_event.rb" # ActiveRecord introspection uses has_*
@@ -164,6 +167,7 @@ Style/OpenStructUse:
   Enabled: true
   Exclude:
     - "lib/jetstream_bridge/test_helpers.rb" # Test doubles for NATS messages
+    - "lib/jetstream_bridge/test_helpers/integration_helpers.rb" # Test doubles for NATS messages
     - "lib/jetstream_bridge/test_helpers/mock_nats.rb" # Mock NATS message objects
 
 # ---------- Packaging / Gemspec ----------

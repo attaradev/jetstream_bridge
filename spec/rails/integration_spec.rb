@@ -12,8 +12,8 @@ RSpec.describe JetstreamBridge::Rails::Integration do
 
   around do |example|
     original_env = {
-      disable: ENV['JETSTREAM_BRIDGE_DISABLE_AUTOSTART'],
-      force: ENV['JETSTREAM_BRIDGE_FORCE_AUTOSTART']
+      disable: ENV.fetch('JETSTREAM_BRIDGE_DISABLE_AUTOSTART', nil),
+      force: ENV.fetch('JETSTREAM_BRIDGE_FORCE_AUTOSTART', nil)
     }
     example.run
     ENV['JETSTREAM_BRIDGE_DISABLE_AUTOSTART'] = original_env[:disable]

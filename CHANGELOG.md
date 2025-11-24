@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.0] - 2025-11-24
+
+### Added
+
+- **Modular Code Organization** - Restructured codebase with dedicated modules
+  - New `JetstreamBridge::Core` module for core utilities (connection, logging, model utils, helpers)
+  - New `JetstreamBridge::Rails` module for Rails-specific integration
+  - Improved separation of concerns and code discoverability
+  - Better namespace organization for future extensibility
+
+- **Enhanced Test Helpers** - Comprehensive testing utilities split into focused modules
+  - `JetstreamBridge::TestHelpers::Fixtures` - Convenient fixture generation for events and messages
+  - `JetstreamBridge::TestHelpers::IntegrationHelpers` - Full NATS message simulation for integration tests
+  - `JetstreamBridge::TestHelpers::Matchers` - RSpec matchers for event publishing assertions
+  - Improved test doubles with realistic NATS message structure
+  - Better support for testing event-driven Rails applications
+
+- **Getting Started Guide** - New comprehensive guide in `docs/GETTING_STARTED.md`
+  - Quick installation and setup instructions
+  - Publishing and consuming examples
+  - Rails integration patterns
+  - Links to advanced documentation
+
+### Changed
+
+- **Rails Integration** - Reorganized Rails-specific code
+  - Moved from single `lib/jetstream_bridge/railtie.rb` to dedicated `lib/jetstream_bridge/rails/` directory
+  - `JetstreamBridge::Rails::Railtie` - Rails lifecycle integration
+  - `JetstreamBridge::Rails::Integration` - Autostart logic and Rails environment detection
+  - Cleaner separation between gem core and Rails integration
+
+- **Documentation** - Restructured README for clarity
+  - Condensed README focusing on quick start and highlights
+  - Moved detailed guides to dedicated docs directory
+  - Improved navigation with links to specialized documentation
+  - More concise examples and clearer feature descriptions
+
+- **Gemspec** - Enhanced package configuration
+  - Added `docs/**/*.md` to distributed files
+  - Added `extra_rdoc_files` for better documentation
+  - Updated description to emphasize production-readiness
+
+### Fixed
+
+- **Code Quality** - Resolved all RuboCop style violations
+  - Fixed string literal consistency issues
+  - Improved code formatting and indentation
+  - Reduced complexity in conditional assignments
+  - Updated RuboCop configuration for new file structure
+
 ## [4.1.0] - 2025-11-23
 
 ### Added

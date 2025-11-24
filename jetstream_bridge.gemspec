@@ -10,10 +10,10 @@ Gem::Specification.new do |spec|
 
   spec.summary     = 'Production-safe realtime data bridge using NATS JetStream'
   spec.description = <<~DESC.strip
-    Publisher/Consumer utilities for NATS JetStream with environment-scoped subjects,
-    overlap guards, DLQ routing, retries/backoff, and optional Inbox/Outbox patterns.
-    Includes health checks, auto-reconnection, graceful shutdown, and topology setup
-    helpers for production-safe operation.
+    Production-ready publishers/consumers for NATS JetStream with environment-scoped
+    subjects, overlap guards, DLQ routing, retries/backoff, and optional inbox/outbox
+    patterns. Includes health checks, auto-reconnection, graceful shutdown, topology
+    setup helpers, and Rails generators.
   DESC
 
   spec.license  = 'MIT'
@@ -39,11 +39,13 @@ Gem::Specification.new do |spec|
       'lib/**/*.rake',
       'lib/**/templates/**/*',
       'README.md',
+      'docs/**/*.md',
       'LICENSE',
       'CHANGELOG.md'
     ].select { |f| File.file?(f) }
   end
 
+  spec.extra_rdoc_files = ['README.md', 'CHANGELOG.md', 'docs/GETTING_STARTED.md']
   spec.require_paths = ['lib']
 
   # Runtime dependencies

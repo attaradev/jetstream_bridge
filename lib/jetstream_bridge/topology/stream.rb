@@ -79,7 +79,7 @@ module JetstreamBridge
     def log_retention_mismatch(name, have:, want:)
       Logging.warn(
         "Stream #{name} retention mismatch (have=#{have.inspect}, want=#{want.inspect}). " \
-        "Retention is immutable; skipping retention change.",
+        'Retention is immutable; skipping retention change.',
         tag: 'JetstreamBridge::Stream'
       )
     end
