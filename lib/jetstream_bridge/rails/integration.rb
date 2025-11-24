@@ -71,13 +71,12 @@ module JetstreamBridge
 
         JetstreamBridge.config.lazy_connect ||
           env_disables_autostart? ||
-          skip_autostart_for_rails_tooling?
+          rake_task?
       end
 
       def autostart_skip_reason
         return 'lazy_connect enabled' if JetstreamBridge.config.lazy_connect
         return 'JETSTREAM_BRIDGE_DISABLE_AUTOSTART set' if env_disables_autostart?
-        return 'Rails console' if rails_console?
         return 'rake task' if rake_task?
 
         'unknown'
@@ -135,10 +134,6 @@ module JetstreamBridge
 
       def rake_task?
         !!defined?(::Rake) || File.basename($PROGRAM_NAME) == 'rake'
-      end
-
-      def skip_autostart_for_rails_tooling?
-        rails_console? || rake_task?
       end
 
       def active_logger

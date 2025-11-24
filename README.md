@@ -54,6 +54,10 @@ JetstreamBridge.configure do |config|
   config.use_inbox  = true
   config.use_dlq    = true
 end
+
+# Note: configure only sets options; it does not connect. In Rails the Railtie
+# starts the bridge after initialization. In non-Rails apps call
+# `JetstreamBridge.startup!` (or rely on auto-connect on first publish/subscribe).
 ```
 
 Publish:

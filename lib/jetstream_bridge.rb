@@ -133,14 +133,13 @@ module JetstreamBridge
 
     # Initialize the JetStream Bridge connection and topology
     #
-    # This method is called automatically by `configure`, but can be called
-    # explicitly if needed. It's idempotent and safe to call multiple times.
+    # This method can be called explicitly if needed. It's idempotent and safe to call multiple times.
     #
     # @return [void]
     def startup!
       return if @connection_initialized
 
-      Connection.connect!
+      connect_and_ensure_stream!
       @connection_initialized = true
       Logging.info('JetStream Bridge started successfully', tag: 'JetstreamBridge')
     end
@@ -202,7 +201,9 @@ module JetstreamBridge
     # @return [Object] JetStream context
     def connect_and_ensure_stream!
       Connection.connect!
-      Connection.jetstream
+      jts = Connection.jetstream
+      Topology.ensure!(jts)
+      jts
     end
 
     # Backwards-compatible alias for the previous method name

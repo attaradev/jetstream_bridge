@@ -50,17 +50,23 @@ RSpec.describe JetstreamBridge::Rails::Integration do
       expect(described_class.autostart_skip_reason).to eq('JETSTREAM_BRIDGE_DISABLE_AUTOSTART set')
     end
 
-    it 'returns false when force flag is set even if console/rake' do
-      stub_const('Rails::Console', Class.new)
+    it 'returns false when force flag is set even if rake task' do
+      stub_const('Rake', Module.new)
       ENV['JETSTREAM_BRIDGE_FORCE_AUTOSTART'] = '1'
       expect(described_class.autostart_disabled?).to be(false)
     end
 
-    it 'skips autostart for Rails console by default' do
+    it 'does not skip autostart for Rails console by default' do
       stub_const('Rails::Console', Class.new)
       JetstreamBridge.config.lazy_connect = false
+      expect(described_class.autostart_disabled?).to be(false)
+    end
+
+    it 'skips autostart for rake tasks by default' do
+      stub_const('Rake', Module.new)
+      JetstreamBridge.config.lazy_connect = false
       expect(described_class.autostart_disabled?).to be(true)
-      expect(described_class.autostart_skip_reason).to eq('Rails console')
+      expect(described_class.autostart_skip_reason).to eq('rake task')
     end
   end
 

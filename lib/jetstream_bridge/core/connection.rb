@@ -135,6 +135,9 @@ module JetstreamBridge
     # @return [Time, nil] timestamp when connection was established
     attr_reader :connected_at
 
+    # Last reconnection error metadata (exposed for health checks/diagnostics)
+    attr_reader :last_reconnect_error, :last_reconnect_error_at
+
     # Get current connection state
     #
     # @return [Symbol] Current connection state (see State module)
@@ -428,10 +431,6 @@ module JetstreamBridge
       @cached_health_status = false
       @last_health_check = Time.now.to_i
     end
-
-    # Get last reconnection error for diagnostics
-    # @return [StandardError, nil] Last error during reconnection
-    attr_reader :last_reconnect_error, :last_reconnect_error_at
 
     # Expose for class-level helpers (not part of public API)
     attr_reader :nc

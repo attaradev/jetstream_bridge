@@ -89,6 +89,14 @@ RSpec.describe JetstreamBridge::Connection, :allow_real_connection do
     end
   end
 
+  describe 'diagnostic accessors' do
+    it 'exposes reconnection error readers publicly' do
+      instance = described_class.instance
+      expect(instance.respond_to?(:last_reconnect_error)).to be true
+      expect(instance.respond_to?(:last_reconnect_error_at)).to be true
+    end
+  end
+
   describe '#connect!' do
     let(:instance) { described_class.instance }
 

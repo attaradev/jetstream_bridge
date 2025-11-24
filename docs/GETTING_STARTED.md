@@ -52,9 +52,14 @@ JetstreamBridge.configure do |config|
   config.ack_wait    = "30s"
   config.backoff     = %w[1s 5s 15s 30s 60s]
 end
+
+# Note: `configure` only sets options; it does not connect. Rails will start
+# JetstreamBridge after initialization via the Railtie. For non-Rails or custom
+# boot flows, call `JetstreamBridge.startup!` (or rely on auto-connect on first
+# publish/subscribe).
 ```
 
-Rails autostart can be disabled for rake/console by `config.lazy_connect = true` or `JETSTREAM_BRIDGE_DISABLE_AUTOSTART=1`; it will connect on first publish/subscribe.
+Rails autostart runs after initialization (including in console). You can opt out for rake tasks or other tooling with `config.lazy_connect = true` or `JETSTREAM_BRIDGE_DISABLE_AUTOSTART=1`; it will then connect on first publish/subscribe.
 
 ## Publish
 

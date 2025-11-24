@@ -37,7 +37,12 @@ module JetstreamBridge
       end
 
       def fetch_stream_info
+        # Ensure we have an active connection before querying stream info
+        connect_if_needed!
+
         jts = Connection.jetstream
+        raise ConnectionNotEstablishedError, 'NATS connection not established' unless jts
+
         info = jts.stream_info(config.stream_name)
 
         # Handle both object-style and hash-style access for compatibility
