@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.4.0] - 2025-11-24
+
+### Changed
+
+- **RTT Measurement** - Enhanced NATS round-trip time measurement with fallback support
+  - Added automatic unit normalization (seconds to milliseconds) for RTT values
+  - Implemented fallback RTT measurement using `flush` for NATS clients without native `rtt` method
+  - Supports both nats-pure and other NATS client implementations
+  - Better compatibility across different NATS client versions
+
+- **Rails Integration** - Improved Rake task detection reliability
+  - Changed from `defined?(::Rake)` check to `$PROGRAM_NAME` inspection
+  - More reliable detection of Rake execution context
+  - Prevents false positives when Rake is loaded but not executing
+
+### Fixed
+
+- **Test Coverage** - Comprehensive test suite improvements
+  - Added complete test coverage for Rails integration lifecycle methods
+  - Added tests for test helper matchers (`have_published`, `be_publish_success`, `be_publish_failure`)
+  - Added tests for fixture builders (`sample_event`, `sample_events`, `event`)
+  - Added test for RTT fallback behavior when client lacks `rtt` method
+  - Added spec file for `bridge_helpers` module
+
 ## [4.3.0] - 2025-11-24
 
 ### Added

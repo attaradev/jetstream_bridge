@@ -178,7 +178,7 @@ RSpec.describe JetstreamBridge::Rails::Integration do
         .to change { described_class.instance_variable_get(:@shutdown_hook_registered) }.from(nil).to(true)
 
       expect { described_class.register_shutdown_hook! }
-        .not_to change { described_class.instance_variable_get(:@shutdown_hook_registered) }
+        .not_to(change { described_class.instance_variable_get(:@shutdown_hook_registered) })
     end
   end
 
