@@ -33,6 +33,36 @@ RSpec.describe 'JetstreamBridge::TestHelpers utilities' do
       expect(success).to be_publish_success
       expect(failure).to be_publish_failure
     end
+
+    it 'supports matcher values in payload comparisons' do
+      JetstreamBridge::TestHelpers.record_published_event(
+        { 'event_type' => 'user.created', 'payload' => { 'id' => 2, 'role' => 'admin' } }
+      )
+
+      expect(JetstreamBridge).to have_published(
+        event_type: 'user.created',
+        payload: {
+          role: include('role' => 'admin'),
+          id: include('id' => 2, 'role' => 'admin')
+        }
+      )
+    end
+
+    it 'exposes helpful failure messages' do
+      matcher = have_published(event_type: 'missing.event', payload: { id: 999 })
+      matcher.matches?(nil)
+
+      expect(matcher.failure_message).to include('expected to have published event_type')
+      expect(matcher.failure_message_when_negated).to include('expected not to have published')
+
+      success_matcher = be_publish_success
+      expect(success_matcher.failure_message).to include('expected PublishResult to be successful')
+      expect(success_matcher.failure_message_when_negated).to include('expected PublishResult to not be successful')
+
+      failure_matcher = be_publish_failure
+      expect(failure_matcher.failure_message).to include('expected PublishResult to be a failure')
+      expect(failure_matcher.failure_message_when_negated).to include('expected PublishResult to not be a failure')
+    end
   end
 
   describe JetstreamBridge::TestHelpers::Fixtures do
@@ -42,6 +72,23 @@ RSpec.describe 'JetstreamBridge::TestHelpers utilities' do
       expect(event).to be_a(JetstreamBridge::Models::Event)
       expect(event.payload['id']).to eq(99)
       expect(event.payload['role']).to eq('admin')
+    end
+
+    it 'builds multiple sample events with incremental payloads' do
+      events = JetstreamBridge::TestHelpers::Fixtures.sample_events(2, type: 'custom.type')
+
+      expect(events.size).to eq(2)
+      expect(events.map(&:type)).to all(eq('custom.type'))
+      expect(events.map { |e| e.payload['id'] }).to eq([1, 2])
+      expect(events.map { |e| e.payload['sequence'] }).to eq([0, 1])
+    end
+
+    it 'builds a generic event with custom attributes' do
+      event = JetstreamBridge::TestHelpers::Fixtures.event(event_type: 'thing.happened', payload: { id: 7 })
+
+      expect(event).to be_a(JetstreamBridge::Models::Event)
+      expect(event.type).to eq('thing.happened')
+      expect(event.payload['id']).to eq(7)
     end
   end
 

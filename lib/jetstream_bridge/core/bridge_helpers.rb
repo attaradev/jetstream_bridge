@@ -66,17 +66,36 @@ module JetstreamBridge
       end
 
       def measure_nats_rtt
-        # Measure round-trip time using NATS RTT method
         nc = Connection.nc
-        start = Time.now
-        nc.rtt
-        ((Time.now - start) * 1000).round(2)
+        return nil unless nc
+
+        # Prefer native RTT API when available (e.g., new NATS clients)
+        if nc.respond_to?(:rtt)
+          rtt_value = normalize_ms(nc.rtt)
+          return rtt_value if rtt_value
+        end
+
+        # Fallback for clients without #rtt (nats-pure): measure ping/pong via flush
+        start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        nc.flush(1)
+        duration = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start
+        normalize_ms(duration)
       rescue StandardError => e
         Logging.warn(
           "Failed to measure NATS RTT: #{e.class} #{e.message}",
           tag: 'JetstreamBridge'
         )
         nil
+      end
+
+      def normalize_ms(value)
+        return nil if value.nil?
+        return nil unless value.respond_to?(:to_f)
+
+        numeric = value.to_f
+        # Heuristic: sub-1 values are likely seconds; convert them to ms for reporting
+        ms = numeric < 1 ? numeric * 1000 : numeric
+        ms.round(2)
       end
 
       def assign_config_option!(cfg, key, val)

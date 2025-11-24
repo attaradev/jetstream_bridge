@@ -270,6 +270,18 @@ RSpec.describe JetstreamBridge do
       described_class.health_check
     end
 
+    context 'when NATS client does not expose #rtt' do
+      let(:mock_nc) { double('NATS::Client', flush: true) }
+
+      it 'falls back to measuring via flush' do
+        allow(mock_nc).to receive(:respond_to?).with(:rtt).and_return(false)
+        expect(mock_nc).to receive(:flush).with(1)
+
+        result = described_class.health_check
+        expect(result[:performance][:nats_rtt_ms]).to be_a(Numeric)
+      end
+    end
+
     context 'when RTT measurement fails' do
       before do
         allow(mock_nc).to receive(:rtt).and_raise(StandardError, 'RTT failed')

@@ -133,7 +133,7 @@ module JetstreamBridge
       end
 
       def rake_task?
-        !!defined?(::Rake) || File.basename($PROGRAM_NAME) == 'rake'
+        File.basename($PROGRAM_NAME) == 'rake'
       end
 
       def active_logger
