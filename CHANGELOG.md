@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.3.0] - 2025-11-24
+
+### Added
+
+- **Connection Diagnostics** - Exposed reconnection error tracking for health checks
+  - `last_reconnect_error` and `last_reconnect_error_at` now publicly accessible
+  - Enables better monitoring and diagnostics of connection issues
+  - Added test coverage for diagnostic accessor visibility
+
+### Changed
+
+- **Connection Lifecycle** - Improved topology management during startup
+  - `startup!` now explicitly ensures topology is created during initialization
+  - `connect_and_ensure_stream!` properly ensures topology after connecting
+  - `fetch_stream_info` now ensures connection is established before querying
+  - More reliable initialization sequence for non-Rails applications
+
+- **Rails Integration** - Changed console autostart behavior
+  - Rails console now autostarts JetStream Bridge by default (previously skipped)
+  - Simplified autostart logic by removing console detection as skip condition
+  - Autostart remains disabled only for rake tasks (unless forced with `JETSTREAM_BRIDGE_FORCE_AUTOSTART`)
+  - Better developer experience in Rails console for immediate testing
+
+- **Documentation** - Clarified connection initialization behavior
+  - Added notes explaining that `configure` only sets options and does not connect
+  - Documented when connection actually occurs (Rails: after initialization; non-Rails: call `startup!`)
+  - Improved explanation of `lazy_connect` behavior in Rails environments
+  - Added guidance for non-Rails applications to call `startup!` explicitly
+
+### Fixed
+
+- **Test Coverage** - Added missing test scenarios
+  - Added tests for topology ensuring in `startup!` and `connect_and_ensure_stream!`
+  - Added tests for connection initialization in `stream_info`
+  - Updated Rails integration specs to reflect new console behavior
+
 ## [4.2.0] - 2025-11-24
 
 ### Added
