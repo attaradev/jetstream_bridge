@@ -80,8 +80,9 @@ module JetstreamBridge
         ack_policy: 'explicit',
         deliver_policy: 'all',
         max_deliver: JetstreamBridge.config.max_deliver,
-        ack_wait: Duration.to_millis(JetstreamBridge.config.ack_wait),
-        backoff: Array(JetstreamBridge.config.backoff).map { |d| Duration.to_millis(d) }
+        # JetStream expects seconds (the client multiplies by nanoseconds).
+        ack_wait: duration_to_seconds(JetstreamBridge.config.ack_wait),
+        backoff: Array(JetstreamBridge.config.backoff).map { |d| duration_to_seconds(d) }
       }
     end
 
@@ -93,8 +94,8 @@ module JetstreamBridge
         ack_policy: sval(cfg, :ack_policy), # string
         deliver_policy: sval(cfg, :deliver_policy), # string
         max_deliver: ival(cfg, :max_deliver), # integer
-        ack_wait: d_ms(cfg, :ack_wait), # integer ms
-        backoff_ms: darr_ms(cfg, :backoff) # array of integer ms
+        ack_wait_secs: d_secs(cfg, :ack_wait), # integer seconds
+        backoff_secs: darr_secs(cfg, :backoff) # array of integer seconds
       }
     end
 
@@ -156,40 +157,48 @@ module JetstreamBridge
     # - Integers/Floats:
     #     * Server may return large integers in **nanoseconds** → detect and convert.
     #     * Otherwise, we delegate to Duration.to_millis (heuristic/explicit).
-    def d_ms(cfg, key)
+    def d_secs(cfg, key)
       raw = get(cfg, key)
-      duration_to_ms(raw)
+      duration_to_seconds(raw)
     end
 
     # Normalize array of durations to integer milliseconds.
-    def darr_ms(cfg, key)
+    def darr_secs(cfg, key)
       raw = get(cfg, key)
-      Array(raw).map { |d| duration_to_ms(d) }
+      Array(raw).map { |d| duration_to_seconds(d) }
     end
 
     # ---- duration coercion ----
 
-    def duration_to_ms(val)
+    def duration_to_seconds(val)
       return nil if val.nil?
 
       case val
       when Integer
         # Heuristic: extremely large integers are likely **nanoseconds** from server
-        # (e.g., 30s => 30_000_000_000 ns). Convert ns → ms.
-        return (val / 1_000_000.0).round if val >= 1_000_000_000
+        # (e.g., 30s => 30_000_000_000 ns). Convert ns → seconds.
+        return (val / 1_000_000_000.0).round if val >= 1_000_000_000
 
         # otherwise rely on Duration’s :auto heuristic (int <1000 => seconds, >=1000 => ms)
-        Duration.to_millis(val, default_unit: :auto)
+        millis = Duration.to_millis(val, default_unit: :auto)
+        seconds_from_millis(millis)
       when Float
-        Duration.to_millis(val, default_unit: :auto) # treated as seconds
+        millis = Duration.to_millis(val, default_unit: :auto)
+        seconds_from_millis(millis)
       when String
         # Strings include unit (ns/us/ms/s/m/h/d) handled by Duration
-        Duration.to_millis(val) # default_unit ignored when unit given
+        millis = Duration.to_millis(val) # default_unit ignored when unit given
+        seconds_from_millis(millis)
       else
-        return Duration.to_millis(val.to_f, default_unit: :auto) if val.respond_to?(:to_f)
+        return duration_to_seconds(val.to_f) if val.respond_to?(:to_f)
 
         raise ArgumentError, "invalid duration: #{val.inspect}"
       end
+    end
+
+    def seconds_from_millis(millis)
+      # Always round up to avoid zero-second waits when sub-second durations are provided.
+      [(millis / 1000.0).ceil, 1].max
     end
   end
 end

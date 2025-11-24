@@ -12,12 +12,14 @@ module JetstreamBridge
 
     def find_or_build(msg)
       if ModelUtils.has_columns?(@klass, :event_id)
-        @klass.find_or_initialize_by(event_id: msg.event_id)
+        record = @klass.find_or_initialize_by(event_id: msg.event_id)
       elsif ModelUtils.has_columns?(@klass, :stream_seq)
-        @klass.find_or_initialize_by(stream_seq: msg.seq)
+        record = @klass.find_or_initialize_by(stream_seq: msg.seq)
       else
-        @klass.new
+        record = @klass.new
       end
+
+      lock_record(record)
     end
 
     def already_processed?(record)
@@ -73,6 +75,16 @@ module JetstreamBridge
     rescue StandardError => e
       Logging.warn("Failed to persist inbox failure: #{e.class}: #{e.message}",
                    tag: 'JetstreamBridge::Consumer')
+    end
+
+    def lock_record(record)
+      return record unless record.respond_to?(:persisted?) && record.persisted?
+      return record unless record.respond_to?(:lock!)
+
+      record.lock!
+      record
+    rescue ActiveRecord::RecordNotFound
+      @klass.new
     end
   end
 end

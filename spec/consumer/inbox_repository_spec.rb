@@ -4,7 +4,7 @@ require 'spec_helper'
 
 RSpec.describe JetstreamBridge::InboxRepository do
   let(:mock_model_class) { class_double('InboxEvent') }
-  let(:mock_record) { instance_double('InboxEvent', save!: true, respond_to?: true) }
+  let(:mock_record) { instance_double('InboxEvent', save!: true, respond_to?: true, persisted?: false) }
   let(:repository) { described_class.new(mock_model_class) }
 
   let(:mock_message) do
@@ -31,6 +31,7 @@ RSpec.describe JetstreamBridge::InboxRepository do
         allow(JetstreamBridge::ModelUtils).to receive(:has_columns?)
           .with(mock_model_class, :event_id).and_return(true)
         allow(mock_model_class).to receive(:find_or_initialize_by).and_return(mock_record)
+        allow(mock_record).to receive(:persisted?).and_return(false)
       end
 
       it 'finds or initializes by event_id' do
@@ -42,6 +43,18 @@ RSpec.describe JetstreamBridge::InboxRepository do
         result = repository.find_or_build(mock_message)
         expect(result).to eq(mock_record)
       end
+
+      context 'when record is persisted' do
+        before do
+          allow(mock_record).to receive(:persisted?).and_return(true)
+          allow(mock_record).to receive(:lock!)
+        end
+
+        it 'locks the record to prevent concurrent processing' do
+          expect(mock_record).to receive(:lock!)
+          repository.find_or_build(mock_message)
+        end
+      end
     end
 
     context 'when model has stream_seq column but not event_id' do
@@ -51,6 +64,7 @@ RSpec.describe JetstreamBridge::InboxRepository do
         allow(JetstreamBridge::ModelUtils).to receive(:has_columns?)
           .with(mock_model_class, :stream_seq).and_return(true)
         allow(mock_model_class).to receive(:find_or_initialize_by).and_return(mock_record)
+        allow(mock_record).to receive(:persisted?).and_return(false)
       end
 
       it 'finds or initializes by stream_seq' do

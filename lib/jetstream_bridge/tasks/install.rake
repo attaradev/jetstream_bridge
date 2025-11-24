@@ -85,7 +85,7 @@ namespace :jetstream_bridge do
     puts '[jetstream_bridge] Testing NATS connection...'
 
     begin
-      jts = JetstreamBridge.ensure_topology!
+      jts = JetstreamBridge.connect_and_ensure_stream!
       puts '✓ Successfully connected to NATS'
       puts '✓ JetStream is available'
       puts '✓ Stream topology ensured'

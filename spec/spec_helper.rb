@@ -9,7 +9,7 @@ if ENV['COVERAGE'] != 'false'
     add_filter '/spec/'
     add_filter '/vendor/'
     add_filter '/lib/generators/'
-    add_filter '/lib/jetstream_bridge/railtie.rb'
+    add_filter '/lib/jetstream_bridge/rails/railtie.rb'
     enable_coverage :branch
     minimum_coverage line: 85, branch: 70
 
@@ -38,7 +38,6 @@ RSpec.configure do |config|
 
   # Performance optimizations
   config.order = :random
-  config.profile_examples = 10
 
   # Run specs in random order to surface order dependencies
   Kernel.srand config.seed

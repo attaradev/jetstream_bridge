@@ -107,11 +107,13 @@ module JetstreamBridge
       @start_time    = Time.now
       @iterations    = 0
       @last_health_check = Time.now
-      # Use existing connection or establish one
-      @jts = Connection.jetstream || Connection.connect!
+      # Use existing connection (should already be established)
+      @jts = Connection.jetstream
+      raise ConnectionError, 'JetStream connection not available. Call JetstreamBridge.startup! first.' unless @jts
+
       @middleware_chain = MiddlewareChain.new
 
-      ensure_destination!
+      ensure_destination_app_configured!
 
       @sub_mgr = SubscriptionManager.new(@jts, @durable, JetstreamBridge.config)
       @processor  = MessageProcessor.new(@jts, @handler, middleware_chain: @middleware_chain)
@@ -242,7 +244,7 @@ module JetstreamBridge
 
     private
 
-    def ensure_destination!
+    def ensure_destination_app_configured!
       return unless JetstreamBridge.config.destination_app.to_s.empty?
 
       raise ArgumentError, 'destination_app must be configured'
@@ -284,6 +286,7 @@ module JetstreamBridge
     rescue StandardError => e
       # Safety: never let a single bad message kill the batch loop.
       Logging.error("Message processing crashed: #{e.class} #{e.message}", tag: 'JetstreamBridge::Consumer')
+      safe_nak_message(msg)
       0
     end
 
@@ -430,6 +433,15 @@ module JetstreamBridge
       Logging.info('Drain complete', tag: 'JetstreamBridge::Consumer')
     rescue StandardError => e
       Logging.error("Drain failed: #{e.class} #{e.message}", tag: 'JetstreamBridge::Consumer')
+    end
+
+    def safe_nak_message(msg)
+      return unless msg.respond_to?(:nak)
+
+      msg.nak
+    rescue StandardError => e
+      Logging.error("Failed to NAK message after crash: #{e.class} #{e.message}",
+                    tag: 'JetstreamBridge::Consumer')
     end
   end
 end

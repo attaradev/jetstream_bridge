@@ -36,14 +36,16 @@ module JetstreamBridge
   class Publisher
     # Initialize a new Publisher instance.
     #
-    # Note: The NATS connection should already be established via JetstreamBridge.configure.
-    # If not, this will attempt to connect, but it's recommended to call configure first.
+    # Note: The NATS connection should already be established via JetstreamBridge.startup!
+    # or automatically on first use. This assumes the connection is already established.
     #
     # @param retry_strategy [RetryStrategy, nil] Optional custom retry strategy for handling transient failures.
     #   Defaults to PublisherRetryStrategy with exponential backoff.
-    # @raise [ConnectionError] If unable to connect to NATS server
+    # @raise [ConnectionError] If unable to get JetStream connection
     def initialize(retry_strategy: nil)
-      @jts = Connection.jetstream || Connection.connect!
+      @jts = Connection.jetstream
+      raise ConnectionError, 'JetStream connection not available. Call JetstreamBridge.startup! first.' unless @jts
+
       @retry_strategy = retry_strategy || PublisherRetryStrategy.new
     end
 
@@ -106,7 +108,7 @@ module JetstreamBridge
     #   end
     #
     def publish(event_or_hash = nil, resource_type: nil, event_type: nil, payload: nil, subject: nil, **options)
-      ensure_destination!
+      ensure_destination_app_configured!
 
       params = { event_or_hash: event_or_hash, resource_type: resource_type, event_type: event_type,
                  payload: payload, subject: subject, options: options }
@@ -189,7 +191,7 @@ module JetstreamBridge
       normalize_envelope({ 'event_type' => event_type, 'payload' => payload }, options)
     end
 
-    def ensure_destination!
+    def ensure_destination_app_configured!
       return unless JetstreamBridge.config.destination_app.to_s.empty?
 
       raise ArgumentError, 'destination_app must be configured'

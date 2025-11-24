@@ -12,13 +12,16 @@ RSpec.describe JetstreamBridge::Publisher do
     JetstreamBridge.reset!
     # Reset Connection singleton to prevent mock leakage between tests
     JetstreamBridge::Connection.instance_variable_set(:@singleton__instance__, nil)
-    # Mock Connection.connect! before configure to prevent actual connection
+    # Mock Connection methods to return jetstream context
     allow(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
+    allow(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
     JetstreamBridge.configure do |c|
       c.destination_app = 'dest'
       c.app_name        = 'source'
       c.env             = 'test'
     end
+    # Manually mark as initialized so Publisher can be created
+    JetstreamBridge.instance_variable_set(:@connection_initialized, true)
     allow(jts).to receive(:publish) { ack }
   end
 

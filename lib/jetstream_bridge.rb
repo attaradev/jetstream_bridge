@@ -1,10 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'jetstream_bridge/version'
-require_relative 'jetstream_bridge/core/config'
-require_relative 'jetstream_bridge/core/duration'
-require_relative 'jetstream_bridge/core/logging'
-require_relative 'jetstream_bridge/core/connection'
+require_relative 'jetstream_bridge/core'
 require_relative 'jetstream_bridge/publisher/publisher'
 require_relative 'jetstream_bridge/publisher/batch_publisher'
 require_relative 'jetstream_bridge/consumer/consumer'
@@ -12,8 +9,8 @@ require_relative 'jetstream_bridge/consumer/middleware'
 require_relative 'jetstream_bridge/models/publish_result'
 require_relative 'jetstream_bridge/models/event'
 
-# If you have a Railtie for tasks/eager-loading
-require_relative 'jetstream_bridge/railtie' if defined?(Rails::Railtie)
+# Rails-specific entry point (lifecycle helpers + Railtie)
+require_relative 'jetstream_bridge/rails' if defined?(Rails::Railtie)
 
 # Load gem-provided models from lib/
 require_relative 'jetstream_bridge/models/inbox_event'
@@ -34,7 +31,7 @@ require_relative 'jetstream_bridge/models/outbox_event'
 # - Graceful startup/shutdown lifecycle management
 #
 # @example Quick start
-#   # Configure (automatically starts connection)
+#   # Configure
 #   JetstreamBridge.configure do |config|
 #     config.nats_urls = "nats://localhost:4222"
 #     config.env = "development"
@@ -43,6 +40,9 @@ require_relative 'jetstream_bridge/models/outbox_event'
 #     config.use_outbox = true
 #     config.use_inbox = true
 #   end
+#
+#   # Explicitly start connection (or use Rails railtie for automatic startup)
+#   JetstreamBridge.startup!
 #
 #   # Publish events
 #   JetstreamBridge.publish(
@@ -66,17 +66,17 @@ require_relative 'jetstream_bridge/models/outbox_event'
 #
 module JetstreamBridge
   class << self
+    include Core::BridgeHelpers
+
     def config
       @config ||= Config.new
     end
 
-    # Configure JetStream Bridge settings and establish connection
+    # Configure JetStream Bridge settings
     #
-    # This method sets configuration and immediately establishes a connection
-    # to NATS, providing fail-fast behavior during application startup.
-    # If NATS is unavailable, the application will fail to start.
-    #
-    # Set config.lazy_connect = true to defer connection until first use.
+    # This method sets configuration WITHOUT automatically establishing a connection.
+    # Connection must be established explicitly via startup! or will be established
+    # automatically on first use (publish/subscribe) or via Rails railtie initialization.
     #
     # @example Basic configuration
     #   JetstreamBridge.configure do |config|
@@ -84,38 +84,29 @@ module JetstreamBridge
     #     config.app_name = "my_app"
     #     config.destination_app = "worker"
     #   end
+    #   JetstreamBridge.startup!  # Explicitly start connection
     #
     # @example With hash overrides
     #   JetstreamBridge.configure(env: 'production', app_name: 'my_app')
     #
-    # @example Lazy connection (defer until first use)
-    #   JetstreamBridge.configure do |config|
-    #     config.nats_urls = "nats://localhost:4222"
-    #     config.lazy_connect = true
-    #   end
-    #
     # @param overrides [Hash] Configuration key-value pairs to set
     # @yield [Config] Configuration object for block-based configuration
     # @return [Config] The configured instance
-    # @raise [ConnectionError] If connection to NATS fails (unless lazy_connect is true)
     def configure(overrides = {}, **extra_overrides)
       # Merge extra keyword arguments into overrides hash
       all_overrides = overrides.nil? ? extra_overrides : overrides.merge(extra_overrides)
 
       cfg = config
-      all_overrides.each { |k, v| assign!(cfg, k, v) } unless all_overrides.empty?
+      all_overrides.each { |k, v| assign_config_option!(cfg, k, v) } unless all_overrides.empty?
       yield(cfg) if block_given?
-
-      # Establish connection immediately for fail-fast behavior (unless lazy_connect is true)
-      startup! unless cfg.lazy_connect
 
       cfg
     end
 
-    # Configure with a preset and establish connection
+    # Configure with a preset
     #
-    # This method applies a configuration preset and immediately establishes
-    # a connection to NATS, providing fail-fast behavior.
+    # This method applies a configuration preset. Connection must be
+    # established separately via startup! or via Rails railtie.
     #
     # @example
     #   JetstreamBridge.configure_for(:production) do |config|
@@ -123,11 +114,11 @@ module JetstreamBridge
     #     config.app_name = "my_app"
     #     config.destination_app = "worker"
     #   end
+    #   JetstreamBridge.startup!  # Explicitly start connection
     #
     # @param preset [Symbol] Preset name (:development, :test, :production, etc.)
     # @yield [Config] Configuration object
     # @return [Config] Configured instance
-    # @raise [ConnectionError] If connection to NATS fails
     def configure_for(preset)
       configure do |cfg|
         cfg.apply_preset(preset)
@@ -152,6 +143,26 @@ module JetstreamBridge
       Connection.connect!
       @connection_initialized = true
       Logging.info('JetStream Bridge started successfully', tag: 'JetstreamBridge')
+    end
+
+    # Reconnect to NATS
+    #
+    # Closes existing connection and establishes a new one. Useful for:
+    # - Forking web servers (Puma, Unicorn) after worker boot
+    # - Recovering from connection issues
+    # - Configuration changes that require reconnection
+    #
+    # @example In Puma configuration (config/puma.rb)
+    #   on_worker_boot do
+    #     JetstreamBridge.reconnect! if defined?(JetstreamBridge)
+    #   end
+    #
+    # @return [void]
+    # @raise [ConnectionError] If unable to reconnect to NATS
+    def reconnect!
+      Logging.info('Reconnecting to NATS...', tag: 'JetstreamBridge')
+      shutdown! if @connection_initialized
+      startup!
     end
 
     # Gracefully shutdown the JetStream Bridge connection
@@ -189,9 +200,14 @@ module JetstreamBridge
     # Establishes a connection and ensures stream topology.
     #
     # @return [Object] JetStream context
-    def ensure_topology!
+    def connect_and_ensure_stream!
       Connection.connect!
       Connection.jetstream
+    end
+
+    # Backwards-compatible alias for the previous method name
+    def ensure_topology!
+      connect_and_ensure_stream!
     end
 
     # Active health check for monitoring and readiness probes
@@ -283,6 +299,8 @@ module JetstreamBridge
 
     # Convenience method to publish events
     #
+    # Automatically establishes connection on first use if not already connected.
+    #
     # Supports three usage patterns:
     #
     # 1. Structured parameters (recommended):
@@ -310,6 +328,7 @@ module JetstreamBridge
     #     logger.error("Publish failed: #{result.error}")
     #   end
     def publish(event_or_hash = nil, resource_type: nil, event_type: nil, payload: nil, subject: nil, **)
+      connect_if_needed!
       publisher = Publisher.new
       publisher.publish(event_or_hash, resource_type: resource_type, event_type: event_type, payload: payload,
                                        subject: subject, **)
@@ -354,6 +373,8 @@ module JetstreamBridge
 
     # Convenience method to start consuming messages
     #
+    # Automatically establishes connection on first use if not already connected.
+    #
     # Supports two usage patterns:
     #
     # 1. With a block (recommended):
@@ -380,6 +401,7 @@ module JetstreamBridge
     # @yield [event] Yields Models::Event object to block
     # @return [Consumer, Thread] Consumer instance or Thread if run: true
     def subscribe(handler = nil, run: false, durable_name: nil, batch_size: nil, &block)
+      connect_if_needed!
       handler ||= block
       raise ArgumentError, 'Handler or block required' unless handler
 
@@ -392,70 +414,6 @@ module JetstreamBridge
       else
         consumer
       end
-    end
-
-    private
-
-    # Enforce rate limit on uncached health checks to prevent abuse
-    # Max 1 uncached request per 5 seconds per process
-    def enforce_health_check_rate_limit!
-      @health_check_mutex ||= Mutex.new
-      @health_check_mutex.synchronize do
-        now = Time.now
-        if @last_uncached_health_check
-          time_since = now - @last_uncached_health_check
-          if time_since < 5
-            raise HealthCheckFailedError,
-                  "Health check rate limit exceeded. Please wait #{(5 - time_since).ceil} second(s)"
-          end
-        end
-        @last_uncached_health_check = now
-      end
-    end
-
-    def fetch_stream_info
-      jts = Connection.jetstream
-      info = jts.stream_info(config.stream_name)
-
-      # Handle both object-style and hash-style access for compatibility
-      config_data = info.config
-      state_data = info.state
-      subjects = config_data.respond_to?(:subjects) ? config_data.subjects : config_data[:subjects]
-      messages = state_data.respond_to?(:messages) ? state_data.messages : state_data[:messages]
-
-      {
-        exists: true,
-        name: config.stream_name,
-        subjects: subjects,
-        messages: messages
-      }
-    rescue StandardError => e
-      {
-        exists: false,
-        name: config.stream_name,
-        error: "#{e.class}: #{e.message}"
-      }
-    end
-
-    def measure_nats_rtt
-      # Measure round-trip time using NATS RTT method
-      nc = Connection.nc
-      start = Time.now
-      nc.rtt
-      ((Time.now - start) * 1000).round(2)
-    rescue StandardError => e
-      Logging.warn(
-        "Failed to measure NATS RTT: #{e.class} #{e.message}",
-        tag: 'JetstreamBridge'
-      )
-      nil
-    end
-
-    def assign!(cfg, key, val)
-      setter = :"#{key}="
-      raise ArgumentError, "Unknown configuration option: #{key}" unless cfg.respond_to?(setter)
-
-      cfg.public_send(setter, val)
     end
   end
 end

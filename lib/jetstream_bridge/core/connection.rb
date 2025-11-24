@@ -97,6 +97,7 @@ module JetstreamBridge
       @jts
     rescue StandardError
       @state = State::FAILED
+      cleanup_connection!
       raise
     end
 
@@ -193,6 +194,7 @@ module JetstreamBridge
             "Failed to establish connection after #{attempts} attempts",
             tag: 'JetstreamBridge::Connection'
           )
+          cleanup_connection!
           raise
         end
       end
@@ -416,7 +418,7 @@ module JetstreamBridge
       @last_reconnect_error = e
       @last_reconnect_error_at = Time.now
       @state = State::FAILED
-
+      cleanup_connection!(close_nc: false)
       Logging.error(
         "Failed to refresh JetStream context: #{e.class} #{e.message}",
         tag: 'JetstreamBridge::Connection'
@@ -443,6 +445,22 @@ module JetstreamBridge
     # - "nats://token@host:4222"     -> "nats://***@host:4222"
     def sanitize_urls(urls)
       urls.map { |u| Logging.sanitize_url(u) }
+    end
+
+    def cleanup_connection!(close_nc: true)
+      begin
+        # Avoid touching RSpec doubles used in unit tests
+        unless defined?(RSpec::Mocks::Double) && @nc.is_a?(RSpec::Mocks::Double)
+          @nc.close if close_nc && @nc&.respond_to?(:close) && @nc.connected?
+        end
+      rescue StandardError
+        # ignore cleanup errors
+      end
+      @nc = nil
+      @jts = nil
+      @cached_health_status = nil
+      @last_health_check = nil
+      @connected_at = nil
     end
   end
 end

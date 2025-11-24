@@ -75,13 +75,13 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
       expect(manager.desired_consumer_cfg[:max_deliver]).to eq(5)
     end
 
-    it 'converts ack_wait to milliseconds' do
-      expect(manager.desired_consumer_cfg[:ack_wait]).to eq(30_000)
-    end
+      it 'converts ack_wait to seconds' do
+        expect(manager.desired_consumer_cfg[:ack_wait]).to eq(30)
+      end
 
-    it 'converts backoff array to milliseconds' do
-      expect(manager.desired_consumer_cfg[:backoff]).to eq([1000, 5000, 10_000])
-    end
+      it 'converts backoff array to seconds' do
+        expect(manager.desired_consumer_cfg[:backoff]).to eq([1, 5, 10])
+      end
   end
 
   describe '#ensure_consumer!' do
@@ -107,8 +107,8 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
                ack_policy: :explicit,
                deliver_policy: :all,
                max_deliver: 5,
-               ack_wait: 30_000_000_000,
-               backoff: [1_000_000_000, 5_000_000_000, 10_000_000_000])
+               ack_wait: 30,
+               backoff: [1, 5, 10])
       end
       let(:mock_info) { double('ConsumerInfo', config: mock_config) }
 
@@ -130,8 +130,8 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
                ack_policy: :explicit,
                deliver_policy: :all,
                max_deliver: 3,
-               ack_wait: 30_000_000_000,
-               backoff: [1_000_000_000])
+               ack_wait: 30,
+               backoff: [1])
       end
       let(:mock_info) { double('ConsumerInfo', config: mock_config) }
 
@@ -162,8 +162,8 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
                ack_policy: :explicit,
                deliver_policy: :all,
                max_deliver: 3,
-               ack_wait: 30_000_000_000,
-               backoff: [1_000_000_000])
+               ack_wait: 30,
+               backoff: [1])
       end
       let(:mock_info) { double('ConsumerInfo', config: mock_config) }
 
@@ -198,36 +198,36 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
   describe 'duration normalization' do
     let(:manager_instance) { described_class.new(mock_jts, durable, config) }
 
-    describe '#duration_to_ms' do
-      it 'converts large integers as nanoseconds to milliseconds' do
+    describe '#duration_to_seconds' do
+      it 'converts large integers as nanoseconds to seconds' do
         # 30 seconds in nanoseconds
-        result = manager_instance.send(:duration_to_ms, 30_000_000_000)
-        expect(result).to eq(30_000)
+        result = manager_instance.send(:duration_to_seconds, 30_000_000_000)
+        expect(result).to eq(30)
       end
 
       it 'converts small integers using auto heuristic' do
-        result = manager_instance.send(:duration_to_ms, 30)
-        expect(result).to eq(30_000)
+        result = manager_instance.send(:duration_to_seconds, 30)
+        expect(result).to eq(30)
       end
 
       it 'converts string durations' do
-        result = manager_instance.send(:duration_to_ms, '30s')
-        expect(result).to eq(30_000)
+        result = manager_instance.send(:duration_to_seconds, '30s')
+        expect(result).to eq(30)
       end
 
-      it 'handles millisecond strings' do
-        result = manager_instance.send(:duration_to_ms, '500ms')
-        expect(result).to eq(500)
+      it 'handles millisecond strings by rounding up' do
+        result = manager_instance.send(:duration_to_seconds, '500ms')
+        expect(result).to eq(1)
       end
 
       it 'returns nil for nil input' do
-        result = manager_instance.send(:duration_to_ms, nil)
+        result = manager_instance.send(:duration_to_seconds, nil)
         expect(result).to be_nil
       end
 
       it 'raises error for invalid input' do
         expect do
-          manager_instance.send(:duration_to_ms, Object.new)
+          manager_instance.send(:duration_to_seconds, Object.new)
         end.to raise_error(ArgumentError, /invalid duration/)
       end
     end
@@ -239,8 +239,8 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
           ack_policy: :explicit,
           deliver_policy: :all,
           max_deliver: 5,
-          ack_wait: 30_000_000_000,
-          backoff: [1_000_000_000, 5_000_000_000]
+          ack_wait: 30,
+          backoff: [1, 5]
         }
 
         normalized = manager_instance.send(:normalize_consumer_config, server_cfg)
@@ -250,8 +250,8 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
           ack_policy: 'explicit',
           deliver_policy: 'all',
           max_deliver: 5,
-          ack_wait: 30_000,
-          backoff_ms: [1000, 5000]
+          ack_wait_secs: 30,
+          backoff_secs: [1, 5]
         )
       end
 
@@ -266,6 +266,38 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
         normalized = manager_instance.send(:normalize_consumer_config, cfg)
         expect(normalized[:filter_subject]).to be_nil
         expect(normalized[:ack_policy]).to be_nil
+      end
+
+      it 'normalizes JetStream ConsumerInfo units (ack_wait/backoff) in seconds' do
+        created_at = Time.now.iso8601
+        consumer_info = NATS::JetStream::API::ConsumerInfo.new(
+          type: 'pull',
+          stream_name: config.stream_name,
+          name: durable,
+          created: created_at,
+          config: {
+            durable_name: durable,
+            filter_subject: config.destination_subject,
+            ack_policy: 'explicit',
+            deliver_policy: 'all',
+            max_deliver: 5,
+            ack_wait: 30 * ::NATS::NANOSECONDS,
+            backoff: [1, 5].map { |s| s * ::NATS::NANOSECONDS }
+          },
+          delivered: { consumer_seq: 0, stream_seq: 0, last_active: created_at },
+          ack_floor: { consumer_seq: 0, stream_seq: 0, last_active: created_at },
+          num_ack_pending: 0,
+          num_redelivered: 0,
+          num_waiting: 0,
+          num_pending: 0,
+          cluster: {},
+          push_bound: false
+        )
+
+        normalized = manager_instance.send(:normalize_consumer_config, consumer_info.config)
+
+        expect(normalized[:ack_wait_secs]).to eq(30)
+        expect(normalized[:backoff_secs]).to eq([1, 5])
       end
     end
   end

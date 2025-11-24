@@ -27,13 +27,27 @@ module JetstreamBridge
       end
 
       repo.persist_pre(record, msg)
-      @processor.handle_message(msg)
-      repo.persist_post(record)
-      true
+      action = @processor.handle_message(msg, auto_ack: false)
+
+      case action&.action
+      when :ack
+        repo.persist_post(record)
+        @processor.send(:apply_action, msg, action)
+        true
+      when :nak
+        repo.persist_failure(record, action.error || StandardError.new('Inbox processing failed'))
+        @processor.send(:apply_action, msg, action)
+        false
+      else
+        repo.persist_failure(record, StandardError.new('Inbox processing returned no action'))
+        false
+      end
     rescue StandardError => e
       repo.persist_failure(record, e) if repo && record
       Logging.error("Inbox processing failed: #{e.class}: #{e.message}",
                     tag: 'JetstreamBridge::Consumer')
+      # Ensure the message is retried if possible
+      @processor.send(:safe_nak, msg, nil, e, delay: nil) if msg.respond_to?(:nak)
       false
     end
 

@@ -10,9 +10,12 @@ RSpec.describe JetstreamBridge::Consumer do
 
   before do
     JetstreamBridge.reset!
-    # Mock Connection.connect! before configure to prevent actual connection
+    # Mock Connection methods to return jetstream context
     allow(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
+    allow(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
     JetstreamBridge.configure { |c| c.destination_app = 'dest' }
+    # Manually mark as initialized so Consumer can be created
+    JetstreamBridge.instance_variable_set(:@connection_initialized, true)
     allow(JetstreamBridge::SubscriptionManager).to receive(:new).and_return(sub_mgr)
     allow(JetstreamBridge::MessageProcessor).to receive(:new).and_return(processor)
     allow(sub_mgr).to receive(:ensure_consumer!)

@@ -13,13 +13,17 @@ RSpec.describe JetstreamBridge do
       JetstreamBridge.remove_instance_variable(:@mock_nats_client)
     end
 
-    # Mock connection before configure since configure now connects immediately
-    allow(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
+    # Configure without connecting (new behavior)
     described_class.configure do |c|
       c.destination_app = 'dest'
       c.app_name = 'source'
       c.env = 'test'
     end
+    # Mock connection for operations that need it
+    allow(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
+    allow(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
+    # Mark as connected so auto-connect works
+    described_class.instance_variable_set(:@connection_initialized, true)
   end
 
   after do
@@ -29,8 +33,13 @@ RSpec.describe JetstreamBridge do
     end
   end
 
-  describe '.ensure_topology!' do
+  describe '.connect_and_ensure_stream!' do
     it 'connects and returns the jetstream context' do
+      expect(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
+      expect(described_class.connect_and_ensure_stream!).to eq(jts)
+    end
+
+    it 'is available via the legacy ensure_topology! alias' do
       expect(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
       expect(described_class.ensure_topology!).to eq(jts)
     end
@@ -373,14 +382,12 @@ RSpec.describe JetstreamBridge do
     end
 
     it 'accepts hash overrides' do
-      allow(JetstreamBridge::Connection).to receive(:connect!)
       described_class.configure(env: 'production', app_name: 'my_app')
       expect(described_class.config.env).to eq('production')
       expect(described_class.config.app_name).to eq('my_app')
     end
 
     it 'accepts block configuration' do
-      allow(JetstreamBridge::Connection).to receive(:connect!)
       described_class.configure do |c|
         c.env = 'staging'
         c.app_name = 'test'
@@ -390,7 +397,6 @@ RSpec.describe JetstreamBridge do
     end
 
     it 'accepts both hash and block' do
-      allow(JetstreamBridge::Connection).to receive(:connect!)
       described_class.configure(env: 'dev') do |c|
         c.app_name = 'combined'
       end
@@ -399,27 +405,24 @@ RSpec.describe JetstreamBridge do
     end
 
     it 'raises error for unknown option' do
-      allow(JetstreamBridge::Connection).to receive(:connect!)
       expect do
         described_class.configure(unknown_option: 'value')
       end.to raise_error(ArgumentError, /Unknown configuration option/)
     end
 
     it 'handles nil overrides' do
-      allow(JetstreamBridge::Connection).to receive(:connect!)
       expect do
         described_class.configure(nil) { |c| c.env = 'test' }
       end.not_to raise_error
     end
 
     it 'handles empty hash overrides' do
-      allow(JetstreamBridge::Connection).to receive(:connect!)
       expect do
         described_class.configure({}) { |c| c.env = 'test' }
       end.not_to raise_error
     end
 
-    it 'establishes connection immediately' do
+    it 'does not establish connection automatically' do
       connection_count = 0
       allow(JetstreamBridge::Connection).to receive(:connect!) { connection_count += 1 }
 
@@ -427,19 +430,15 @@ RSpec.describe JetstreamBridge do
         c.env = 'test'
       end
 
-      expect(connection_count).to eq(1)
+      expect(connection_count).to eq(0)
     end
 
-    it 'raises error if connection fails' do
-      allow(JetstreamBridge::Connection).to receive(:connect!).and_raise(
-        JetstreamBridge::ConnectionError, 'Connection failed'
-      )
+    it 'returns config instance' do
+      config = described_class.configure do |c|
+        c.env = 'test'
+      end
 
-      expect do
-        described_class.configure do |c|
-          c.env = 'test'
-        end
-      end.to raise_error(JetstreamBridge::ConnectionError, 'Connection failed')
+      expect(config).to be_a(JetstreamBridge::Config)
     end
   end
 
@@ -498,6 +497,117 @@ RSpec.describe JetstreamBridge do
         'JetStream Bridge started successfully',
         tag: 'JetstreamBridge'
       )
+    end
+  end
+
+  describe 'auto-connect on first use' do
+    before do
+      # Reset without setting @connection_initialized so we can test auto-connect
+      described_class.reset!
+
+      described_class.configure do |c|
+        c.destination_app = 'dest'
+        c.app_name = 'source'
+        c.env = 'test'
+      end
+    end
+
+    context 'when publishing' do
+      it 'automatically connects on first publish' do
+        connection_count = 0
+        # Connection.jetstream is called from Publisher constructor after startup! completes
+        allow(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
+        allow(JetstreamBridge::Connection).to receive(:connect!) do
+          connection_count += 1
+          jts
+        end
+        allow(JetstreamBridge::Logging).to receive(:info)
+
+        expect(jts).to receive(:publish).and_return(double(duplicate?: false, error: nil))
+
+        described_class.publish(event_type: 'user.created', payload: { id: 1 })
+
+        expect(connection_count).to eq(1)
+      end
+
+      it 'does not connect again on subsequent publishes' do
+        connection_count = 0
+        # jetstream returns jts for both Publisher constructor calls
+        allow(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
+        allow(JetstreamBridge::Connection).to receive(:connect!) do
+          connection_count += 1
+          jts
+        end
+        allow(JetstreamBridge::Logging).to receive(:info)
+        allow(jts).to receive(:publish).and_return(double(duplicate?: false, error: nil))
+
+        described_class.publish(event_type: 'user.created', payload: { id: 1 })
+        described_class.publish(event_type: 'user.updated', payload: { id: 1 })
+
+        expect(connection_count).to eq(1)
+      end
+
+      it 'skips connection if already started' do
+        connection_count = 0
+        # jetstream returns jts for Publisher constructor call
+        allow(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
+        allow(JetstreamBridge::Connection).to receive(:connect!) do
+          connection_count += 1
+          jts
+        end
+        allow(JetstreamBridge::Logging).to receive(:info)
+
+        # Manually start first
+        described_class.startup!
+        expect(connection_count).to eq(1)
+
+        # Publish should not connect again
+        allow(jts).to receive(:publish).and_return(double(duplicate?: false, error: nil))
+        described_class.publish(event_type: 'user.created', payload: { id: 1 })
+
+        expect(connection_count).to eq(1)
+      end
+    end
+
+    context 'when subscribing' do
+      it 'automatically connects on first subscribe' do
+        connection_count = 0
+        allow(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
+        allow(JetstreamBridge::Connection).to receive(:connect!) do
+          connection_count += 1
+          jts
+        end
+        allow(JetstreamBridge::Logging).to receive(:info)
+
+        # Mock the consumer creation
+        consumer = instance_double(JetstreamBridge::Consumer)
+        allow(JetstreamBridge::Consumer).to receive(:new).and_return(consumer)
+
+        described_class.subscribe { |event| puts event.type }
+
+        expect(connection_count).to eq(1)
+      end
+
+      it 'skips connection if already started' do
+        connection_count = 0
+        allow(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
+        allow(JetstreamBridge::Connection).to receive(:connect!) do
+          connection_count += 1
+          jts
+        end
+        allow(JetstreamBridge::Logging).to receive(:info)
+
+        # Manually start first
+        described_class.startup!
+        expect(connection_count).to eq(1)
+
+        # Subscribe should not connect again
+        consumer = instance_double(JetstreamBridge::Consumer)
+        allow(JetstreamBridge::Consumer).to receive(:new).and_return(consumer)
+        described_class.subscribe { |event| puts event.type }
+
+        expect(connection_count).to eq(1)
+      end
     end
   end
 
@@ -561,7 +671,6 @@ RSpec.describe JetstreamBridge do
   describe '.configure_for' do
     before do
       described_class.reset!
-      allow(JetstreamBridge::Connection).to receive(:connect!)
     end
 
     it 'applies preset configuration' do
@@ -596,7 +705,7 @@ RSpec.describe JetstreamBridge do
       expect(described_class.config.preset_applied).to eq(:development)
     end
 
-    it 'establishes connection immediately' do
+    it 'does not establish connection automatically' do
       connection_count = 0
       allow(JetstreamBridge::Connection).to receive(:connect!) { connection_count += 1 }
 
@@ -605,7 +714,7 @@ RSpec.describe JetstreamBridge do
         c.destination_app = 'dest'
       end
 
-      expect(connection_count).to eq(1)
+      expect(connection_count).to eq(0)
     end
   end
 
