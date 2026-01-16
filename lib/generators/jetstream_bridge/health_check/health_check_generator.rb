@@ -4,7 +4,7 @@ require 'rails/generators'
 
 module JetstreamBridge
   module Generators
-    class HealthCheckGenerator < Rails::Generators::Base
+    class HealthCheckGenerator < ::Rails::Generators::Base
       source_root File.expand_path('templates', __dir__)
       desc 'Creates a health check endpoint for JetStream Bridge monitoring'
 

@@ -6,8 +6,8 @@ require 'rails/generators/active_record'
 module JetstreamBridge
   module Generators
     # Migrations generator.
-    class MigrationsGenerator < Rails::Generators::Base
-      include Rails::Generators::Migration
+    class MigrationsGenerator < ::Rails::Generators::Base
+      include ::Rails::Generators::Migration
 
       source_root File.expand_path('templates', __dir__)
       desc 'Creates Inbox/Outbox migrations for JetstreamBridge'
