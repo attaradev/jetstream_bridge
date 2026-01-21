@@ -202,13 +202,16 @@ module JetstreamBridge
     def connect_and_ensure_stream!
       Connection.connect!
       jts = Connection.jetstream
-      Topology.ensure!(jts)
+      Topology.ensure!(jts, force: true)
       jts
     end
 
     # Backwards-compatible alias for the previous method name
     def ensure_topology!
-      connect_and_ensure_stream!
+      Connection.connect!
+      jts = Connection.jetstream
+      Topology.ensure!(jts, force: true)
+      jts
     end
 
     # Active health check for monitoring and readiness probes
@@ -231,24 +234,28 @@ module JetstreamBridge
       start_time = Time.now
       conn_instance = Connection.instance
 
-      # Active check: calls @jts.account_info internally
-      # Pass skip_cache to force fresh check if requested
+      # Active check: calls @jts.account_info internally unless JS API is disabled
       connected = conn_instance.connected?(skip_cache: skip_cache)
       connected_at = conn_instance.connected_at
       connection_state = conn_instance.state
       last_error = conn_instance.last_reconnect_error
       last_error_at = conn_instance.last_reconnect_error_at
 
-      # Active check: queries actual stream from NATS server
-      stream_info = connected ? fetch_stream_info : { exists: false, name: config.stream_name }
+      # Active check: queries actual stream from NATS server unless JS API is disabled
+      stream_info =
+        if connected && !config.disable_js_api
+          fetch_stream_info
+        else
+          { exists: nil, name: config.stream_name, error: ('JS API disabled' if config.disable_js_api) }
+        end
 
-      # Active check: measure NATS round-trip time
-      rtt_ms = measure_nats_rtt if connected
+      # Active check: measure NATS round-trip time (still uses request/reply)
+      rtt_ms = measure_nats_rtt if connected && !config.disable_js_api
 
       health_check_duration_ms = ((Time.now - start_time) * 1000).round(2)
 
       {
-        healthy: connected && stream_info&.fetch(:exists, false),
+        healthy: connected && (config.disable_js_api ? true : stream_info&.fetch(:exists, false)),
         connection: {
           state: connection_state,
           connected: connected,
@@ -267,7 +274,8 @@ module JetstreamBridge
           destination_app: config.destination_app,
           use_outbox: config.use_outbox,
           use_inbox: config.use_inbox,
-          use_dlq: config.use_dlq
+          use_dlq: config.use_dlq,
+          disable_js_api: config.disable_js_api
         },
         version: JetstreamBridge::VERSION
       }

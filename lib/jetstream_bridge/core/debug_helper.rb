@@ -33,7 +33,11 @@ module JetstreamBridge
           env: cfg.env,
           app_name: cfg.app_name,
           destination_app: cfg.destination_app,
-          stream_name: cfg.stream_name,
+          stream_name: begin
+            cfg.stream_name
+          rescue StandardError
+            'ERROR'
+          end,
           source_subject: begin
             cfg.source_subject
           rescue StandardError
@@ -58,7 +62,9 @@ module JetstreamBridge
           use_inbox: cfg.use_inbox,
           use_dlq: cfg.use_dlq,
           outbox_model: cfg.outbox_model,
-          inbox_model: cfg.inbox_model
+          inbox_model: cfg.inbox_model,
+          inbox_prefix: cfg.inbox_prefix,
+          disable_js_api: cfg.disable_js_api
         }
       end
 
@@ -76,6 +82,7 @@ module JetstreamBridge
 
       def stream_debug
         return { error: 'Not connected' } unless Connection.instance.connected?
+        return { error: 'JS API disabled' } if JetstreamBridge.config.disable_js_api
 
         jts = Connection.jetstream
         cfg = JetstreamBridge.config

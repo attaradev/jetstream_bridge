@@ -32,22 +32,26 @@ production:
 ### Sizing Guidelines
 
 **Publishers (Web/API processes):**
+
 - 1-2 connections per process (uses existing AR pool)
 - Example: 4 Puma workers × 5 threads = 20 connections minimum
 
 **Consumers:**
+
 - Dedicated connections per consumer process
 - Recommended: 2-5 connections per consumer
 - Example: 3 consumer processes = 6-15 connections
 
 **Total Formula:**
-```
+
+```markdowb
 Total Connections = (Web Workers × Threads) + (Consumers × 3) + 10 buffer
 ```
 
 ### Example Calculation
 
 For a typical production setup:
+
 - 4 Puma workers × 5 threads = 20 connections
 - 3 consumer processes × 3 connections = 9 connections
 - 10 connection buffer = 10 connections
@@ -96,6 +100,61 @@ JetstreamBridge.configure do |config|
 end
 ```
 
+### Permissions and Inbox Prefix
+
+JetStream API calls use request/reply and subscribe to an inbox subject. If your NATS account restricts `_INBOX.>` subscriptions, either grant the bridge user `_INBOX.>` subscribe permission **or** set an allowed prefix:
+
+```ruby
+JetstreamBridge.configure do |config|
+  config.inbox_prefix = "$RPC" # choose a prefix permitted by your NATS account
+end
+```
+
+If you pre-provision stream/consumer names, set:
+
+```ruby
+JetstreamBridge.configure do |config|
+  config.stream_name = "my-stream"      # required
+  config.durable_name = "my-durable"    # optional
+end
+```
+
+If production clusters are isolated and you want env-less subjects instead of the default env-prefixed form:
+
+```ruby
+JetstreamBridge.configure do |config|
+  # Default subjects: "#{app}.sync.#{dest}"
+  config.stream_name = "my-stream" # required
+end
+```
+
+Provision streams/subjects only when explicitly requested:
+
+```ruby
+JetstreamBridge.configure do |config|
+  # Use explicit provisioning via JetstreamBridge.ensure_topology!
+end
+
+# Run provisioning when needed (e.g., deploy scripts/migrations):
+# JetstreamBridge.ensure_topology!
+```
+
+Minimum permissions for the bridge user:
+
+- Publish: `"$JS.API.>"`, `"$JS.ACK.>"`, your `source_subject` (`<env>.<app>.sync.<dest>`), your `destination_subject` (`<env>.<dest>.sync.<app>`), and the DLQ subject (`<env>.<app>.sync.dlq`) when DLQ is enabled.
+- Subscribe: `_INBOX.>` (or your chosen `inbox_prefix` + `.>`), and your `destination_subject`.
+
+If your security policy cannot allow any inbox subscriptions, pre-provision the stream and consumers and set:
+
+```ruby
+JetstreamBridge.configure do |config|
+  # Default is true (management APIs skipped). Set to false if permissions allow JS management APIs.
+  config.disable_js_api = false
+end
+```
+
+When `disable_js_api` is true, JetstreamBridge will not perform JetStream management calls; ensure the stream, subjects, and consumers already exist and remain aligned with your configuration.
+
 ---
 
 ## Consumer Tuning
@@ -135,9 +194,10 @@ end
 ### Memory Management
 
 Long-running consumers automatically:
+
 - Log health checks every 10 minutes (iterations, memory, uptime)
 - Warn when memory exceeds 1GB
-- Suggest garbage collection when heap grows large
+- Warn once when heap object counts grow large so you can profile/trigger GC in the host app
 
 Monitor these logs to detect memory leaks early.
 
@@ -148,7 +208,7 @@ Monitor these logs to detect memory leaks early.
 ### Key Metrics to Track
 
 | Metric | Description | Alert Threshold |
-|--------|-------------|-----------------|
+| -------- | ------------- | ----------------- |
 | Consumer Lag | Pending messages in stream | > 1000 messages |
 | DLQ Size | Messages in dead letter queue | > 100 messages |
 | Connection Status | Health check failures | 2 consecutive failures |
@@ -253,6 +313,7 @@ end
 ### Subject Validation
 
 JetStream Bridge validates subject components to prevent injection attacks. The following are automatically rejected:
+
 - NATS wildcards (`.`, `*`, `>`)
 - Spaces and control characters
 - Components exceeding 255 characters
@@ -270,6 +331,7 @@ config.nats_urls = ENV.fetch("NATS_URLS")
 ```
 
 Credentials in logs are automatically sanitized:
+
 - `nats://user:pass@host:4222` → `nats://user:***@host:4222`
 - `nats://token@host:4222` → `nats://***@host:4222`
 
@@ -345,6 +407,7 @@ spec:
 ### Health Probes
 
 **Liveness Probe:** Checks if the consumer process is running
+
 ```yaml
 livenessProbe:
   exec:
@@ -354,6 +417,7 @@ livenessProbe:
 ```
 
 **Readiness Probe:** Checks if NATS connection is healthy
+
 ```yaml
 readinessProbe:
   httpGet:
@@ -413,7 +477,7 @@ CREATE INDEX idx_inbox_stream_seq ON jetstream_inbox_events(stream, stream_seq);
 CREATE INDEX idx_inbox_status ON jetstream_inbox_events(status);
 ```
 
-2. **Partition large tables** (for high-volume applications):
+1. **Partition large tables** (for high-volume applications):
 
 ```sql
 -- Partition outbox by month
@@ -426,7 +490,7 @@ CREATE TABLE jetstream_outbox_events_2025_11
   FOR VALUES FROM ('2025-11-01') TO ('2025-12-01');
 ```
 
-3. **Archive old records** to prevent table bloat:
+1. **Archive old records** to prevent table bloat:
 
 ```ruby
 # lib/tasks/jetstream_maintenance.rake
@@ -462,24 +526,28 @@ end
 ### Common Issues
 
 **High Consumer Lag:**
+
 - Scale up consumer instances
 - Increase batch size
 - Optimize handler processing time
 - Check database connection pool
 
 **Memory Leaks:**
+
 - Monitor consumer health logs
 - Enable memory profiling
 - Check for circular references in handlers
 - Restart consumers periodically (Kubernetes handles this)
 
 **Connection Issues:**
+
 - Verify NATS server is accessible
 - Check firewall rules
 - Validate TLS certificates
 - Review connection retry settings
 
 **DLQ Growing:**
+
 - Investigate failed message patterns
 - Fix bugs in message handlers
 - Increase max_deliver for transient errors
@@ -499,5 +567,6 @@ end
 ## Support
 
 For issues or questions:
-- GitHub Issues: https://github.com/attaradev/jetstream_bridge/issues
-- Documentation: https://github.com/attaradev/jetstream_bridge
+
+- GitHub Issues: <https://github.com/attaradev/jetstream_bridge/issues>
+- Documentation: <https://github.com/attaradev/jetstream_bridge>

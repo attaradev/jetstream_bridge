@@ -251,7 +251,7 @@ module JetstreamBridge
     end
 
     def ensure_subscription!
-      @sub_mgr.ensure_consumer!
+      @sub_mgr.ensure_consumer! unless JetstreamBridge.config.disable_js_api
       @psub = @sub_mgr.subscribe!
     end
 
@@ -399,14 +399,19 @@ module JetstreamBridge
     end
 
     def suggest_gc_if_needed
-      # Suggest GC if heap has many live slots (Ruby-specific optimization)
       return unless defined?(GC) && GC.respond_to?(:stat)
 
       stats = GC.stat
       heap_live_slots = stats[:heap_live_slots] || stats['heap_live_slots'] || 0
 
-      # Suggest GC if we have over 100k live objects
-      GC.start if heap_live_slots > 100_000
+      threshold = 200_000
+      return if heap_live_slots < threshold || @gc_warning_logged
+
+      @gc_warning_logged = true
+      Logging.warn(
+        "High heap object count detected (#{heap_live_slots}); consider profiling or manual GC in the host app",
+        tag: 'JetstreamBridge::Consumer'
+      )
     rescue StandardError => e
       Logging.debug(
         "GC check failed: #{e.class} #{e.message}",

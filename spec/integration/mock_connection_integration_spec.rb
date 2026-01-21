@@ -16,9 +16,9 @@ RSpec.describe 'Mock Connection Integration', :allow_real_connection do
 
     JetstreamBridge.configure do |config|
       config.nats_urls = 'nats://localhost:4222'
-      config.env = 'test'
       config.app_name = 'test_app'
       config.destination_app = 'test_dest'
+      config.stream_name = 'test-jetstream-bridge-stream'
     end
   end
 
@@ -69,7 +69,7 @@ RSpec.describe 'Mock Connection Integration', :allow_real_connection do
     # Verify publish succeeded
     expect(result.success?).to be true
     expect(result.event_id).to be_a(String)
-    expect(result.subject).to eq('test.test_app.sync.test_dest')
+    expect(result.subject).to eq('test_app.sync.test_dest')
     expect(result.duplicate?).to be false
 
     # Verify message in storage
@@ -77,7 +77,7 @@ RSpec.describe 'Mock Connection Integration', :allow_real_connection do
     expect(storage.messages.size).to eq(1)
 
     message = storage.messages.first
-    expect(message[:subject]).to eq('test.test_app.sync.test_dest')
+    expect(message[:subject]).to eq('test_app.sync.test_dest')
 
     envelope = Oj.load(message[:data])
     expect(envelope['event_type']).to eq('user.created')

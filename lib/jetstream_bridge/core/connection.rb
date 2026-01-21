@@ -89,8 +89,9 @@ module JetstreamBridge
         tag: 'JetstreamBridge::Connection'
       )
 
-      # Ensure topology (streams, subjects, overlap guard, etc.)
-      Topology.ensure!(@jts)
+      cfg = JetstreamBridge.config
+      Logging.info('JS API disabled; skipping topology ensure and verification.', tag: 'JetstreamBridge::Connection') if cfg.respond_to?(:disable_js_api) && cfg.disable_js_api
+      ensure_topology_if_enabled(@jts)
 
       @connected_at = Time.now.utc
       @state = State::CONNECTED
@@ -152,6 +153,9 @@ module JetstreamBridge
     private
 
     def jetstream_healthy?
+      cfg = JetstreamBridge.config
+      return true if cfg.respond_to?(:disable_js_api) && cfg.disable_js_api
+
       # Verify JetStream responds to simple API call
       @jts.account_info
       true
@@ -248,7 +252,15 @@ module JetstreamBridge
                      JetstreamBridge::TestHelpers.respond_to?(:test_mode?) &&
                      JetstreamBridge::TestHelpers.test_mode?
 
-      @nc.connect({ servers: servers }.merge(DEFAULT_CONN_OPTS)) unless skip_connect
+      connect_opts = { servers: servers }.merge(DEFAULT_CONN_OPTS)
+      inbox_prefix = if JetstreamBridge.config.respond_to?(:inbox_prefix)
+                       JetstreamBridge.config.inbox_prefix.to_s.strip
+                     else
+                       '_INBOX'
+                     end
+      connect_opts[:inbox_prefix] = inbox_prefix unless inbox_prefix.empty?
+
+      @nc.connect(connect_opts) unless skip_connect
 
       # Verify connection is established
       verify_connection!
@@ -264,6 +276,15 @@ module JetstreamBridge
 
       nc_ref = @nc
       @jts.define_singleton_method(:nc) { nc_ref }
+    end
+
+    def ensure_topology_if_enabled(jts)
+      cfg = JetstreamBridge.config
+      return if cfg.respond_to?(:disable_js_api) && cfg.disable_js_api
+
+      Topology.ensure!(jts)
+    rescue StandardError => e
+      Logging.warn("Topology ensure skipped: #{e.class} #{e.message}", tag: 'JetstreamBridge::Connection')
     end
 
     def validate_nats_urls!(servers)
@@ -351,6 +372,9 @@ module JetstreamBridge
     end
 
     def verify_jetstream!
+      cfg = JetstreamBridge.config
+      return true if cfg.respond_to?(:disable_js_api) && cfg.disable_js_api
+
       Logging.debug(
         'Verifying JetStream availability...',
         tag: 'JetstreamBridge::Connection'
@@ -372,6 +396,7 @@ module JetstreamBridge
         "Storage: #{format_bytes(storage)}",
         tag: 'JetstreamBridge::Connection'
       )
+      ensure_topology_if_enabled(@jts)
     rescue NATS::IO::NoRespondersError
       Logging.error(
         'JetStream not available - no responders (JetStream not enabled)',
@@ -399,9 +424,7 @@ module JetstreamBridge
       @jts = @nc.jetstream
       nc_ref = @nc
       @jts.define_singleton_method(:nc) { nc_ref } unless @jts.respond_to?(:nc)
-
-      # Re-ensure topology after reconnect
-      Topology.ensure!(@jts)
+      ensure_topology_if_enabled(@jts)
 
       # Invalidate health check cache on successful reconnect
       @cached_health_status = nil

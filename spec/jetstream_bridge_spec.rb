@@ -18,7 +18,7 @@ RSpec.describe JetstreamBridge do
     described_class.configure do |c|
       c.destination_app = 'dest'
       c.app_name = 'source'
-      c.env = 'test'
+      c.stream_name = 'test-jetstream-bridge-stream'
     end
     # Mock connection for operations that need it
     allow(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
@@ -38,14 +38,14 @@ RSpec.describe JetstreamBridge do
     it 'connects, ensures topology, and returns the jetstream context' do
       expect(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
       expect(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
-      expect(JetstreamBridge::Topology).to receive(:ensure!).with(jts)
+      expect(JetstreamBridge::Topology).to receive(:ensure!).with(jts, force: true)
       expect(described_class.connect_and_ensure_stream!).to eq(jts)
     end
 
     it 'is available via the legacy ensure_topology! alias' do
       expect(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
       expect(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
-      expect(JetstreamBridge::Topology).to receive(:ensure!).with(jts)
+      expect(JetstreamBridge::Topology).to receive(:ensure!).with(jts, force: true)
       expect(described_class.ensure_topology!).to eq(jts)
     end
   end
@@ -53,7 +53,7 @@ RSpec.describe JetstreamBridge do
   describe '.publish' do
     it 'publishes with structured parameters' do
       expect(jts).to receive(:publish) do |subject, data, header:|
-        expect(subject).to eq('test.source.sync.dest')
+        expect(subject).to eq('source.sync.dest')
         expect(header).to be_a(Hash)
         envelope = Oj.load(data, mode: :strict)
         expect(envelope['event_type']).to eq('created')
@@ -167,6 +167,8 @@ RSpec.describe JetstreamBridge do
     end
 
     before do
+      # Enable JS API for health check tests that need stream info
+      described_class.config.disable_js_api = false
       allow(JetstreamBridge::Connection).to receive(:instance).and_return(conn_instance)
       allow(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
       allow(JetstreamBridge::Connection).to receive(:nc).and_return(mock_nc)
@@ -206,7 +208,7 @@ RSpec.describe JetstreamBridge do
 
     it 'includes config information' do
       result = described_class.health_check
-      expect(result[:config][:env]).to eq('test')
+      expect(result[:config][:env]).to be_nil
       expect(result[:config][:app_name]).to eq('source')
       expect(result[:config][:destination_app]).to eq('dest')
     end
@@ -346,6 +348,8 @@ RSpec.describe JetstreamBridge do
     end
 
     before do
+      # Enable JS API for stream_info tests
+      described_class.config.disable_js_api = false
       allow(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
       allow(jts).to receive(:stream_info).and_return(stream_info_data)
     end
@@ -353,8 +357,8 @@ RSpec.describe JetstreamBridge do
     it 'returns stream information' do
       result = described_class.stream_info
       expect(result[:exists]).to be true
-      expect(result[:name]).to eq('test-jetstream-bridge-stream')
-      expect(result[:subjects]).to eq(['test.subject'])
+        expect(result[:name]).to eq('test-jetstream-bridge-stream')
+        expect(result[:subjects]).to eq(['test.subject'])
       expect(result[:messages]).to eq(10)
     end
 
@@ -376,7 +380,8 @@ RSpec.describe JetstreamBridge do
         described_class.configure do |c|
           c.destination_app = 'dest'
           c.app_name = 'source'
-          c.env = 'test'
+          c.stream_name = 'test-jetstream-bridge-stream'
+          c.disable_js_api = false
         end
       end
 
@@ -488,7 +493,7 @@ RSpec.describe JetstreamBridge do
     it 'clears the configuration' do
       described_class.configure { |c| c.env = 'custom' }
       described_class.reset!
-      expect(described_class.config.env).to eq('development')
+      expect(described_class.config.env).to be_nil
     end
 
     it 'resets connection_initialized flag' do

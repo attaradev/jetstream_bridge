@@ -99,6 +99,14 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
         expect(hash[:name]).to eq('my-app')
       end
 
+      it 'includes inbox_prefix when provided' do
+        options = described_class.new(inbox_prefix: '$RPC')
+
+        hash = options.to_h
+
+        expect(hash[:inbox_prefix]).to eq('$RPC')
+      end
+
       it 'omits nil optional fields' do
         options = described_class.new(reconnect: true)
 
@@ -177,7 +185,8 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
       config = double('config',
                       nats_urls: 'nats://localhost:4222',
                       app_name: 'test_app',
-                      env: 'test')
+                      env: 'test',
+                      inbox_prefix: '_INBOX')
 
       options = described_class.build_options(config)
 
@@ -189,7 +198,8 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
       config = double('config',
                       nats_urls: 'nats://localhost:4222',
                       app_name: 'test_app',
-                      env: 'test')
+                      env: 'test',
+                      inbox_prefix: '_INBOX')
 
       options = described_class.build_options(config)
 
@@ -207,7 +217,7 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
     end
 
     it 'raises error when nats_urls is nil' do
-      config = double('config', nats_urls: nil, app_name: 'test', env: 'test')
+      config = double('config', nats_urls: nil, app_name: 'test', env: 'test', inbox_prefix: nil)
 
       expect do
         described_class.build_options(config)
@@ -215,7 +225,7 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
     end
 
     it 'raises error when nats_urls is empty string' do
-      config = double('config', nats_urls: '', app_name: 'test', env: 'test')
+      config = double('config', nats_urls: '', app_name: 'test', env: 'test', inbox_prefix: nil)
 
       expect do
         described_class.build_options(config)
@@ -223,7 +233,7 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
     end
 
     it 'raises error when nats_urls is whitespace only' do
-      config = double('config', nats_urls: '   ', app_name: 'test', env: 'test')
+      config = double('config', nats_urls: '   ', app_name: 'test', env: 'test', inbox_prefix: nil)
 
       expect do
         described_class.build_options(config)
@@ -234,7 +244,8 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
       config = double('config',
                       nats_urls: 'nats://server1:4222,nats://server2:4222',
                       app_name: 'test_app',
-                      env: 'production')
+                      env: 'production',
+                      inbox_prefix: '_INBOX')
 
       options = described_class.build_options(config)
 

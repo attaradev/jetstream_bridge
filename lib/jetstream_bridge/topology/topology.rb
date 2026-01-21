@@ -6,8 +6,13 @@ require_relative 'stream'
 
 module JetstreamBridge
   class Topology
-    def self.ensure!(jts)
+    def self.ensure!(jts, force: false)
       cfg = JetstreamBridge.config
+      if cfg.disable_js_api && !force
+        Logging.info('Topology ensure skipped (JS API disabled).', tag: 'JetstreamBridge::Topology')
+        return
+      end
+
       subjects = [cfg.source_subject, cfg.destination_subject]
       subjects << cfg.dlq_subject if cfg.use_dlq
       Stream.ensure!(jts, cfg.stream_name, subjects)

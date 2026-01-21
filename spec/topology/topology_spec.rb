@@ -10,6 +10,7 @@ RSpec.describe JetstreamBridge::Topology do
       c.destination_app = 'dest_app'
       c.app_name = 'test_app'
       c.env = 'development'
+      c.stream_name = 'test_app-jetstream-bridge-stream'
     end
   end
 
@@ -25,13 +26,13 @@ RSpec.describe JetstreamBridge::Topology do
     it 'ensures stream with source and destination subjects' do
       expect(JetstreamBridge::Stream).to receive(:ensure!).with(
         mock_jts,
-        'development-jetstream-bridge-stream',
+        'test_app-jetstream-bridge-stream',
         array_including(
-          'development.test_app.sync.dest_app',
-          'development.dest_app.sync.test_app'
+          'test_app.sync.dest_app',
+          'dest_app.sync.test_app'
         )
       )
-      described_class.ensure!(mock_jts)
+      described_class.ensure!(mock_jts, force: true)
     end
 
     context 'when DLQ is enabled' do
@@ -41,16 +42,16 @@ RSpec.describe JetstreamBridge::Topology do
 
       it 'includes DLQ subject' do
         expect(JetstreamBridge::Stream).to receive(:ensure!).with(
-          mock_jts,
-          'development-jetstream-bridge-stream',
-          array_including(
-            'development.test_app.sync.dest_app',
-            'development.dest_app.sync.test_app',
-            'development.test_app.sync.dlq'
-          )
+        mock_jts,
+        'test_app-jetstream-bridge-stream',
+        array_including(
+          'test_app.sync.dest_app',
+          'dest_app.sync.test_app',
+          'test_app.sync.dlq'
         )
-        described_class.ensure!(mock_jts)
-      end
+      )
+      described_class.ensure!(mock_jts, force: true)
+    end
     end
 
     context 'when DLQ is disabled' do
@@ -62,37 +63,37 @@ RSpec.describe JetstreamBridge::Topology do
         expect(JetstreamBridge::Stream).to receive(:ensure!).with(
           mock_jts,
           anything,
-          array_excluding('development.dlq.test_app')
+          array_excluding('test_app.sync.dlq')
         )
-        described_class.ensure!(mock_jts)
+        described_class.ensure!(mock_jts, force: true)
       end
     end
 
     it 'uses stream name from config' do
       expect(JetstreamBridge::Stream).to receive(:ensure!).with(
         mock_jts,
-        'development-jetstream-bridge-stream',
+        'test_app-jetstream-bridge-stream',
         anything
       )
-      described_class.ensure!(mock_jts)
+      described_class.ensure!(mock_jts, force: true)
     end
 
     it 'uses source subject from config' do
       expect(JetstreamBridge::Stream).to receive(:ensure!).with(
         mock_jts,
         anything,
-        array_including('development.test_app.sync.dest_app')
+        array_including('test_app.sync.dest_app')
       )
-      described_class.ensure!(mock_jts)
+      described_class.ensure!(mock_jts, force: true)
     end
 
     it 'uses destination subject from config' do
       expect(JetstreamBridge::Stream).to receive(:ensure!).with(
         mock_jts,
         anything,
-        array_including('development.dest_app.sync.test_app')
+        array_including('dest_app.sync.test_app')
       )
-      described_class.ensure!(mock_jts)
+      described_class.ensure!(mock_jts, force: true)
     end
   end
 end

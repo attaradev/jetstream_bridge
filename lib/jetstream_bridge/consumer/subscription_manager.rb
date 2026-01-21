@@ -10,8 +10,10 @@ module JetstreamBridge
       @jts     = jts
       @durable = durable
       @cfg     = cfg
+      unless @cfg.disable_js_api
       @desired_cfg      = build_consumer_config(@durable, filter_subject)
       @desired_cfg_norm = normalize_consumer_config(@desired_cfg)
+      end
     end
 
     def stream_name
@@ -27,6 +29,11 @@ module JetstreamBridge
     end
 
     def ensure_consumer!
+      if @cfg.disable_js_api
+        Logging.info("JS API disabled; assuming consumer #{@durable} exists", tag: 'JetstreamBridge::Consumer')
+        return
+      end
+
       info = consumer_info_or_nil
       return create_consumer! unless info
 
@@ -41,11 +48,17 @@ module JetstreamBridge
 
     # Bind a pull subscriber to the existing durable.
     def subscribe!
+      opts = { stream: stream_name }
+      if @cfg.disable_js_api
+        opts[:bind] = true
+      else
+        opts[:config] = desired_consumer_cfg
+      end
+
       @jts.pull_subscribe(
         filter_subject,
         @durable,
-        stream: stream_name,
-        config: desired_consumer_cfg
+        **opts
       )
     end
 
@@ -80,9 +93,9 @@ module JetstreamBridge
         ack_policy: 'explicit',
         deliver_policy: 'all',
         max_deliver: JetstreamBridge.config.max_deliver,
-        # JetStream expects seconds (the client multiplies by nanoseconds).
-        ack_wait: duration_to_seconds(JetstreamBridge.config.ack_wait),
-        backoff: Array(JetstreamBridge.config.backoff).map { |d| duration_to_seconds(d) }
+        # JetStream expects nanoseconds for ack_wait/backoff.
+        ack_wait: duration_to_nanos(JetstreamBridge.config.ack_wait),
+        backoff: Array(JetstreamBridge.config.backoff).map { |d| duration_to_nanos(d) }
       }
     end
 
@@ -94,8 +107,8 @@ module JetstreamBridge
         ack_policy: sval(cfg, :ack_policy), # string
         deliver_policy: sval(cfg, :deliver_policy), # string
         max_deliver: ival(cfg, :max_deliver), # integer
-        ack_wait_secs: d_secs(cfg, :ack_wait), # integer seconds
-        backoff_secs: darr_secs(cfg, :backoff) # array of integer seconds
+        ack_wait_nanos: nanos(cfg, :ack_wait),
+        backoff_nanos: nanos_arr(cfg, :backoff)
       }
     end
 
@@ -151,54 +164,56 @@ module JetstreamBridge
       v.to_i
     end
 
-    # Normalize duration-like field to **milliseconds** (Integer).
-    # Accepts:
-    # - Strings:"500ms""30s" "2m", "1h", "250us", "100ns"
-    # - Integers/Floats:
-    #     * Server may return large integers in **nanoseconds** → detect and convert.
-    #     * Otherwise, we delegate to Duration.to_millis (heuristic/explicit).
-    def d_secs(cfg, key)
-      raw = get(cfg, key)
-      duration_to_seconds(raw)
-    end
-
-    # Normalize array of durations to integer milliseconds.
-    def darr_secs(cfg, key)
-      raw = get(cfg, key)
-      Array(raw).map { |d| duration_to_seconds(d) }
-    end
-
     # ---- duration coercion ----
 
-    def duration_to_seconds(val)
+    def nanos(cfg, key)
+      raw = get(cfg, key)
+      duration_to_nanos(raw)
+    end
+
+    def nanos_arr(cfg, key)
+      raw = get(cfg, key)
+      Array(raw).map { |d| duration_to_nanos(d) }
+    end
+
+    def duration_to_nanos(val)
       return nil if val.nil?
 
       case val
       when Integer
-        # Heuristic: extremely large integers are likely **nanoseconds** from server
-        # (e.g., 30s => 30_000_000_000 ns). Convert ns → seconds.
-        return (val / 1_000_000_000.0).round if val >= 1_000_000_000
-
-        # otherwise rely on Duration’s :auto heuristic (int <1000 => seconds, >=1000 => ms)
+        # Heuristic: extremely large integers are likely already nanoseconds
+        return val if val >= 1_000_000_000 # >= 1s in nanos
         millis = Duration.to_millis(val, default_unit: :auto)
-        seconds_from_millis(millis)
+        (millis * 1_000_000).to_i
       when Float
         millis = Duration.to_millis(val, default_unit: :auto)
-        seconds_from_millis(millis)
+        (millis * 1_000_000).to_i
       when String
-        # Strings include unit (ns/us/ms/s/m/h/d) handled by Duration
-        millis = Duration.to_millis(val) # default_unit ignored when unit given
-        seconds_from_millis(millis)
+        millis = Duration.to_millis(val) # unit-aware
+        (millis * 1_000_000).to_i
       else
-        return duration_to_seconds(val.to_f) if val.respond_to?(:to_f)
+        return duration_to_nanos(val.to_f) if val.respond_to?(:to_f)
 
         raise ArgumentError, "invalid duration: #{val.inspect}"
       end
     end
 
-    def seconds_from_millis(millis)
-      # Always round up to avoid zero-second waits when sub-second durations are provided.
-      [(millis / 1000.0).ceil, 1].max
+    # Legacy helper used in specs; kept for backward compatibility.
+    def duration_to_seconds(val)
+      return nil if val.nil?
+
+      case val
+      when Integer
+        return (val / 1_000_000_000.0).round if val >= 1_000_000_000 # nanoseconds
+        return val if val < 1000 # seconds
+        (val / 1000.0).round # milliseconds as integer
+      when Float
+        val
+      else
+        millis = Duration.to_millis(val, default_unit: :auto)
+        seconds = millis / 1000.0
+        seconds < 1 ? 1 : seconds.round(3)
+      end
     end
   end
 end

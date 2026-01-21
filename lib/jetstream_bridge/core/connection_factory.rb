@@ -18,7 +18,7 @@ module JetstreamBridge
 
         attr_accessor :servers, :reconnect, :reconnect_time_wait,
                       :max_reconnect_attempts, :connect_timeout,
-                      :name, :user, :pass, :token
+                      :name, :user, :pass, :token, :inbox_prefix
         attr_reader :additional_opts
 
         def initialize(servers: nil, **opts)
@@ -51,6 +51,7 @@ module JetstreamBridge
           base[:user] = @user if @user
           base[:pass] = @pass if @pass
           base[:token] = @token if @token
+          base[:inbox_prefix] = @inbox_prefix unless @inbox_prefix.to_s.empty?
 
           base.merge(@additional_opts)
         end
@@ -73,7 +74,8 @@ module JetstreamBridge
 
           ConnectionOptions.new(
             servers: servers,
-            name: "#{config.app_name}-#{config.env}"
+            name: "#{config.app_name}-#{config.env}",
+            inbox_prefix: config.inbox_prefix
           )
         end
 

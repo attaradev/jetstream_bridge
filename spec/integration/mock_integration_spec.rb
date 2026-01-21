@@ -15,9 +15,9 @@ RSpec.describe 'Mock NATS Integration Examples', :allow_real_connection do
 
     JetstreamBridge.configure do |config|
       config.nats_urls = 'nats://localhost:4222'
-      config.env = 'test'
       config.app_name = 'api'
       config.destination_app = 'worker'
+      config.stream_name = 'test-jetstream-bridge-stream'
     end
   end
 
@@ -51,7 +51,7 @@ RSpec.describe 'Mock NATS Integration Examples', :allow_real_connection do
 
       expect(result).to be_publish_success
       expect(result.event_id).to be_a(String)
-      expect(result.subject).to eq('test.api.sync.worker')
+      expect(result.subject).to eq('api.sync.worker')
 
       # Verify message was stored in mock
       storage = JetstreamBridge::TestHelpers.mock_storage
@@ -258,13 +258,13 @@ RSpec.describe 'Mock NATS Integration Examples', :allow_real_connection do
       expect(result).to be_publish_success
 
       # Now simulate consuming on the worker side
-      # Messages published to 'test.api.sync.worker' should be consumed from 'test.worker.sync.api'
+      # Messages published to 'api.sync.worker' should be consumed from 'worker.sync.api'
       # For this test, we'll directly verify the message is in storage
       storage = JetstreamBridge::TestHelpers.mock_storage
       expect(storage.messages.size).to eq(1)
 
       message = storage.messages.first
-      expect(message[:subject]).to eq('test.api.sync.worker')
+      expect(message[:subject]).to eq('api.sync.worker')
 
       envelope = Oj.load(message[:data])
       expect(envelope['event_type']).to eq('user.created')

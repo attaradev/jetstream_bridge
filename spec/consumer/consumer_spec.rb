@@ -14,6 +14,7 @@ RSpec.describe JetstreamBridge::Consumer do
     allow(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
     allow(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
     JetstreamBridge.configure { |c| c.destination_app = 'dest' }
+    JetstreamBridge.config.disable_js_api = false
     # Manually mark as initialized so Consumer can be created
     JetstreamBridge.instance_variable_set(:@connection_initialized, true)
     allow(JetstreamBridge::SubscriptionManager).to receive(:new).and_return(sub_mgr)
@@ -32,6 +33,13 @@ RSpec.describe JetstreamBridge::Consumer do
         .to have_received(:new)
         .with(jts, JetstreamBridge.config.durable_name, JetstreamBridge.config)
       expect(sub_mgr).to have_received(:ensure_consumer!)
+      expect(sub_mgr).to have_received(:subscribe!)
+    end
+
+    it 'skips ensure when JS API disabled' do
+      JetstreamBridge.config.disable_js_api = true
+      described_class.new { |*| nil }
+      expect(sub_mgr).not_to have_received(:ensure_consumer!)
       expect(sub_mgr).to have_received(:subscribe!)
     end
 
@@ -95,6 +103,22 @@ RSpec.describe JetstreamBridge::Consumer do
       expect(consumer.send(:process_batch)).to eq(0)
       expect(sub_mgr).to have_received(:ensure_consumer!).twice
       expect(sub_mgr).to have_received(:subscribe!).twice
+    end
+
+    context 'when JS API disabled' do
+      subject(:consumer) do
+        JetstreamBridge.config.disable_js_api = true
+        described_class.new { |*| nil }
+      end
+
+      it 'recovers subscription without ensuring consumer' do
+        err = NATS::JetStream::Error.new('consumer not found')
+        allow(subscription).to receive(:fetch).and_raise(err)
+
+        expect(consumer.send(:process_batch)).to eq(0)
+        expect(sub_mgr).not_to have_received(:ensure_consumer!)
+        expect(sub_mgr).to have_received(:subscribe!).twice
+      end
     end
 
     it 'handles non-recoverable JetStream errors' do

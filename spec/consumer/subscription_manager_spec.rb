@@ -10,9 +10,11 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
       c.destination_app = 'dest_app'
       c.app_name = 'test_app'
       c.env = 'development'
+      c.stream_name = 'test_app-jetstream-bridge-stream'
       c.max_deliver = 5
       c.ack_wait = 30
       c.backoff = [1, 5, 10]
+      c.disable_js_api = false
     end
   end
   let(:durable) { 'test_durable' }
@@ -34,7 +36,7 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
     it 'builds consumer config' do
       expect(manager.desired_consumer_cfg).to include(
         durable_name: durable,
-        filter_subject: 'development.dest_app.sync.test_app',
+        filter_subject: 'dest_app.sync.test_app',
         ack_policy: 'explicit',
         deliver_policy: 'all',
         max_deliver: 5
@@ -44,13 +46,13 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
 
   describe '#stream_name' do
     it 'returns the stream name from config' do
-      expect(manager.stream_name).to eq('development-jetstream-bridge-stream')
+      expect(manager.stream_name).to eq('test_app-jetstream-bridge-stream')
     end
   end
 
   describe '#filter_subject' do
     it 'returns the destination subject from config' do
-      expect(manager.filter_subject).to eq('development.dest_app.sync.test_app')
+      expect(manager.filter_subject).to eq('dest_app.sync.test_app')
     end
   end
 
@@ -60,7 +62,7 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
     end
 
     it 'includes filter subject' do
-      expect(manager.desired_consumer_cfg[:filter_subject]).to eq('development.dest_app.sync.test_app')
+      expect(manager.desired_consumer_cfg[:filter_subject]).to eq('dest_app.sync.test_app')
     end
 
     it 'includes ack policy' do
@@ -75,16 +77,29 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
       expect(manager.desired_consumer_cfg[:max_deliver]).to eq(5)
     end
 
-    it 'converts ack_wait to seconds' do
-      expect(manager.desired_consumer_cfg[:ack_wait]).to eq(30)
+    it 'converts ack_wait to nanos' do
+      expect(manager.desired_consumer_cfg[:ack_wait]).to eq(30_000_000_000)
     end
 
-    it 'converts backoff array to seconds' do
-      expect(manager.desired_consumer_cfg[:backoff]).to eq([1, 5, 10])
+    it 'converts backoff array to nanos' do
+      expect(manager.desired_consumer_cfg[:backoff]).to eq([1_000_000_000, 5_000_000_000, 10_000_000_000])
     end
   end
 
   describe '#ensure_consumer!' do
+    context 'when JS API disabled' do
+      before do
+        config.disable_js_api = true
+      end
+
+      it 'does nothing except log' do
+        expect(mock_jts).not_to receive(:consumer_info)
+        expect(mock_jts).not_to receive(:add_consumer)
+        expect(mock_jts).not_to receive(:delete_consumer)
+        manager.ensure_consumer!
+      end
+    end
+
     context 'when consumer does not exist' do
       before do
         allow(mock_jts).to receive(:consumer_info).and_raise(NATS::JetStream::Error)
@@ -103,7 +118,7 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
     context 'when consumer exists with desired config' do
       let(:mock_config) do
         double('ConsumerConfig',
-               filter_subject: 'development.dest_app.sync.test_app',
+               filter_subject: 'dest_app.sync.test_app',
                ack_policy: :explicit,
                deliver_policy: :all,
                max_deliver: 5,
@@ -126,7 +141,7 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
     context 'when consumer exists with different config' do
       let(:mock_config) do
         double('ConsumerConfig',
-               filter_subject: 'development.dest_app.sync.test_app',
+               filter_subject: 'dest_app.sync.test_app',
                ack_policy: :explicit,
                deliver_policy: :all,
                max_deliver: 3,
@@ -158,7 +173,7 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
     context 'when delete fails during recreate' do
       let(:mock_config) do
         double('ConsumerConfig',
-               filter_subject: 'development.dest_app.sync.test_app',
+               filter_subject: 'dest_app.sync.test_app',
                ack_policy: :explicit,
                deliver_policy: :all,
                max_deliver: 3,
@@ -192,6 +207,19 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
         hash_including(stream: manager.stream_name, config: manager.desired_consumer_cfg)
       )
       manager.subscribe!
+    end
+
+    context 'when JS API disabled' do
+      before { config.disable_js_api = true }
+
+      it 'binds to existing consumer without config' do
+        expect(mock_jts).to receive(:pull_subscribe).with(
+          manager.filter_subject,
+          durable,
+          hash_including(stream: manager.stream_name, bind: true)
+        )
+        manager.subscribe!
+      end
     end
   end
 
@@ -239,8 +267,8 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
           ack_policy: :explicit,
           deliver_policy: :all,
           max_deliver: 5,
-          ack_wait: 30,
-          backoff: [1, 5]
+          ack_wait: 30 * NATS::NANOSECONDS,
+          backoff: [1, 5].map { |s| s * NATS::NANOSECONDS }
         }
 
         normalized = manager_instance.send(:normalize_consumer_config, server_cfg)
@@ -250,8 +278,8 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
           ack_policy: 'explicit',
           deliver_policy: 'all',
           max_deliver: 5,
-          ack_wait_secs: 30,
-          backoff_secs: [1, 5]
+          ack_wait_nanos: 30 * NATS::NANOSECONDS,
+          backoff_nanos: [1, 5].map { |s| s * NATS::NANOSECONDS }
         )
       end
 
@@ -268,7 +296,7 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
         expect(normalized[:ack_policy]).to be_nil
       end
 
-      it 'normalizes JetStream ConsumerInfo units (ack_wait/backoff) in seconds' do
+      it 'normalizes JetStream ConsumerInfo units (ack_wait/backoff) in nanos' do
         created_at = Time.now.iso8601
         consumer_info = NATS::JetStream::API::ConsumerInfo.new(
           type: 'pull',
@@ -296,8 +324,8 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
 
         normalized = manager_instance.send(:normalize_consumer_config, consumer_info.config)
 
-        expect(normalized[:ack_wait_secs]).to eq(30)
-        expect(normalized[:backoff_secs]).to eq([1, 5])
+        expect(normalized[:ack_wait_nanos]).to eq(30 * NATS::NANOSECONDS)
+        expect(normalized[:backoff_nanos]).to eq([1, 5].map { |s| s * NATS::NANOSECONDS })
       end
     end
   end
