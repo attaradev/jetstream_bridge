@@ -2,7 +2,6 @@
 
 require 'oj'
 require 'securerandom'
-require_relative '../core/connection'
 require_relative '../core/duration'
 require_relative '../core/logging'
 require_relative '../core/config'
@@ -64,42 +63,38 @@ module JetstreamBridge
     # @return [MiddlewareChain] Middleware chain for processing
     attr_reader :middleware_chain
 
-    # Initialize a new Consumer instance.
+    # Initialize a new Consumer instance with dependency injection.
     #
     # @param handler [Proc, #call, nil] Message handler that processes events.
     #   Must respond to #call(event) or #call(event, subject, deliveries).
+    # @param connection [NATS::JetStream::JS] JetStream connection
+    # @param config [Config] Configuration instance
     # @param durable_name [String, nil] Optional durable consumer name override.
-    #   Defaults to config.durable_name.
     # @param batch_size [Integer, nil] Number of messages to fetch per batch.
-    #   Defaults to DEFAULT_BATCH_SIZE (25).
     # @yield [event] Optional block as handler. Receives Models::Event object.
     #
-    # @raise [ArgumentError] If neither handler nor block provided
-    # @raise [ArgumentError] If destination_app not configured
-    # @raise [ConnectionError] If unable to connect to NATS
+    # @raise [ArgumentError] If required dependencies are missing
     #
     # @example With proc handler
     #   handler = ->(event) { puts "Received: #{event.type}" }
-    #   consumer = JetstreamBridge::Consumer.new(handler)
+    #   consumer = JetstreamBridge::Consumer.new(handler, connection: jts, config: config)
     #
     # @example With block
-    #   consumer = JetstreamBridge::Consumer.new do |event|
+    #   consumer = JetstreamBridge::Consumer.new(connection: jts, config: config) do |event|
     #     UserEventHandler.process(event)
     #   end
     #
-    # @example With custom configuration
-    #   consumer = JetstreamBridge::Consumer.new(
-    #     handler,
-    #     durable_name: "my-consumer",
-    #     batch_size: 10
-    #   )
-    #
-    def initialize(handler = nil, durable_name: nil, batch_size: nil, &block)
+    def initialize(handler = nil, connection:, config:, durable_name: nil, batch_size: nil, &block)
       @handler = handler || block
       raise ArgumentError, 'handler or block required' unless @handler
+      raise ArgumentError, 'connection is required' unless connection
+      raise ArgumentError, 'config is required' unless config
+
+      @jts = connection
+      @config = config
 
       @batch_size    = Integer(batch_size || DEFAULT_BATCH_SIZE)
-      @durable       = durable_name || JetstreamBridge.config.durable_name
+      @durable       = durable_name || @config.durable_name
       @idle_backoff  = IDLE_SLEEP_SECS
       @reconnect_attempts = 0
       @running = true
@@ -107,17 +102,14 @@ module JetstreamBridge
       @start_time    = Time.now
       @iterations    = 0
       @last_health_check = Time.now
-      # Use existing connection (should already be established)
-      @jts = Connection.jetstream
-      raise ConnectionError, 'JetStream connection not available. Call JetstreamBridge.startup! first.' unless @jts
 
       @middleware_chain = MiddlewareChain.new
 
       ensure_destination_app_configured!
 
-      @sub_mgr = SubscriptionManager.new(@jts, @durable, JetstreamBridge.config)
+      @sub_mgr = SubscriptionManager.new(@jts, @durable, @config)
       @processor  = MessageProcessor.new(@jts, @handler, middleware_chain: @middleware_chain)
-      @inbox_proc = InboxProcessor.new(@processor) if JetstreamBridge.config.use_inbox
+      @inbox_proc = InboxProcessor.new(@processor) if @config.use_inbox
 
       ensure_subscription!
       setup_signal_handlers
@@ -193,7 +185,7 @@ module JetstreamBridge
     #
     def run!
       Logging.info(
-        "Consumer #{@durable} started (batch=#{@batch_size}, dest=#{JetstreamBridge.config.destination_subject})…",
+        "Consumer #{@durable} started (batch=#{@batch_size}, dest=#{@config.destination_subject})…",
         tag: 'JetstreamBridge::Consumer'
       )
       while @running
@@ -245,13 +237,13 @@ module JetstreamBridge
     private
 
     def ensure_destination_app_configured!
-      return unless JetstreamBridge.config.destination_app.to_s.empty?
+      return unless @config.destination_app.to_s.empty?
 
       raise ArgumentError, 'destination_app must be configured'
     end
 
     def ensure_subscription!
-      @sub_mgr.ensure_consumer! unless JetstreamBridge.config.disable_js_api
+      @sub_mgr.ensure_consumer! unless @config.disable_js_api
       @psub = @sub_mgr.subscribe!
     end
 

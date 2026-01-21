@@ -148,9 +148,12 @@ module JetstreamBridge
     end
 
     # Get the JetStream stream name (required).
+    #
+    # Side-effect free query. Use validate! to ensure validity.
+    #
+    # @return [String, nil] Stream name
     def stream_name
-      resolved = @stream_name_set ? @stream_name : default_stream_name
-      validate_stream_name_presence!(resolved)
+      @cached_stream_name || (@stream_name_set ? @stream_name : default_stream_name)
     end
 
     # Get the NATS subject this application publishes to.
@@ -158,56 +161,42 @@ module JetstreamBridge
     # Producer publishes to:   {app}.sync.{dest}
     # Consumer subscribes to:  {dest}.sync.{app}
     #
-    # @return [String] Source subject for publishing
-    # @raise [InvalidSubjectError] If components contain NATS wildcards
-    # @raise [MissingConfigurationError] If required components empty
+    # Side-effect free query. Use validate! to ensure validity.
+    #
+    # @return [String, nil] Source subject for publishing
     # @example
     #   config.app_name = "api"
     #   config.destination_app = "worker"
     #   config.source_subject  # => "api.sync.worker"
     def source_subject
-      validate_subject_component!(app_name, 'app_name')
-      validate_subject_component!(destination_app, 'destination_app')
-      env_part = @env_set ? env.to_s.strip : ''
-      return "#{env_part}.#{app_name}.sync.#{destination_app}" unless env_part.empty?
-
-      "#{app_name}.sync.#{destination_app}"
+      @cached_source_subject || build_source_subject
     end
 
     # Get the NATS subject this application subscribes to.
     #
-    # @return [String] Destination subject for consuming
-    # @raise [InvalidSubjectError] If components contain NATS wildcards
-    # @raise [MissingConfigurationError] If required components empty
+    # Side-effect free query. Use validate! to ensure validity.
+    #
+    # @return [String, nil] Destination subject for consuming
     # @example
     #   config.app_name = "api"
     #   config.destination_app = "worker"
     #   config.destination_subject  # => "worker.sync.api"
     def destination_subject
-      validate_subject_component!(app_name, 'app_name')
-      validate_subject_component!(destination_app, 'destination_app')
-      env_part = @env_set ? env.to_s.strip : ''
-      return "#{env_part}.#{destination_app}.sync.#{app_name}" unless env_part.empty?
-
-      "#{destination_app}.sync.#{app_name}"
+      @cached_destination_subject || build_destination_subject
     end
 
     # Get the dead letter queue subject for this application.
     #
     # Each app has its own DLQ for better isolation and monitoring.
     #
-    # @return [String] DLQ subject in format "{app_name}.sync.dlq"
-    # @raise [InvalidSubjectError] If components contain NATS wildcards
-    # @raise [MissingConfigurationError] If required components are empty
+    # Side-effect free query. Use validate! to ensure validity.
+    #
+    # @return [String, nil] DLQ subject in format "{app_name}.sync.dlq"
     # @example
     #   config.app_name = "api"
     #   config.dlq_subject  # => "api.sync.dlq"
     def dlq_subject
-      validate_subject_component!(app_name, 'app_name')
-      env_part = @env_set ? env.to_s.strip : ''
-      return "#{env_part}.#{app_name}.sync.dlq" unless env_part.empty?
-
-      "#{app_name}.sync.dlq"
+      @cached_dlq_subject || build_dlq_subject
     end
 
     # Get the durable consumer name for this application.
@@ -236,7 +225,10 @@ module JetstreamBridge
     # Validate all configuration settings.
     #
     # Checks that required settings are present and valid. Raises errors
-    # for any invalid configuration.
+    # for any invalid configuration. Caches computed subjects after validation.
+    #
+    # This is a command method - performs validation and updates internal state.
+    # Call this once after configuration is complete.
     #
     # @return [true] If configuration is valid
     # @raise [ConfigurationError] If any validation fails
@@ -244,24 +236,90 @@ module JetstreamBridge
     #   config.validate!  # Raises if destination_app is missing
     def validate!
       errors = []
+
+      # Validate stream name
       stream_val = @stream_name_set ? @stream_name : default_stream_name
-      raise MissingConfigurationError, 'stream_name is required' if stream_val.to_s.strip.empty?
+      if stream_val.to_s.strip.empty?
+        errors << 'stream_name is required'
+      else
+        begin
+          validate_stream_name!(stream_val)
+        rescue InvalidSubjectError => e
+          errors << e.message
+        end
+      end
+
+      # Validate required fields
       errors << 'destination_app is required' if destination_app.to_s.strip.empty?
       errors << 'nats_urls is required' if nats_urls.to_s.strip.empty?
       errors << 'app_name is required' if app_name.to_s.strip.empty?
       errors << 'max_deliver must be >= 1' if max_deliver.to_i < 1
       errors << 'backoff must be an array' unless backoff.is_a?(Array)
       errors << 'backoff must not be empty' if backoff.is_a?(Array) && backoff.empty?
-      validate_inbox_prefix!(inbox_prefix)
-      validate_stream_name!(stream_val) unless stream_val.to_s.strip.empty?
       errors << 'disable_js_api must be boolean' unless [true, false].include?(disable_js_api)
 
+      # Validate inbox prefix
+      begin
+        validate_inbox_prefix!(inbox_prefix)
+      rescue InvalidSubjectError => e
+        errors << e.message
+      end
+
+      # Validate subject components
+      begin
+        validate_subject_component!(app_name, 'app_name') unless app_name.to_s.strip.empty?
+        validate_subject_component!(destination_app, 'destination_app') unless destination_app.to_s.strip.empty?
+      rescue InvalidSubjectError, MissingConfigurationError => e
+        errors << e.message
+      end
+
       raise ConfigurationError, "Configuration errors: #{errors.join(', ')}" if errors.any?
+
+      # Cache computed values after successful validation
+      cache_computed_values!
 
       true
     end
 
     private
+
+    # Cache computed subjects after validation
+    def cache_computed_values!
+      @cached_stream_name = @stream_name_set ? @stream_name : default_stream_name
+      @cached_source_subject = build_source_subject
+      @cached_destination_subject = build_destination_subject
+      @cached_dlq_subject = build_dlq_subject
+    end
+
+    # Build source subject without side effects
+    def build_source_subject
+      return nil if app_name.to_s.strip.empty? || destination_app.to_s.strip.empty?
+
+      env_part = @env_set ? env.to_s.strip : ''
+      return "#{env_part}.#{app_name}.sync.#{destination_app}" unless env_part.empty?
+
+      "#{app_name}.sync.#{destination_app}"
+    end
+
+    # Build destination subject without side effects
+    def build_destination_subject
+      return nil if app_name.to_s.strip.empty? || destination_app.to_s.strip.empty?
+
+      env_part = @env_set ? env.to_s.strip : ''
+      return "#{env_part}.#{destination_app}.sync.#{app_name}" unless env_part.empty?
+
+      "#{destination_app}.sync.#{app_name}"
+    end
+
+    # Build DLQ subject without side effects
+    def build_dlq_subject
+      return nil if app_name.to_s.strip.empty?
+
+      env_part = @env_set ? env.to_s.strip : ''
+      return "#{env_part}.#{app_name}.sync.dlq" unless env_part.empty?
+
+      "#{app_name}.sync.dlq"
+    end
 
     def validate_inbox_prefix!(value)
       str = value.to_s.strip
@@ -280,13 +338,6 @@ module JetstreamBridge
       if str.match?(/[ \t\r\n\x00-\x1F\x7F]/)
         raise InvalidSubjectError, "#{name} contains invalid whitespace/control characters: #{value.inspect}"
       end
-    end
-
-    def validate_stream_name_presence!(value)
-      str = value.to_s
-      raise MissingConfigurationError, 'stream_name is required' if str.strip.empty?
-
-      str
     end
 
     def validate_stream_name!(value)

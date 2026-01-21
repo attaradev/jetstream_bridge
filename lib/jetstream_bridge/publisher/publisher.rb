@@ -2,13 +2,13 @@
 
 require 'oj'
 require 'securerandom'
-require_relative '../core/connection'
 require_relative '../core/logging'
 require_relative '../core/config'
 require_relative '../core/model_utils'
 require_relative '../core/retry_strategy'
 require_relative '../models/publish_result'
 require_relative 'outbox_repository'
+require_relative 'event_envelope_builder'
 
 module JetstreamBridge
   # Publishes events to NATS JetStream with reliability features.
@@ -34,19 +34,20 @@ module JetstreamBridge
   #   JetstreamBridge.publish(event_type: "user.created", payload: { id: 1 })
   #
   class Publisher
-    # Initialize a new Publisher instance.
+    # Initialize a new Publisher instance with dependency injection.
     #
-    # Note: The NATS connection should already be established via JetstreamBridge.startup!
-    # or automatically on first use. This assumes the connection is already established.
-    #
-    # @param retry_strategy [RetryStrategy, nil] Optional custom retry strategy for handling transient failures.
-    #   Defaults to PublisherRetryStrategy with exponential backoff.
-    # @raise [ConnectionError] If unable to get JetStream connection
-    def initialize(retry_strategy: nil)
-      @jts = Connection.jetstream
-      raise ConnectionError, 'JetStream connection not available. Call JetstreamBridge.startup! first.' unless @jts
+    # @param connection [NATS::JetStream::JS] JetStream connection
+    # @param config [Config] Configuration instance
+    # @param retry_strategy [RetryStrategy, nil] Optional custom retry strategy
+    # @raise [ArgumentError] If required dependencies are missing
+    def initialize(connection:, config:, retry_strategy: nil)
+      raise ArgumentError, 'connection is required' unless connection
+      raise ArgumentError, 'config is required' unless config
 
+      @jts = connection
+      @config = config
       @retry_strategy = retry_strategy || PublisherRetryStrategy.new
+      @envelope_builder = EventEnvelopeBuilder
     end
 
     # Publishes an event to NATS JetStream.
@@ -107,16 +108,76 @@ module JetstreamBridge
     #     logger.error "Failed to publish: #{result.error.message}"
     #   end
     #
-    def publish(event_or_hash = nil, resource_type: nil, event_type: nil, payload: nil, subject: nil, **options)
+    def publish(event_type:, payload:, resource_type: nil, subject: nil, **options)
       ensure_destination_app_configured!
 
-      params = { event_or_hash: event_or_hash, resource_type: resource_type, event_type: event_type,
-                 payload: payload, subject: subject, options: options }
-      envelope, resolved_subject = route_publish_params(params)
+      envelope = @envelope_builder.build(
+        event_type: event_type,
+        payload: payload,
+        resource_type: resource_type,
+        **options
+      )
+
+      resolved_subject = subject || @config.source_subject
 
       do_publish(resolved_subject, envelope)
     rescue ArgumentError
       # Re-raise validation errors for invalid parameters
+      raise
+    rescue StandardError => e
+      # Return failure result for publishing errors
+      Models::PublishResult.new(
+        success: false,
+        event_id: envelope&.[]('event_id') || 'unknown',
+        subject: resolved_subject || 'unknown',
+        error: e
+      )
+    end
+
+    # Publish a complete event envelope (advanced usage)
+    #
+    # Provides full control over the envelope structure. Use this when you need
+    # to manually construct the envelope or preserve all fields from an external source.
+    #
+    # @param envelope [Hash] Complete event envelope with all required fields
+    # @option envelope [String] 'event_id' Unique event identifier (required)
+    # @option envelope [Integer] 'schema_version' Schema version (required, typically 1)
+    # @option envelope [String] 'event_type' Event type (required)
+    # @option envelope [String] 'producer' Producer name (required)
+    # @option envelope [String] 'resource_type' Resource type (required)
+    # @option envelope [String] 'resource_id' Resource identifier (required)
+    # @option envelope [String] 'occurred_at' ISO8601 timestamp (required)
+    # @option envelope [String] 'trace_id' Trace identifier (required)
+    # @option envelope [Hash] 'payload' Event payload data (required)
+    # @param subject [String, nil] Optional NATS subject override
+    # @return [Models::PublishResult] Result object
+    #
+    # @raise [ArgumentError] If required envelope fields are missing
+    #
+    # @example Publishing a complete envelope
+    #   envelope = {
+    #     'event_id' => SecureRandom.uuid,
+    #     'schema_version' => 1,
+    #     'event_type' => 'user.created',
+    #     'producer' => 'custom-producer',
+    #     'resource_type' => 'user',
+    #     'resource_id' => '123',
+    #     'occurred_at' => Time.now.utc.iso8601,
+    #     'trace_id' => 'trace-123',
+    #     'payload' => { id: 123, name: 'Alice' }
+    #   }
+    #
+    #   result = publisher.publish_envelope(envelope)
+    #   puts "Published: #{result.event_id}"
+    def publish_envelope(envelope, subject: nil)
+      ensure_destination_app_configured!
+      validate_envelope!(envelope)
+
+      resolved_subject = subject || @config.source_subject
+
+      do_publish(resolved_subject, envelope)
+    rescue ArgumentError
+      # Re-raise validation errors for invalid envelope
       raise
     rescue StandardError => e
       # Return failure result for publishing errors
@@ -138,7 +199,7 @@ module JetstreamBridge
     # @return [Models::PublishResult] Result object
     # @api private
     def do_publish(subject, envelope)
-      if JetstreamBridge.config.use_outbox
+      if @config.use_outbox
         publish_via_outbox(subject, envelope)
       else
         with_retries { publish_to_nats(subject, envelope) }
@@ -147,52 +208,20 @@ module JetstreamBridge
 
     private
 
-    # Routes publish parameters to appropriate envelope builder
-    # @return [Array<Hash, String>] tuple of [envelope, subject]
-    def route_publish_params(params)
-      if structured_params?(params)
-        build_from_structured_params(params)
-      elsif keyword_or_hash_params?(params)
-        build_from_keyword_or_hash(params)
-      else
-        raise ArgumentError, 'Either provide (resource_type:, event_type:, payload:) or an event hash'
-      end
-    end
+    # Validate envelope has all required fields
+    def validate_envelope!(envelope)
+      required_fields = %w[event_id schema_version event_type producer resource_type
+                           resource_id occurred_at trace_id payload]
 
-    def structured_params?(params)
-      params[:resource_type] && params[:event_type] && params[:payload]
-    end
+      missing = required_fields.select { |field| envelope[field].nil? || envelope[field].to_s.strip.empty? }
 
-    def keyword_or_hash_params?(params)
-      params[:event_type] || params[:payload] || params[:event_or_hash].is_a?(Hash)
-    end
+      return if missing.empty?
 
-    def build_from_structured_params(params)
-      envelope = build_envelope(params[:resource_type], params[:event_type], params[:payload], params[:options])
-      resolved_subject = params[:subject] || JetstreamBridge.config.source_subject
-      [envelope, resolved_subject]
-    end
-
-    def build_from_keyword_or_hash(params)
-      envelope = if params[:event_or_hash].is_a?(Hash)
-                   normalize_envelope(params[:event_or_hash], params[:options])
-                 else
-                   build_from_keywords(params[:event_type], params[:payload], params[:options])
-                 end
-
-      resolved_subject = params[:subject] || params[:options][:subject] || JetstreamBridge.config.source_subject
-      [envelope, resolved_subject]
-    end
-
-    def build_from_keywords(event_type, payload, options)
-      raise ArgumentError, 'event_type is required' unless event_type
-      raise ArgumentError, 'payload is required' unless payload
-
-      normalize_envelope({ 'event_type' => event_type, 'payload' => payload }, options)
+      raise ArgumentError, "Envelope missing required fields: #{missing.join(', ')}"
     end
 
     def ensure_destination_app_configured!
-      return unless JetstreamBridge.config.destination_app.to_s.empty?
+      return unless @config.destination_app.to_s.empty?
 
       raise ArgumentError, 'destination_app must be configured'
     end
@@ -231,7 +260,7 @@ module JetstreamBridge
 
     # ---- Outbox path ----
     def publish_via_outbox(subject, envelope)
-      klass = ModelUtils.constantize(JetstreamBridge.config.outbox_model)
+      klass = ModelUtils.constantize(@config.outbox_model)
 
       unless ModelUtils.ar_class?(klass)
         Logging.warn(
@@ -287,65 +316,6 @@ module JetstreamBridge
         tag: 'JetstreamBridge::Publisher'
       )
       raise
-    end
-
-    def build_envelope(resource_type, event_type, payload, options = {})
-      {
-        'event_id' => options[:event_id] || SecureRandom.uuid,
-        'schema_version' => 1,
-        'event_type' => event_type,
-        'producer' => JetstreamBridge.config.app_name,
-        'resource_id' => extract_resource_id(payload),
-        'occurred_at' => (options[:occurred_at] || Time.now.utc).iso8601,
-        'trace_id' => options[:trace_id] || SecureRandom.hex(8),
-        'resource_type' => resource_type,
-        'payload' => payload
-      }
-    end
-
-    # Normalize a hash to match envelope structure, allowing partial envelopes
-    def normalize_envelope(hash, options = {})
-      hash = hash.transform_keys(&:to_s)
-      infer_resource_type_if_needed!(hash)
-
-      {
-        'event_id' => envelope_event_id(hash, options),
-        'schema_version' => hash['schema_version'] || 1,
-        'event_type' => hash['event_type'] || raise(ArgumentError, 'event_type is required'),
-        'producer' => hash['producer'] || JetstreamBridge.config.app_name,
-        'resource_id' => hash['resource_id'] || extract_resource_id(hash['payload']),
-        'occurred_at' => envelope_occurred_at(hash, options),
-        'trace_id' => envelope_trace_id(hash, options),
-        'resource_type' => hash['resource_type'] || 'event',
-        'payload' => hash['payload'] || raise(ArgumentError, 'payload is required')
-      }
-    end
-
-    def infer_resource_type_if_needed!(hash)
-      return unless hash['event_type'] && hash['payload'] && !hash['resource_type']
-
-      # Try to infer from dot notation (e.g., 'user.created' -> 'user')
-      parts = hash['event_type'].split('.')
-      hash['resource_type'] = parts[0] if parts.size > 1
-    end
-
-    def envelope_event_id(hash, options)
-      hash['event_id'] || options[:event_id] || SecureRandom.uuid
-    end
-
-    def envelope_occurred_at(hash, options)
-      hash['occurred_at'] || (options[:occurred_at] || Time.now.utc).iso8601
-    end
-
-    def envelope_trace_id(hash, options)
-      hash['trace_id'] || options[:trace_id] || SecureRandom.hex(8)
-    end
-
-    def extract_resource_id(payload)
-      return '' unless payload
-
-      payload = payload.transform_keys(&:to_s) if payload.respond_to?(:transform_keys)
-      (payload['id'] || payload[:id] || payload['resource_id'] || payload[:resource_id]).to_s
     end
   end
 end

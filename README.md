@@ -63,11 +63,10 @@ JetstreamBridge.configure do |config|
   # config.disable_js_api = false
 end
 
-# Note: configure only sets options; it does not connect. In Rails the Railtie
-# starts the bridge after initialization. In non-Rails apps call
-# `JetstreamBridge.startup!` (or rely on auto-connect on first publish/subscribe).
+# Note: configure only sets options; it does not connect. In Rails, the Railtie
+# starts the bridge automatically after initialization. In non-Rails apps, call
+# `JetstreamBridge.connect!` (or rely on auto-connect on first publish/subscribe).
 # Subjects are env-less by default: "#{app_name}.sync.#{destination_app}" / "#{destination_app}.sync.#{app_name}".
-# To provision/verify streams when JS API access is allowed, call `JetstreamBridge.ensure_topology!`.
 ```
 
 Publish:

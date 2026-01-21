@@ -56,12 +56,10 @@ RSpec.describe JetstreamBridge::Config do
       expect(config.stream_name).to eq('orders-stream')
     end
 
-    it 'raises when missing' do
+    it 'returns nil when not set' do
       config.stream_name = nil
 
-      expect do
-        config.stream_name
-      end.to raise_error(JetstreamBridge::MissingConfigurationError, /stream_name is required/)
+      expect(config.stream_name).to be_nil
     end
   end
 
@@ -75,29 +73,6 @@ RSpec.describe JetstreamBridge::Config do
       expect(config.source_subject).to eq('orders.sync.warehouse')
     end
 
-    it 'validates app_name component' do
-      config.app_name = 'app.'
-
-      expect do
-        config.source_subject
-      end.to raise_error(JetstreamBridge::InvalidSubjectError, /app_name.*wildcards/)
-    end
-
-    it 'validates destination_app component' do
-      config.destination_app = 'dest>'
-
-      expect do
-        config.source_subject
-      end.to raise_error(JetstreamBridge::InvalidSubjectError, /destination_app.*wildcards/)
-    end
-
-    it 'raises error if destination_app is empty' do
-      config.destination_app = ''
-
-      expect do
-        config.source_subject
-      end.to raise_error(JetstreamBridge::MissingConfigurationError, /destination_app.*empty/)
-    end
   end
 
   describe '#destination_subject' do
@@ -123,13 +98,6 @@ RSpec.describe JetstreamBridge::Config do
       expect(config.dlq_subject).to eq('api.sync.dlq')
     end
 
-    it 'validates app_name component' do
-      config.app_name = 'app*'
-
-      expect do
-        config.dlq_subject
-        end.to raise_error(JetstreamBridge::InvalidSubjectError, /app_name.*wildcards/)
-    end
   end
 
   describe '#durable_name' do
@@ -306,7 +274,7 @@ RSpec.describe JetstreamBridge::Config do
 
         expect do
           config.validate!
-        end.to raise_error(JetstreamBridge::InvalidSubjectError, /inbox_prefix cannot be empty/)
+        end.to raise_error(JetstreamBridge::ConfigurationError, /inbox_prefix cannot be empty/)
       end
 
       it 'raises error when inbox_prefix has wildcards' do
@@ -314,7 +282,7 @@ RSpec.describe JetstreamBridge::Config do
 
         expect do
           config.validate!
-        end.to raise_error(JetstreamBridge::InvalidSubjectError, /inbox_prefix contains invalid/)
+        end.to raise_error(JetstreamBridge::ConfigurationError, /inbox_prefix contains invalid/)
       end
     end
 
@@ -324,7 +292,7 @@ RSpec.describe JetstreamBridge::Config do
 
         expect do
           config.validate!
-        end.to raise_error(JetstreamBridge::MissingConfigurationError, /stream_name is required/)
+        end.to raise_error(JetstreamBridge::ConfigurationError, /stream_name is required/)
       end
 
       it 'raises when stream_name has invalid chars' do
@@ -332,7 +300,7 @@ RSpec.describe JetstreamBridge::Config do
 
         expect do
           config.validate!
-        end.to raise_error(JetstreamBridge::InvalidSubjectError, /stream_name contains invalid/)
+        end.to raise_error(JetstreamBridge::ConfigurationError, /stream_name contains invalid/)
       end
     end
   end
@@ -371,13 +339,13 @@ RSpec.describe JetstreamBridge::Config do
     it 'raises error for empty string' do
       expect do
         config.send(:validate_subject_component!, '', 'test_field')
-      end.to raise_error(JetstreamBridge::MissingConfigurationError, /test_field.*empty/)
+      end.to raise_error(JetstreamBridge::ConfigurationError, /test_field.*empty/)
     end
 
     it 'raises error for whitespace-only string' do
       expect do
         config.send(:validate_subject_component!, '   ', 'test_field')
-      end.to raise_error(JetstreamBridge::MissingConfigurationError, /test_field.*empty/)
+      end.to raise_error(JetstreamBridge::ConfigurationError, /test_field.*empty/)
     end
 
     it 'rejects components with spaces' do

@@ -2,12 +2,17 @@
 
 require_relative 'jetstream_bridge/version'
 require_relative 'jetstream_bridge/core'
+require_relative 'jetstream_bridge/core/connection_manager'
+require_relative 'jetstream_bridge/core/connection_validator'
+require_relative 'jetstream_bridge/publisher/event_envelope_builder'
 require_relative 'jetstream_bridge/publisher/publisher'
 require_relative 'jetstream_bridge/publisher/batch_publisher'
 require_relative 'jetstream_bridge/consumer/consumer'
 require_relative 'jetstream_bridge/consumer/middleware'
 require_relative 'jetstream_bridge/models/publish_result'
 require_relative 'jetstream_bridge/models/event'
+require_relative 'jetstream_bridge/facade'
+require_relative 'jetstream_bridge/factories'
 
 # Rails-specific entry point (lifecycle helpers + Railtie)
 require_relative 'jetstream_bridge/rails' if defined?(Rails::Railtie)
@@ -18,17 +23,8 @@ require_relative 'jetstream_bridge/models/outbox_event'
 
 # JetStream Bridge - Production-safe realtime data bridge using NATS JetStream.
 #
-# JetStream Bridge provides a reliable, production-ready way to publish and consume
-# events using NATS JetStream with features like:
-#
-# - Transactional Outbox pattern for guaranteed event publishing
-# - Idempotent Inbox pattern for exactly-once message processing
-# - Dead Letter Queue (DLQ) for poison message handling
-# - Automatic stream provisioning and overlap detection
-# - Built-in health checks and monitoring
-# - Middleware support for cross-cutting concerns
-# - Rails integration with generators and migrations
-# - Graceful startup/shutdown lifecycle management
+# Modern architecture with dependency injection, simplified API surface,
+# and clear separation of concerns.
 #
 # @example Quick start
 #   # Configure
@@ -37,12 +33,13 @@ require_relative 'jetstream_bridge/models/outbox_event'
 #     config.env = "development"
 #     config.app_name = "my_app"
 #     config.destination_app = "other_app"
+#     config.stream_name = "MY_STREAM"
 #     config.use_outbox = true
 #     config.use_inbox = true
 #   end
 #
-#   # Explicitly start connection (or use Rails railtie for automatic startup)
-#   JetstreamBridge.startup!
+#   # Connect (validates config and establishes connection)
+#   JetstreamBridge.connect!
 #
 #   # Publish events
 #   JetstreamBridge.publish(
@@ -57,372 +54,282 @@ require_relative 'jetstream_bridge/models/outbox_event'
 #   consumer.run!
 #
 #   # Graceful shutdown
-#   at_exit { JetstreamBridge.shutdown! }
-#
-# @see Publisher For publishing events
-# @see Consumer For consuming events
-# @see Config For configuration options
-# @see TestHelpers For testing utilities
+#   at_exit { JetstreamBridge.disconnect! }
 #
 module JetstreamBridge
   class << self
-    include Core::BridgeHelpers
-
+    # Get configuration instance
+    #
+    # @return [Config] Configuration object
     def config
-      @config ||= Config.new
+      facade.config
     end
 
     # Configure JetStream Bridge settings
     #
-    # This method sets configuration WITHOUT automatically establishing a connection.
-    # Connection must be established explicitly via startup! or will be established
-    # automatically on first use (publish/subscribe) or via Rails railtie initialization.
+    # @yield [Config] Configuration object for block-based configuration
+    # @return [Config] The configured instance
     #
-    # @example Basic configuration
+    # @example
     #   JetstreamBridge.configure do |config|
     #     config.nats_urls = "nats://localhost:4222"
     #     config.app_name = "my_app"
     #     config.destination_app = "worker"
+    #     config.stream_name = "MY_STREAM"
     #   end
-    #   JetstreamBridge.startup!  # Explicitly start connection
-    #
-    # @example With hash overrides
-    #   JetstreamBridge.configure(env: 'production', app_name: 'my_app')
-    #
-    # @param overrides [Hash] Configuration key-value pairs to set
-    # @yield [Config] Configuration object for block-based configuration
-    # @return [Config] The configured instance
-    def configure(overrides = {}, **extra_overrides)
-      # Merge extra keyword arguments into overrides hash
-      all_overrides = overrides.nil? ? extra_overrides : overrides.merge(extra_overrides)
-
-      cfg = config
-      all_overrides.each { |k, v| assign_config_option!(cfg, k, v) } unless all_overrides.empty?
-      yield(cfg) if block_given?
-
-      cfg
+    def configure(&block)
+      facade.configure(&block)
     end
 
-    # Configure with a preset
+    # Connect to NATS and ensure stream topology
     #
-    # This method applies a configuration preset. Connection must be
-    # established separately via startup! or via Rails railtie.
-    #
-    # @example
-    #   JetstreamBridge.configure_for(:production) do |config|
-    #     config.nats_urls = ENV["NATS_URLS"]
-    #     config.app_name = "my_app"
-    #     config.destination_app = "worker"
-    #   end
-    #   JetstreamBridge.startup!  # Explicitly start connection
-    #
-    # @param preset [Symbol] Preset name (:development, :test, :production, etc.)
-    # @yield [Config] Configuration object
-    # @return [Config] Configured instance
-    def configure_for(preset)
-      configure do |cfg|
-        cfg.apply_preset(preset)
-        yield(cfg) if block_given?
-      end
-    end
-
-    def reset!
-      @config = nil
-      @connection_initialized = false
-    end
-
-    # Initialize the JetStream Bridge connection and topology
-    #
-    # This method can be called explicitly if needed. It's idempotent and safe to call multiple times.
+    # Validates configuration and establishes connection.
+    # Idempotent - safe to call multiple times.
     #
     # @return [void]
-    def startup!
-      return if @connection_initialized
-
-      connect_and_ensure_stream!
-      @connection_initialized = true
-      Logging.info('JetStream Bridge started successfully', tag: 'JetstreamBridge')
+    # @raise [ConfigurationError] If configuration is invalid
+    # @raise [ConnectionError] If unable to connect
+    #
+    # @example
+    #   JetstreamBridge.connect!
+    def connect!
+      facade.connect!
     end
 
-    # Reconnect to NATS
+    # Disconnect from NATS
     #
-    # Closes existing connection and establishes a new one. Useful for:
+    # Closes the NATS connection and cleans up resources.
+    #
+    # @return [void]
+    #
+    # @example
+    #   at_exit { JetstreamBridge.disconnect! }
+    def disconnect!
+      facade.disconnect!
+    end
+
+    # Reconnect to NATS (disconnect + connect)
+    #
+    # Useful for:
     # - Forking web servers (Puma, Unicorn) after worker boot
     # - Recovering from connection issues
-    # - Configuration changes that require reconnection
     #
-    # @example In Puma configuration (config/puma.rb)
+    # @return [void]
+    #
+    # @example In Puma configuration
     #   on_worker_boot do
     #     JetstreamBridge.reconnect! if defined?(JetstreamBridge)
     #   end
-    #
-    # @return [void]
-    # @raise [ConnectionError] If unable to reconnect to NATS
     def reconnect!
-      Logging.info('Reconnecting to NATS...', tag: 'JetstreamBridge')
-      shutdown! if @connection_initialized
-      startup!
+      facade.reconnect!
     end
 
-    # Gracefully shutdown the JetStream Bridge connection
+    # Publish an event
     #
-    # Closes the NATS connection and cleans up resources. Should be called
-    # during application shutdown (e.g., in at_exit or signal handlers).
+    # Simplified API with single pattern:
+    # - event_type: required (e.g., "user.created")
+    # - payload: required event data
+    # - resource_type: optional (inferred from event_type if dotted notation)
+    # - All other fields are optional
     #
-    # @return [void]
-    def shutdown!
-      return unless @connection_initialized
-
-      begin
-        nc = Connection.nc
-        nc&.close if nc&.connected?
-        Logging.info('JetStream Bridge shut down gracefully', tag: 'JetstreamBridge')
-      rescue StandardError => e
-        Logging.error("Error during shutdown: #{e.message}", tag: 'JetstreamBridge')
-      ensure
-        @connection_initialized = false
-      end
-    end
-
-    def use_outbox?
-      config.use_outbox
-    end
-
-    def use_inbox?
-      config.use_inbox
-    end
-
-    def use_dlq?
-      config.use_dlq
-    end
-
-    # Establishes a connection and ensures stream topology.
-    #
-    # @return [Object] JetStream context
-    def connect_and_ensure_stream!
-      Connection.connect!
-      jts = Connection.jetstream
-      Topology.ensure!(jts, force: true)
-      jts
-    end
-
-    # Backwards-compatible alias for the previous method name
-    def ensure_topology!
-      Connection.connect!
-      jts = Connection.jetstream
-      Topology.ensure!(jts, force: true)
-      jts
-    end
-
-    # Active health check for monitoring and readiness probes
-    #
-    # Performs actual operations to verify system health:
-    # - Checks NATS connection (active: calls account_info API)
-    # - Verifies stream exists and is accessible (active: queries stream info)
-    # - Tests NATS round-trip communication (active: RTT measurement)
-    #
-    # Rate Limiting: To prevent abuse, uncached health checks are limited to once every 5 seconds.
-    # Cached results (within 30s TTL) bypass this limit via Connection.instance.connected?.
-    #
-    # @param skip_cache [Boolean] Force fresh health check, bypass connection cache (rate limited)
-    # @return [Hash] Health status including NATS connection, stream, and version
-    # @raise [HealthCheckFailedError] If skip_cache requested too frequently
-    def health_check(skip_cache: false)
-      # Rate limit uncached requests to prevent abuse (max 1 per 5 seconds)
-      enforce_health_check_rate_limit! if skip_cache
-
-      start_time = Time.now
-      conn_instance = Connection.instance
-
-      # Active check: calls @jts.account_info internally unless JS API is disabled
-      connected = conn_instance.connected?(skip_cache: skip_cache)
-      connected_at = conn_instance.connected_at
-      connection_state = conn_instance.state
-      last_error = conn_instance.last_reconnect_error
-      last_error_at = conn_instance.last_reconnect_error_at
-
-      # Active check: queries actual stream from NATS server unless JS API is disabled
-      stream_info =
-        if connected && !config.disable_js_api
-          fetch_stream_info
-        else
-          { exists: nil, name: config.stream_name, error: ('JS API disabled' if config.disable_js_api) }
-        end
-
-      # Active check: measure NATS round-trip time (still uses request/reply)
-      rtt_ms = measure_nats_rtt if connected && !config.disable_js_api
-
-      health_check_duration_ms = ((Time.now - start_time) * 1000).round(2)
-
-      {
-        healthy: connected && (config.disable_js_api ? true : stream_info&.fetch(:exists, false)),
-        connection: {
-          state: connection_state,
-          connected: connected,
-          connected_at: connected_at&.iso8601,
-          last_error: last_error&.message,
-          last_error_at: last_error_at&.iso8601
-        },
-        stream: stream_info,
-        performance: {
-          nats_rtt_ms: rtt_ms,
-          health_check_duration_ms: health_check_duration_ms
-        },
-        config: {
-          env: config.env,
-          app_name: config.app_name,
-          destination_app: config.destination_app,
-          use_outbox: config.use_outbox,
-          use_inbox: config.use_inbox,
-          use_dlq: config.use_dlq,
-          disable_js_api: config.disable_js_api
-        },
-        version: JetstreamBridge::VERSION
-      }
-    rescue StandardError => e
-      {
-        healthy: false,
-        connection: {
-          state: :failed,
-          connected: false
-        },
-        error: "#{e.class}: #{e.message}"
-      }
-    end
-
-    # Check if connected to NATS
-    #
-    # @return [Boolean] true if connected and healthy
-    def connected?
-      Connection.instance.connected?
-    rescue StandardError
-      false
-    end
-
-    # Get stream information for the configured stream
-    #
-    # @return [Hash] Stream information including subjects and message count
-    def stream_info
-      fetch_stream_info
-    end
-
-    # Convenience method to publish events
-    #
-    # Automatically establishes connection on first use if not already connected.
-    #
-    # Supports three usage patterns:
-    #
-    # 1. Structured parameters (recommended):
-    #    JetstreamBridge.publish(resource_type: 'user', event_type: 'created', payload: { id: 1, name: 'Ada' })
-    #
-    # 2. Simplified hash (infers resource_type from event_type):
-    #    JetstreamBridge.publish(event_type: 'user.created', payload: { id: 1, name: 'Ada' })
-    #
-    # 3. Complete envelope (advanced):
-    #    JetstreamBridge.publish({ event_type: 'created', resource_type: 'user', payload: {...}, event_id: '...' })
-    #
-    # @param event_or_hash [Hash, nil] Event hash or first positional argument
-    # @param resource_type [String, nil] Resource type (e.g., 'user', 'order')
-    # @param event_type [String, nil] Event type (e.g., 'created', 'updated', 'user.created')
-    # @param payload [Hash, nil] Event payload data
-    # @param subject [String, nil] Optional subject override
-    # @param options [Hash] Additional options (event_id, occurred_at, trace_id)
+    # @param event_type [String] Event type (required)
+    # @param payload [Hash] Event payload data (required)
+    # @param resource_type [String, nil] Resource type (optional, inferred if nil)
+    # @param subject [String, nil] Optional NATS subject override
+    # @param options [Hash] Additional options (event_id, occurred_at, trace_id, etc.)
     # @return [Models::PublishResult] Result object with success status and metadata
     #
-    # @example Check result status
-    #   result = JetstreamBridge.publish(event_type: "user.created", payload: { id: 1 })
-    #   if result.success?
-    #     puts "Published event #{result.event_id}"
-    #   else
-    #     logger.error("Publish failed: #{result.error}")
-    #   end
-    def publish(event_or_hash = nil, resource_type: nil, event_type: nil, payload: nil, subject: nil, **)
-      connect_if_needed!
-      publisher = Publisher.new
-      publisher.publish(event_or_hash, resource_type: resource_type, event_type: event_type, payload: payload,
-                                       subject: subject, **)
+    # @example Basic publishing
+    #   result = JetstreamBridge.publish(
+    #     event_type: "user.created",
+    #     payload: { id: 1, email: "ada@example.com" }
+    #   )
+    #   puts "Success!" if result.success?
+    #
+    # @example With options
+    #   result = JetstreamBridge.publish(
+    #     event_type: "order.updated",
+    #     payload: { id: 123, status: "shipped" },
+    #     resource_type: "order",
+    #     trace_id: request_id
+    #   )
+    def publish(event_type:, payload:, **options)
+      facade.publish(event_type: event_type, payload: payload, **options)
     end
 
     # Publish variant that raises on error
     #
-    # @example
-    #   JetstreamBridge.publish!(event_type: "user.created", payload: { id: 1 })
-    #   # Raises PublishError if publishing fails
-    #
     # @param (see #publish)
     # @return [Models::PublishResult] Result object
     # @raise [PublishError] If publishing fails
-    def publish!(...)
-      result = publish(...)
+    #
+    # @example
+    #   JetstreamBridge.publish!(event_type: "user.created", payload: { id: 1 })
+    def publish!(event_type:, payload:, **options)
+      result = publish(event_type: event_type, payload: payload, **options)
       if result.failure?
-        raise PublishError.new(result.error&.message, event_id: result.event_id,
-                                                      subject: result.subject)
+        raise PublishError.new(result.error&.message, event_id: result.event_id, subject: result.subject)
       end
 
       result
     end
 
-    # Batch publish multiple events efficiently
+    # Publish a complete event envelope (advanced usage)
     #
-    # @example
-    #   results = JetstreamBridge.publish_batch do |batch|
-    #     users.each do |user|
-    #       batch.add(event_type: "user.created", payload: { id: user.id })
-    #     end
-    #   end
-    #   puts "Success: #{results.successful_count}, Failed: #{results.failed_count}"
+    # Provides full control over the envelope structure. Use this when you need to
+    # manually construct the envelope or preserve all fields from an external source.
     #
-    # @yield [BatchPublisher] Batch publisher instance
-    # @return [BatchPublisher::BatchResult] Result with success/failure counts
-    def publish_batch
-      batch = BatchPublisher.new
-      yield(batch) if block_given?
-      batch.publish
+    # @param envelope [Hash] Complete event envelope with all required fields
+    # @param subject [String, nil] Optional NATS subject override
+    # @return [Models::PublishResult] Result object
+    #
+    # @raise [ArgumentError] If required envelope fields are missing
+    #
+    # @example Publishing a complete envelope
+    #   envelope = {
+    #     'event_id' => SecureRandom.uuid,
+    #     'schema_version' => 1,
+    #     'event_type' => 'user.created',
+    #     'producer' => 'custom-producer',
+    #     'resource_type' => 'user',
+    #     'resource_id' => '123',
+    #     'occurred_at' => Time.now.utc.iso8601,
+    #     'trace_id' => 'trace-123',
+    #     'payload' => { id: 123, name: 'Alice' }
+    #   }
+    #
+    #   result = JetstreamBridge.publish_envelope(envelope)
+    #   puts "Published: #{result.event_id}"
+    #
+    # @example Forwarding events from another system
+    #   # Receive event from external system
+    #   external_event = external_api.get_event
+    #
+    #   # Publish as-is, preserving all metadata
+    #   JetstreamBridge.publish_envelope(external_event)
+    def publish_envelope(envelope, subject: nil)
+      facade.publish_envelope(envelope, subject: subject)
     end
 
-    # Convenience method to start consuming messages
-    #
-    # Automatically establishes connection on first use if not already connected.
-    #
-    # Supports two usage patterns:
-    #
-    # 1. With a block (recommended):
-    #    consumer = JetstreamBridge.subscribe do |event|
-    #      puts "Received: #{event.type} on #{event.subject} (attempt #{event.deliveries})"
-    #    end
-    #    consumer.run!
-    #
-    # 2. With auto-run (returns Thread):
-    #    thread = JetstreamBridge.subscribe(run: true) do |event|
-    #      puts "Received: #{event.type}"
-    #    end
-    #    thread.join # Wait for consumer to finish
-    #
-    # 3. With a handler object:
-    #    handler = ->(event) { puts event.type }
-    #    consumer = JetstreamBridge.subscribe(handler)
-    #    consumer.run!
+    # Subscribe to events
     #
     # @param handler [Proc, #call, nil] Message handler (optional if block given)
-    # @param run [Boolean] If true, automatically runs consumer in a background thread
     # @param durable_name [String, nil] Optional durable consumer name override
     # @param batch_size [Integer, nil] Optional batch size override
     # @yield [event] Yields Models::Event object to block
-    # @return [Consumer, Thread] Consumer instance or Thread if run: true
-    def subscribe(handler = nil, run: false, durable_name: nil, batch_size: nil, &block)
-      connect_if_needed!
-      handler ||= block
-      raise ArgumentError, 'Handler or block required' unless handler
+    # @return [Consumer] Consumer instance (call run! to start processing)
+    #
+    # @example With block
+    #   consumer = JetstreamBridge.subscribe do |event|
+    #     puts "Received: #{event.type} - #{event.payload.to_h}"
+    #   end
+    #   consumer.run!  # Blocking
+    #
+    # @example With handler
+    #   handler = ->(event) { EventProcessor.process(event) }
+    #   consumer = JetstreamBridge.subscribe(handler)
+    #   consumer.run!
+    def subscribe(handler = nil, durable_name: nil, batch_size: nil, &block)
+      raise ArgumentError, 'Handler or block required' unless handler || block
 
-      consumer = Consumer.new(handler, durable_name: durable_name, batch_size: batch_size)
+      facade.subscribe(
+        handler || block,
+        durable_name: durable_name,
+        batch_size: batch_size
+      )
+    end
 
-      if run
-        thread = Thread.new { consumer.run! }
-        thread.abort_on_exception = true
-        thread
-      else
-        consumer
-      end
+    # Check if connected to NATS
+    #
+    # @param skip_cache [Boolean] Force fresh health check
+    # @return [Boolean] true if connected and healthy
+    #
+    # @example
+    #   if JetstreamBridge.connected?
+    #     puts "Ready to publish"
+    #   end
+    def connected?(skip_cache: false)
+      facade.connected?(skip_cache: skip_cache)
+    end
+
+    # Get comprehensive health status (primary method)
+    #
+    # Provides complete system health including connection state, stream info,
+    # performance metrics, and configuration. Use this for monitoring and
+    # readiness probes.
+    #
+    # Rate limited to once every 5 seconds for uncached checks.
+    #
+    # @param skip_cache [Boolean] Force fresh health check (rate limited)
+    # @return [Hash] Health status including connection, stream, performance, config, and version
+    #
+    # @example Basic health check
+    #   health = JetstreamBridge.health
+    #   puts "Healthy: #{health[:healthy]}"
+    #   puts "State: #{health[:connection][:state]}"
+    #   puts "RTT: #{health[:performance][:nats_rtt_ms]}ms"
+    #
+    # @example Kubernetes readiness probe
+    #   def ready
+    #     health = JetstreamBridge.health
+    #     if health[:healthy]
+    #       render json: health, status: :ok
+    #     else
+    #       render json: health, status: :service_unavailable
+    #     end
+    #   end
+    def health(skip_cache: false)
+      facade.health(skip_cache: skip_cache)
+    end
+
+    # Backward compatibility alias for health
+    #
+    # @deprecated Use {#health} instead
+    # @param skip_cache [Boolean] Force fresh health check
+    # @return [Hash] Health status
+    def health_check(skip_cache: false)
+      health(skip_cache: skip_cache)
+    end
+
+    # Check if system is healthy (convenience method)
+    #
+    # Returns a simple boolean indicating overall health.
+    # Equivalent to `health[:healthy]` but more convenient.
+    #
+    # @return [Boolean] true if connected and stream exists
+    #
+    # @example
+    #   if JetstreamBridge.healthy?
+    #     JetstreamBridge.publish(...)
+    #   else
+    #     logger.warn "JetStream not healthy, skipping publish"
+    #   end
+    def healthy?
+      facade.healthy?
+    end
+
+    # Get stream information
+    #
+    # @return [Hash] Stream information including subjects and message count
+    #
+    # @example
+    #   info = JetstreamBridge.stream_info
+    #   puts "Messages: #{info[:messages]}"
+    def stream_info
+      facade.stream_info
+    end
+
+    # Reset facade (for testing)
+    #
+    # @api private
+    def reset!
+      @facade = nil
+    end
+
+    private
+
+    def facade
+      @facade ||= Facade.new
     end
   end
 end

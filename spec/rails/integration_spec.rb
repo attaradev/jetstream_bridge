@@ -148,7 +148,23 @@ RSpec.describe JetstreamBridge::Rails::Integration do
   describe '.log_development_connection_details!' do
     it 'logs connection details in development' do
       allow(env_double).to receive(:development?).and_return(true)
-      allow(JetstreamBridge::Connection).to receive(:instance).and_return(double(state: :connected))
+
+      # Set up facade with connected state
+      mock_connection_manager = instance_double(
+        JetstreamBridge::ConnectionManager,
+        state: :connected,
+        health_check: {
+          connected: true,
+          state: :connected,
+          connected_at: Time.now,
+          last_error: nil,
+          last_error_at: nil
+        }
+      )
+      facade = JetstreamBridge.instance_variable_get(:@facade) || JetstreamBridge::Facade.new
+      JetstreamBridge.instance_variable_set(:@facade, facade)
+      facade.instance_variable_set(:@connection_manager, mock_connection_manager)
+
       allow(JetstreamBridge.config).to receive_messages(
         nats_urls: 'nats://example:4222',
         stream_name: 'dev-stream',
@@ -245,7 +261,7 @@ RSpec.describe JetstreamBridge::Rails::Integration do
   describe '.boot_bridge!' do
     it 'skips startup and logs reason when autostart is disabled' do
       JetstreamBridge.config.lazy_connect = true
-      expect(JetstreamBridge).not_to receive(:startup!)
+      expect(JetstreamBridge).not_to receive(:connect!)
       expect(JetstreamBridge::Logging).to receive(:info).with(
         a_string_including('Auto-start skipped'),
         tag: 'JetstreamBridge::Railtie'
@@ -255,7 +271,7 @@ RSpec.describe JetstreamBridge::Rails::Integration do
 
     it 'starts up when autostart is allowed' do
       allow(described_class).to receive(:autostart_disabled?).and_return(false)
-      expect(JetstreamBridge).to receive(:startup!)
+      expect(JetstreamBridge).to receive(:connect!)
       described_class.boot_bridge!
     end
   end

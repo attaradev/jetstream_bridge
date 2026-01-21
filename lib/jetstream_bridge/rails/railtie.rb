@@ -7,7 +7,7 @@ module JetstreamBridge
   #
   # This Railtie integrates JetStream Bridge with the Rails application lifecycle:
   # - Configuration: Logger is configured early in the Rails boot process
-  # - Startup: Connection is established after user initializers load (explicit startup!)
+  # - Startup: Connection is established after user initializers load (connect!)
   # - Shutdown: Connection is closed when Rails shuts down (at_exit hook)
   # - Restart: Puma/Unicorn workers get fresh connections on fork
   #
@@ -33,10 +33,11 @@ module JetstreamBridge
     console do
       ::Rails.logger.info "[JetStream Bridge] Loaded v#{JetstreamBridge::VERSION}"
       ::Rails.logger.info '[JetStream Bridge] Console helpers available:'
-      ::Rails.logger.info '  JetstreamBridge.health_check     - Check connection status'
+      ::Rails.logger.info '  JetstreamBridge.health           - Check connection status'
+      ::Rails.logger.info '  JetstreamBridge.healthy?         - Simple boolean health check'
       ::Rails.logger.info '  JetstreamBridge.stream_info      - View stream details'
       ::Rails.logger.info '  JetstreamBridge.connected?       - Check if connected'
-      ::Rails.logger.info '  JetstreamBridge.shutdown!        - Gracefully disconnect'
+      ::Rails.logger.info '  JetstreamBridge.disconnect!      - Gracefully disconnect'
       ::Rails.logger.info '  JetstreamBridge.reconnect!       - Reconnect (useful after configuration changes)'
     end
 

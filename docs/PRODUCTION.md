@@ -44,7 +44,7 @@ production:
 
 **Total Formula:**
 
-```markdowb
+```markdown
 Total Connections = (Web Workers × Threads) + (Consumers × 3) + 10 buffer
 ```
 
@@ -78,9 +78,9 @@ JetstreamBridge.configure do |config|
   config.connect_retry_delay = 3     # Default: 2 seconds
 
   # Required configuration
-  config.env = ENV.fetch("RAILS_ENV", "production")
   config.app_name = ENV.fetch("APP_NAME", "myapp")
   config.destination_app = ENV.fetch("DESTINATION_APP")
+  config.stream_name = ENV.fetch("STREAM_NAME", "myapp-stream")
 
   # Enable reliability features
   config.use_outbox = true
@@ -128,16 +128,7 @@ JetstreamBridge.configure do |config|
 end
 ```
 
-Provision streams/subjects only when explicitly requested:
-
-```ruby
-JetstreamBridge.configure do |config|
-  # Use explicit provisioning via JetstreamBridge.ensure_topology!
-end
-
-# Run provisioning when needed (e.g., deploy scripts/migrations):
-# JetstreamBridge.ensure_topology!
-```
+With `disable_js_api = true` (the default), JetstreamBridge will not attempt to provision or verify streams. Ensure streams and consumers are pre-provisioned and aligned with your configuration.
 
 Minimum permissions for the bridge user:
 
@@ -224,7 +215,7 @@ Use the built-in health check for monitoring:
 # config/routes.rb
 Rails.application.routes.draw do
   get '/health/jetstream', to: proc { |env|
-    health = JetstreamBridge.health_check
+    health = JetstreamBridge.health
     status = health[:healthy] ? 200 : 503
     [status, { 'Content-Type' => 'application/json' }, [health.to_json]]
   }
@@ -257,9 +248,10 @@ end
     "destination_app": "worker",
     "use_outbox": true,
     "use_inbox": true,
-    "use_dlq": true
+    "use_dlq": true,
+    "disable_js_api": true
   },
-  "version": "4.0.3"
+  "version": "4.4.0"
 }
 ```
 

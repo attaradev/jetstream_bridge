@@ -7,8 +7,7 @@ RSpec.describe 'Mock Connection Integration', :allow_real_connection do
   include JetstreamBridge::TestHelpers
 
   before do
-    # Reset singleton to ensure clean state
-    JetstreamBridge::Connection.instance_variable_set(:@singleton__instance__, nil)
+    # Reset to ensure clean state
     JetstreamBridge.reset!
 
     # Enable test mode with mock NATS
@@ -24,10 +23,10 @@ RSpec.describe 'Mock Connection Integration', :allow_real_connection do
 
   after do
     JetstreamBridge::TestHelpers.reset_test_mode!
-    JetstreamBridge::Connection.instance_variable_set(:@singleton__instance__, nil)
+    JetstreamBridge.reset!
   end
 
-  it 'uses mock connection when calling Connection.connect!' do
+  it 'uses mock connection when calling connect!' do
     # Setup mock stream
     mock_conn = JetstreamBridge::TestHelpers.mock_connection
     mock_jts = mock_conn.jetstream
@@ -39,12 +38,11 @@ RSpec.describe 'Mock Connection Integration', :allow_real_connection do
     # Stub topology check
     allow(JetstreamBridge::Topology).to receive(:ensure!)
 
-    # Connect through Connection class
-    jts = JetstreamBridge::Connection.connect!
+    # Connect through JetstreamBridge
+    JetstreamBridge.connect!
 
-    # Verify we got the mock JetStream context
-    expect(jts).to eq(mock_jts)
-    expect(JetstreamBridge::Connection.instance.connected?).to be true
+    # Verify connection is established
+    expect(JetstreamBridge.connected?).to be true
   end
 
   it 'publishes through JetstreamBridge.publish with mock' do
