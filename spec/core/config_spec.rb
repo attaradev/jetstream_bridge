@@ -6,8 +6,12 @@ RSpec.describe JetstreamBridge::Config do
   let(:config) { described_class.new }
 
   describe '#initialize' do
+    before do
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with('NATS_INBOX_PREFIX').and_return(nil)
+    end
+
     it 'sets default values' do
-      expect(config.env).to eq('development')
       expect(config.app_name).to eq('app')
       expect(config.max_deliver).to eq(5)
       expect(config.ack_wait).to eq('30s')
@@ -15,6 +19,8 @@ RSpec.describe JetstreamBridge::Config do
       expect(config.use_outbox).to be false
       expect(config.use_inbox).to be false
       expect(config.use_dlq).to be true
+      expect(config.inbox_prefix).to eq('_INBOX')
+      expect(config.disable_js_api).to be true
     end
 
     it 'reads NATS_URLS from environment' do
@@ -22,7 +28,11 @@ RSpec.describe JetstreamBridge::Config do
       allow(ENV).to receive(:[]).with('NATS_URL').and_return(nil)
       allow(ENV).to receive(:[]).with('NATS_ENV').and_return(nil)
       allow(ENV).to receive(:[]).with('APP_NAME').and_return(nil)
+      allow(ENV).to receive(:[]).with('NATS_INBOX_PREFIX').and_return(nil)
+      allow(ENV).to receive(:[]).with('JETSTREAM_DISABLE_JS_API').and_return(nil)
       allow(ENV).to receive(:fetch).with('DESTINATION_APP', nil).and_return(nil)
+      allow(ENV).to receive(:fetch).with('STREAM_NAME', nil).and_return(nil)
+      allow(ENV).to receive(:fetch).with('DURABLE_NAME', nil).and_return(nil)
 
       config = described_class.new
 
@@ -34,7 +44,11 @@ RSpec.describe JetstreamBridge::Config do
       allow(ENV).to receive(:[]).with('NATS_URL').and_return('nats://fallback:4222')
       allow(ENV).to receive(:[]).with('NATS_ENV').and_return(nil)
       allow(ENV).to receive(:[]).with('APP_NAME').and_return(nil)
+      allow(ENV).to receive(:[]).with('NATS_INBOX_PREFIX').and_return(nil)
+      allow(ENV).to receive(:[]).with('JETSTREAM_DISABLE_JS_API').and_return(nil)
       allow(ENV).to receive(:fetch).with('DESTINATION_APP', nil).and_return(nil)
+      allow(ENV).to receive(:fetch).with('STREAM_NAME', nil).and_return(nil)
+      allow(ENV).to receive(:fetch).with('DURABLE_NAME', nil).and_return(nil)
 
       config = described_class.new
 
@@ -43,110 +57,90 @@ RSpec.describe JetstreamBridge::Config do
   end
 
   describe '#stream_name' do
-    it 'combines env with stream suffix' do
-      config.env = 'production'
+    it 'returns configured stream name' do
+      config.stream_name = 'orders-stream'
 
-      expect(config.stream_name).to eq('production-jetstream-bridge-stream')
+      expect(config.stream_name).to eq('orders-stream')
     end
 
-    it 'uses development by default' do
-      expect(config.stream_name).to eq('development-jetstream-bridge-stream')
+    it 'returns nil when not set' do
+      config.stream_name = nil
+
+      expect(config.stream_name).to be_nil
     end
   end
 
   describe '#source_subject' do
     before do
-      config.env = 'staging'
       config.app_name = 'orders'
       config.destination_app = 'warehouse'
     end
 
-    it 'creates subject in format env.app.sync.dest' do
-      expect(config.source_subject).to eq('staging.orders.sync.warehouse')
-    end
-
-    it 'validates env component' do
-      config.env = 'prod*'
-
-      expect do
-        config.source_subject
-      end.to raise_error(JetstreamBridge::InvalidSubjectError, /env.*wildcards/)
-    end
-
-    it 'validates app_name component' do
-      config.app_name = 'app.'
-
-      expect do
-        config.source_subject
-      end.to raise_error(JetstreamBridge::InvalidSubjectError, /app_name.*wildcards/)
-    end
-
-    it 'validates destination_app component' do
-      config.destination_app = 'dest>'
-
-      expect do
-        config.source_subject
-      end.to raise_error(JetstreamBridge::InvalidSubjectError, /destination_app.*wildcards/)
-    end
-
-    it 'raises error if destination_app is empty' do
-      config.destination_app = ''
-
-      expect do
-        config.source_subject
-      end.to raise_error(JetstreamBridge::MissingConfigurationError, /destination_app.*empty/)
+    it 'creates subject in format app.sync.dest' do
+      expect(config.source_subject).to eq('orders.sync.warehouse')
     end
   end
 
   describe '#destination_subject' do
     before do
-      config.env = 'production'
       config.app_name = 'warehouse'
       config.destination_app = 'orders'
     end
 
-    it 'creates subject in format env.dest.sync.app' do
-      expect(config.destination_subject).to eq('production.orders.sync.warehouse')
+    it 'creates subject in format dest.sync.app' do
+      expect(config.destination_subject).to eq('orders.sync.warehouse')
     end
 
     it 'swaps source and destination compared to source_subject' do
-      expect(config.destination_subject).to eq('production.orders.sync.warehouse')
-      expect(config.source_subject).to eq('production.warehouse.sync.orders')
+      expect(config.destination_subject).to eq('orders.sync.warehouse')
+      expect(config.source_subject).to eq('warehouse.sync.orders')
     end
   end
 
   describe '#dlq_subject' do
     it 'creates DLQ subject with environment and app name' do
-      config.env = 'production'
       config.app_name = 'api'
 
-      expect(config.dlq_subject).to eq('production.api.sync.dlq')
-    end
-
-    it 'validates env component' do
-      config.env = 'env*'
-
-      expect do
-        config.dlq_subject
-      end.to raise_error(JetstreamBridge::InvalidSubjectError, /env.*wildcards/)
-    end
-
-    it 'validates app_name component' do
-      config.env = 'production'
-      config.app_name = 'app*'
-
-      expect do
-        config.dlq_subject
-      end.to raise_error(JetstreamBridge::InvalidSubjectError, /app_name.*wildcards/)
+      expect(config.dlq_subject).to eq('api.sync.dlq')
     end
   end
 
   describe '#durable_name' do
-    it 'combines env and app_name' do
-      config.env = 'staging'
+    it 'combines app_name' do
       config.app_name = 'notifications'
 
-      expect(config.durable_name).to eq('staging-notifications-workers')
+      expect(config.durable_name).to eq('notifications-workers')
+    end
+
+    it 'returns override when provided' do
+      config.durable_name = 'custom-durable'
+      expect(config.durable_name).to eq('custom-durable')
+    end
+
+    it 'falls back to default when blank string provided' do
+      config.app_name = 'service'
+      config.durable_name = '   '
+
+      expect(config.durable_name).to eq('service-workers')
+    end
+  end
+
+  describe '#stream_name' do
+    it 'returns configured stream_name' do
+      config.stream_name = 'custom-stream'
+      expect(config.stream_name).to eq('custom-stream')
+    end
+  end
+
+  describe '#source_subject/#destination_subject' do
+    before do
+      config.app_name = 'pwas'
+      config.destination_app = 'heavyworth'
+    end
+
+    it 'uses env-less subjects by default' do
+      expect(config.source_subject).to eq('pwas.sync.heavyworth')
+      expect(config.destination_subject).to eq('heavyworth.sync.pwas')
     end
   end
 
@@ -154,8 +148,8 @@ RSpec.describe JetstreamBridge::Config do
     before do
       config.destination_app = 'other_app'
       config.nats_urls = 'nats://localhost:4222'
-      config.env = 'test'
       config.app_name = 'my_app'
+      config.stream_name = 'my_app-jetstream-bridge-stream'
     end
 
     context 'with valid configuration' do
@@ -201,16 +195,6 @@ RSpec.describe JetstreamBridge::Config do
         expect do
           config.validate!
         end.to raise_error(JetstreamBridge::ConfigurationError, /nats_urls is required/)
-      end
-    end
-
-    context 'with missing env' do
-      it 'raises ConfigurationError' do
-        config.env = ''
-
-        expect do
-          config.validate!
-        end.to raise_error(JetstreamBridge::ConfigurationError, /env is required/)
       end
     end
 
@@ -287,6 +271,42 @@ RSpec.describe JetstreamBridge::Config do
         end
       end
     end
+
+    context 'with invalid inbox_prefix' do
+      it 'raises error when inbox_prefix is empty' do
+        config.inbox_prefix = ''
+
+        expect do
+          config.validate!
+        end.to raise_error(JetstreamBridge::ConfigurationError, /inbox_prefix cannot be empty/)
+      end
+
+      it 'raises error when inbox_prefix has wildcards' do
+        config.inbox_prefix = '_INBOX.*'
+
+        expect do
+          config.validate!
+        end.to raise_error(JetstreamBridge::ConfigurationError, /inbox_prefix contains invalid/)
+      end
+    end
+
+    context 'with invalid overrides' do
+      it 'raises when stream_name is empty' do
+        config.stream_name = ''
+
+        expect do
+          config.validate!
+        end.to raise_error(JetstreamBridge::ConfigurationError, /stream_name is required/)
+      end
+
+      it 'raises when stream_name has invalid chars' do
+        config.stream_name = 'bad*stream'
+
+        expect do
+          config.validate!
+        end.to raise_error(JetstreamBridge::ConfigurationError, /stream_name contains invalid/)
+      end
+    end
   end
 
   describe '#validate_subject_component!' do
@@ -323,13 +343,13 @@ RSpec.describe JetstreamBridge::Config do
     it 'raises error for empty string' do
       expect do
         config.send(:validate_subject_component!, '', 'test_field')
-      end.to raise_error(JetstreamBridge::MissingConfigurationError, /test_field.*empty/)
+      end.to raise_error(JetstreamBridge::ConfigurationError, /test_field.*empty/)
     end
 
     it 'raises error for whitespace-only string' do
       expect do
         config.send(:validate_subject_component!, '   ', 'test_field')
-      end.to raise_error(JetstreamBridge::MissingConfigurationError, /test_field.*empty/)
+      end.to raise_error(JetstreamBridge::ConfigurationError, /test_field.*empty/)
     end
 
     it 'rejects components with spaces' do

@@ -198,7 +198,7 @@ module JetstreamBridge
 
     def log_ack(result)
       ctx = result.ctx
-      Logging.info(
+      Logging.debug(
         "ACK event_id=#{ctx&.event_id} subject=#{ctx&.subject} seq=#{ctx&.seq} deliveries=#{ctx&.deliveries}",
         tag: 'JetstreamBridge::Consumer'
       )

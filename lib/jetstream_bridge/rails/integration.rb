@@ -2,7 +2,6 @@
 
 require_relative '../core/model_codec_setup'
 require_relative '../core/logging'
-require_relative '../core/connection'
 
 module JetstreamBridge
   module Rails
@@ -38,8 +37,7 @@ module JetstreamBridge
           return
         end
 
-        JetstreamBridge.config.validate!
-        JetstreamBridge.startup!
+        JetstreamBridge.connect!
         log_started!
         log_development_connection_details! if rails_development?
         register_shutdown_hook!
@@ -105,7 +103,12 @@ module JetstreamBridge
       end
 
       def log_development_connection_details!
-        conn_state = JetstreamBridge::Connection.instance.state
+        health = begin
+          JetstreamBridge.health
+        rescue StandardError
+          nil
+        end
+        conn_state = health&.dig(:connection, :state) || 'unknown'
         active_logger&.info("[JetStream Bridge] Connection state: #{conn_state}")
         active_logger&.info("[JetStream Bridge] Connected to: #{JetstreamBridge.config.nats_urls}")
         active_logger&.info("[JetStream Bridge] Stream: #{JetstreamBridge.config.stream_name}")
@@ -116,7 +119,7 @@ module JetstreamBridge
       def register_shutdown_hook!
         return if @shutdown_hook_registered
 
-        at_exit { JetstreamBridge.shutdown! }
+        at_exit { JetstreamBridge.disconnect! }
         @shutdown_hook_registered = true
       end
 

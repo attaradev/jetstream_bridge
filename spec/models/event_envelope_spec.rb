@@ -10,7 +10,6 @@ RSpec.describe JetstreamBridge::Models::EventEnvelope do
     JetstreamBridge.configure do |c|
       c.destination_app = 'dest'
       c.app_name        = 'test_app'
-      c.env             = 'test'
     end
   end
 
@@ -213,16 +212,16 @@ RSpec.describe JetstreamBridge::Models::EventEnvelope do
       hash = envelope.to_h
 
       expect(hash).to eq({
-                           schema_version: 1,
-                           event_id: 'evt-123',
-                           event_type: 'shipped',
-                           producer: 'warehouse-app',
-                           resource_type: 'Order',
-                           resource_id: 456,
-                           occurred_at: '2025-11-22T12:00:00Z',
-                           trace_id: 'trace-789',
-                           payload: { order_id: 456 }
-                         })
+        schema_version: 1,
+        event_id: 'evt-123',
+        event_type: 'shipped',
+        producer: 'warehouse-app',
+        resource_type: 'Order',
+        resource_id: 456,
+        occurred_at: '2025-11-22T12:00:00Z',
+        trace_id: 'trace-789',
+        payload: { order_id: 456 }
+      })
     end
 
     it 'omits nil optional fields' do

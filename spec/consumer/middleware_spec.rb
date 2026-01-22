@@ -71,12 +71,12 @@ RSpec.describe JetstreamBridge::ConsumerMiddleware::MiddlewareChain do
       chain.call(event) { |_evt| execution_order << :handler }
 
       expect(execution_order).to eq([
-                                      :middleware1_before,
-                                      :middleware2_before,
-                                      :handler,
-                                      :middleware2_after,
-                                      :middleware1_after
-                                    ])
+        :middleware1_before,
+        :middleware2_before,
+        :handler,
+        :middleware2_after,
+        :middleware1_after
+      ])
     end
 
     it 'propagates exceptions from middleware' do

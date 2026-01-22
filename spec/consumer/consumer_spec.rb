@@ -7,15 +7,18 @@ RSpec.describe JetstreamBridge::Consumer do
   let(:subscription) { double('subscription') }
   let(:sub_mgr) { instance_double(JetstreamBridge::SubscriptionManager) }
   let(:processor) { instance_double(JetstreamBridge::MessageProcessor) }
+  let(:config) do
+    JetstreamBridge::Config.new.tap do |c|
+      c.destination_app = 'dest'
+      c.app_name = 'test_app'
+      c.stream_name = 'TEST_STREAM'
+      c.disable_js_api = false
+      c.validate!
+    end
+  end
 
   before do
     JetstreamBridge.reset!
-    # Mock Connection methods to return jetstream context
-    allow(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
-    allow(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
-    JetstreamBridge.configure { |c| c.destination_app = 'dest' }
-    # Manually mark as initialized so Consumer can be created
-    JetstreamBridge.instance_variable_set(:@connection_initialized, true)
     allow(JetstreamBridge::SubscriptionManager).to receive(:new).and_return(sub_mgr)
     allow(JetstreamBridge::MessageProcessor).to receive(:new).and_return(processor)
     allow(sub_mgr).to receive(:ensure_consumer!)
@@ -25,37 +28,50 @@ RSpec.describe JetstreamBridge::Consumer do
 
   after { JetstreamBridge.reset! }
 
+  # Helper to create consumers with proper dependency injection
+  def create_consumer(handler = nil, **opts, &block)
+    described_class.new(handler, connection: jts, config: config, **opts, &block)
+  end
+
   describe 'initialization' do
     it 'ensures and subscribes the consumer with block' do
-      described_class.new { |*| nil }
+      create_consumer { |*| nil }
       expect(JetstreamBridge::SubscriptionManager)
         .to have_received(:new)
-        .with(jts, JetstreamBridge.config.durable_name, JetstreamBridge.config)
+        .with(jts, config.durable_name, config)
       expect(sub_mgr).to have_received(:ensure_consumer!)
+      expect(sub_mgr).to have_received(:subscribe!)
+    end
+
+    it 'skips ensure when JS API disabled' do
+      disabled_config = config.dup
+      disabled_config.disable_js_api = true
+      described_class.new(connection: jts, config: disabled_config) { |*| nil }
+      expect(sub_mgr).not_to have_received(:ensure_consumer!)
       expect(sub_mgr).to have_received(:subscribe!)
     end
 
     it 'accepts handler as first argument' do
       handler = -> {}
-      consumer = described_class.new(handler)
+      consumer = create_consumer(handler)
       expect(consumer).to be_a(described_class)
     end
 
     it 'raises error when neither handler nor block provided' do
       expect do
-        described_class.new
+        described_class.new(connection: jts, config: config)
       end.to raise_error(ArgumentError, /handler or block required/)
     end
 
     it 'accepts custom durable_name and batch_size' do
-      consumer = described_class.new(durable_name: 'custom-durable', batch_size: 50) { |*| nil }
+      consumer = create_consumer(durable_name: 'custom-durable', batch_size: 50) { |*| nil }
       expect(consumer.durable).to eq('custom-durable')
       expect(consumer.batch_size).to eq(50)
     end
   end
 
   describe '#process_batch' do
-    subject(:consumer) { described_class.new { |*| nil } }
+    subject(:consumer) { create_consumer { |*| nil } }
 
     it 'processes fetched messages' do
       msg1 = double('msg1')
@@ -97,6 +113,23 @@ RSpec.describe JetstreamBridge::Consumer do
       expect(sub_mgr).to have_received(:subscribe!).twice
     end
 
+    context 'when JS API disabled' do
+      subject(:consumer) do
+        disabled_config = config.dup
+        disabled_config.disable_js_api = true
+        described_class.new(connection: jts, config: disabled_config) { |*| nil }
+      end
+
+      it 'recovers subscription without ensuring consumer' do
+        err = NATS::JetStream::Error.new('consumer not found')
+        allow(subscription).to receive(:fetch).and_raise(err)
+
+        expect(consumer.send(:process_batch)).to eq(0)
+        expect(sub_mgr).not_to have_received(:ensure_consumer!)
+        expect(sub_mgr).to have_received(:subscribe!).twice
+      end
+    end
+
     it 'handles non-recoverable JetStream errors' do
       err = NATS::JetStream::Error.new('some other error')
       allow(subscription).to receive(:fetch).and_raise(err)
@@ -113,7 +146,7 @@ RSpec.describe JetstreamBridge::Consumer do
   end
 
   describe '#process_one' do
-    subject(:consumer) { described_class.new { |*| nil } }
+    subject(:consumer) { create_consumer { |*| nil } }
 
     let(:msg) { double('msg') }
 
@@ -129,7 +162,7 @@ RSpec.describe JetstreamBridge::Consumer do
   end
 
   describe '#stop!' do
-    subject(:consumer) { described_class.new { |*| nil } }
+    subject(:consumer) { create_consumer { |*| nil } }
 
     it 'sets shutdown_requested and running flags' do
       consumer.stop!
@@ -139,15 +172,15 @@ RSpec.describe JetstreamBridge::Consumer do
   end
 
   describe 'with inbox enabled' do
-    before do
-      JetstreamBridge.configure { |c| c.use_inbox = true }
+    let(:inbox_config) do
+      config.dup.tap { |c| c.use_inbox = true }
     end
 
     it 'initializes inbox processor' do
       inbox_proc = instance_double(JetstreamBridge::InboxProcessor)
       allow(JetstreamBridge::InboxProcessor).to receive(:new).and_return(inbox_proc)
 
-      consumer = described_class.new { |*| nil }
+      consumer = described_class.new(connection: jts, config: inbox_config) { |*| nil }
       expect(consumer.instance_variable_get(:@inbox_proc)).to eq(inbox_proc)
     end
 
@@ -155,7 +188,7 @@ RSpec.describe JetstreamBridge::Consumer do
       inbox_proc = instance_double(JetstreamBridge::InboxProcessor)
       allow(JetstreamBridge::InboxProcessor).to receive(:new).and_return(inbox_proc)
 
-      consumer = described_class.new { |*| nil }
+      consumer = described_class.new(connection: jts, config: inbox_config) { |*| nil }
       msg = double('msg')
 
       expect(inbox_proc).to receive(:process).with(msg).and_return(true)
@@ -166,7 +199,7 @@ RSpec.describe JetstreamBridge::Consumer do
       inbox_proc = instance_double(JetstreamBridge::InboxProcessor)
       allow(JetstreamBridge::InboxProcessor).to receive(:new).and_return(inbox_proc)
 
-      consumer = described_class.new { |*| nil }
+      consumer = described_class.new(connection: jts, config: inbox_config) { |*| nil }
       msg = double('msg')
 
       expect(inbox_proc).to receive(:process).with(msg).and_return(false)
@@ -175,7 +208,7 @@ RSpec.describe JetstreamBridge::Consumer do
   end
 
   describe '#recoverable_consumer_error?' do
-    subject(:consumer) { described_class.new { |*| nil } }
+    subject(:consumer) { create_consumer { |*| nil } }
 
     it 'recognizes consumer not found error' do
       error = NATS::JetStream::Error.new('consumer not found')
@@ -209,7 +242,7 @@ RSpec.describe JetstreamBridge::Consumer do
   end
 
   describe '#idle_sleep' do
-    subject(:consumer) { described_class.new { |*| nil } }
+    subject(:consumer) { create_consumer { |*| nil } }
 
     it 'increases backoff when no messages processed' do
       initial_backoff = consumer.instance_variable_get(:@idle_backoff)
@@ -243,7 +276,7 @@ RSpec.describe JetstreamBridge::Consumer do
   end
 
   describe '#drain_inflight_messages' do
-    subject(:consumer) { described_class.new { |*| nil } }
+    subject(:consumer) { create_consumer { |*| nil } }
 
     it 'processes pending messages during drain' do
       msg = double('msg')
@@ -276,19 +309,20 @@ RSpec.describe JetstreamBridge::Consumer do
   end
 
   describe 'initialization with missing destination_app' do
-    before do
-      JetstreamBridge.configure { |c| c.destination_app = nil }
-    end
-
     it 'raises ArgumentError' do
+      bad_config = JetstreamBridge::Config.new.tap do |c|
+        c.destination_app = nil
+        c.app_name = 'test_app'
+        c.stream_name = 'TEST_STREAM'
+      end
       expect do
-        described_class.new { |*| nil }
+        described_class.new(connection: jts, config: bad_config) { |*| nil }
       end.to raise_error(ArgumentError, /destination_app must be configured/)
     end
   end
 
   describe '#use (middleware)' do
-    subject(:consumer) { described_class.new { |*| nil } }
+    subject(:consumer) { create_consumer { |*| nil } }
 
     it 'adds middleware to the chain' do
       middleware = double('middleware')
@@ -313,7 +347,7 @@ RSpec.describe JetstreamBridge::Consumer do
   end
 
   describe '#run!' do
-    subject(:consumer) { described_class.new { |*| nil } }
+    subject(:consumer) { create_consumer { |*| nil } }
 
     it 'loops while running is true' do
       allow(subscription).to receive(:fetch).and_return([])
@@ -370,7 +404,7 @@ RSpec.describe JetstreamBridge::Consumer do
   end
 
   describe '#setup_signal_handlers' do
-    subject(:consumer) { described_class.new { |*| nil } }
+    subject(:consumer) { create_consumer { |*| nil } }
 
     it 'traps INT and TERM signals' do
       # Allow Signal.trap to be called (it will be called twice - once for each signal)
@@ -413,7 +447,7 @@ RSpec.describe JetstreamBridge::Consumer do
   end
 
   describe '#js_err_code' do
-    subject(:consumer) { described_class.new { |*| nil } }
+    subject(:consumer) { create_consumer { |*| nil } }
 
     it 'extracts error code from message' do
       message = 'some error err_code=503 occurred'
@@ -432,7 +466,7 @@ RSpec.describe JetstreamBridge::Consumer do
   end
 
   describe '#handle_js_error' do
-    subject(:consumer) { described_class.new { |*| nil } }
+    subject(:consumer) { create_consumer { |*| nil } }
 
     it 'attempts recovery for recoverable errors' do
       error = NATS::JetStream::Error.new('consumer not found')
@@ -454,7 +488,7 @@ RSpec.describe JetstreamBridge::Consumer do
   end
 
   describe 'integration: full message processing flow' do
-    subject(:consumer) { described_class.new { |event| processed_events << event.to_h } }
+    subject(:consumer) { create_consumer { |event| processed_events << event.to_h } }
 
     let(:processed_events) { [] }
     let(:msg1) { double('msg1', data: '{"type":"test","payload":{"id":1}}') }
@@ -490,7 +524,7 @@ RSpec.describe JetstreamBridge::Consumer do
   end
 
   describe 'error recovery scenarios' do
-    subject(:consumer) { described_class.new { |*| nil } }
+    subject(:consumer) { create_consumer { |*| nil } }
 
     context 'when multiple recoverable errors occur' do
       it 'continues processing after each recovery' do
@@ -540,7 +574,7 @@ RSpec.describe JetstreamBridge::Consumer do
   end
 
   describe 'drain with multiple message batches' do
-    subject(:consumer) { described_class.new { |*| nil } }
+    subject(:consumer) { create_consumer { |*| nil } }
 
     it 'drains up to 5 batches of messages' do
       msg = double('msg')
@@ -593,24 +627,24 @@ RSpec.describe JetstreamBridge::Consumer do
 
   describe 'batch_size parameter handling' do
     it 'converts string batch_size to integer' do
-      consumer = described_class.new(batch_size: '50') { |*| nil }
+      consumer = create_consumer(batch_size: '50') { |*| nil }
       expect(consumer.batch_size).to eq(50)
     end
 
     it 'uses DEFAULT_BATCH_SIZE when nil' do
-      consumer = described_class.new(batch_size: nil) { |*| nil }
+      consumer = create_consumer(batch_size: nil) { |*| nil }
       expect(consumer.batch_size).to eq(described_class::DEFAULT_BATCH_SIZE)
     end
 
     it 'raises error for invalid batch_size' do
       expect do
-        described_class.new(batch_size: 'invalid') { |*| nil }
+        create_consumer(batch_size: 'invalid') { |*| nil }
       end.to raise_error(ArgumentError)
     end
   end
 
   describe 'middleware chain initialization' do
-    subject(:consumer) { described_class.new { |*| nil } }
+    subject(:consumer) { create_consumer { |*| nil } }
 
     it 'initializes with empty middleware chain' do
       expect(consumer.middleware_chain).to be_a(JetstreamBridge::Consumer::MiddlewareChain)

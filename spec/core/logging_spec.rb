@@ -11,7 +11,9 @@ RSpec.describe JetstreamBridge::Logging do
     it 'uses configured logger' do
       io = StringIO.new
       custom_logger = Logger.new(io)
-      JetstreamBridge.configure(logger: custom_logger)
+      JetstreamBridge.configure do |c|
+        c.logger = custom_logger
+      end
 
       described_class.info('hello', tag: 'Spec')
 
@@ -31,7 +33,9 @@ RSpec.describe JetstreamBridge::Logging do
     let(:custom_logger) { Logger.new(io) }
 
     before do
-      JetstreamBridge.configure(logger: custom_logger)
+      JetstreamBridge.configure do |c|
+        c.logger = custom_logger
+      end
     end
 
     it 'logs debug messages with tag' do

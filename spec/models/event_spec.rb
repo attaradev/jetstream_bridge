@@ -197,11 +197,11 @@ RSpec.describe JetstreamBridge::Models::Event do
       context 'dig method' do
         let(:nested_event) do
           described_class.new({
-                                'event_id' => '1',
-                                'payload' => {
-                                  'user' => { 'profile' => { 'name' => 'Alice' } }
-                                }
-                              })
+            'event_id' => '1',
+            'payload' => {
+              'user' => { 'profile' => { 'name' => 'Alice' } }
+            }
+          })
         end
 
         it 'supports nested access with dig' do
@@ -324,10 +324,10 @@ RSpec.describe JetstreamBridge::Models::Event do
     describe 'envelope with symbol keys' do
       it 'transforms symbol keys to string keys' do
         event = described_class.new({
-                                      event_id: 'evt-1',
-                                      event_type: 'test.event',
-                                      resource_type: 'test'
-                                    })
+          event_id: 'evt-1',
+          event_type: 'test.event',
+          resource_type: 'test'
+        })
         expect(event.event_id).to eq('evt-1')
         expect(event.type).to eq('test.event')
         expect(event.resource_type).to eq('test')
@@ -335,9 +335,9 @@ RSpec.describe JetstreamBridge::Models::Event do
 
       it 'handles mixed symbol and string keys' do
         event = described_class.new({
-                                      'event_id' => 'evt-1',
-                                      event_type: 'test.event'
-                                    })
+          'event_id' => 'evt-1',
+          event_type: 'test.event'
+        })
         expect(event.event_id).to eq('evt-1')
         expect(event.type).to eq('test.event')
       end
@@ -372,9 +372,9 @@ RSpec.describe JetstreamBridge::Models::Event do
     describe '[] method fallback' do
       it 'returns value from raw envelope for unknown keys' do
         event = described_class.new({
-                                      'event_id' => '1',
-                                      'custom_field' => 'custom_value'
-                                    })
+          'event_id' => '1',
+          'custom_field' => 'custom_value'
+        })
         expect(event['custom_field']).to eq('custom_value')
       end
 
@@ -396,41 +396,41 @@ RSpec.describe JetstreamBridge::Models::Event do
 
       it 'returns resource_type via [] accessor' do
         event = described_class.new({
-                                      'event_id' => '1',
-                                      'resource_type' => 'user'
-                                    })
+          'event_id' => '1',
+          'resource_type' => 'user'
+        })
         expect(event['resource_type']).to eq('user')
       end
 
       it 'returns resource_id via [] accessor' do
         event = described_class.new({
-                                      'event_id' => '1',
-                                      'resource_id' => '123'
-                                    })
+          'event_id' => '1',
+          'resource_id' => '123'
+        })
         expect(event['resource_id']).to eq('123')
       end
 
       it 'returns producer via [] accessor' do
         event = described_class.new({
-                                      'event_id' => '1',
-                                      'producer' => 'test-app'
-                                    })
+          'event_id' => '1',
+          'producer' => 'test-app'
+        })
         expect(event['producer']).to eq('test-app')
       end
 
       it 'returns trace_id via [] accessor' do
         event = described_class.new({
-                                      'event_id' => '1',
-                                      'trace_id' => 'trace-xyz'
-                                    })
+          'event_id' => '1',
+          'trace_id' => 'trace-xyz'
+        })
         expect(event['trace_id']).to eq('trace-xyz')
       end
 
       it 'returns schema_version via [] accessor' do
         event = described_class.new({
-                                      'event_id' => '1',
-                                      'schema_version' => 2
-                                    })
+          'event_id' => '1',
+          'schema_version' => 2
+        })
         expect(event['schema_version']).to eq(2)
       end
     end

@@ -62,7 +62,6 @@ namespace :jetstream_bridge do
       JetstreamBridge.config.validate!
       puts '✓ Configuration is valid'
       puts "\nCurrent settings:"
-      puts "  Environment: #{JetstreamBridge.config.env}"
       puts "  App Name: #{JetstreamBridge.config.app_name}"
       puts "  Destination: #{JetstreamBridge.config.destination_app}"
       puts "  Stream: #{JetstreamBridge.config.stream_name}"

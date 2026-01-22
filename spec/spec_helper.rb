@@ -25,6 +25,9 @@ end
 # Load the gem
 require 'jetstream_bridge'
 
+# Load support files (including compatibility helpers)
+Dir[File.expand_path('support/**/*.rb', __dir__)].each { |f| require f }
+
 RSpec.configure do |config|
   # Enable flags like --only-failures and --next-failure
   config.example_status_persistence_file_path = '.rspec_status'
@@ -45,15 +48,8 @@ RSpec.configure do |config|
   # Prevent actual NATS connections in tests by default
   # Individual specs should explicitly allow real connections if needed
   config.before(:each) do
-    # Stub Connection.connect! to prevent real connections
-    # Specs that need actual connection behavior should override this
-    unless RSpec.current_example.metadata[:allow_real_connection]
-      allow(JetstreamBridge::Connection).to receive(:connect!).and_return(
-        double('jetstream',
-               publish: double(duplicate?: false, error: nil),
-               account_info: double(streams: 0, consumers: 0, memory: 0, storage: 0))
-      )
-    end
+    # Reset JetstreamBridge state before each test
+    JetstreamBridge.reset! unless RSpec.current_example.metadata[:skip_reset]
   end
 
   # Optionally silence output for specific tests that need it

@@ -1,5 +1,9 @@
 # .rubocop.yml — JetstreamBridge gem
-# Focused for a Ruby gem: Packaging, Bundler, Rake, Performance, RSpec.
+# Ruby library optimized configuration with focus on:
+# - Code quality and maintainability
+# - Ruby gem packaging standards
+# - Performance optimizations
+# - Test readability
 
 plugins:
   - rubocop-performance
@@ -7,7 +11,7 @@ plugins:
 
 AllCops:
   NewCops: enable
-  TargetRubyVersion: 3.2 # match gemspec minimum to avoid false positives
+  TargetRubyVersion: 3.2
   SuggestExtensions: false
   Exclude:
     - "bin/*"
@@ -15,104 +19,158 @@ AllCops:
     - "tmp/**/*"
     - "vendor/**/*"
     - "spec/fixtures/**/*"
+    - "gemfiles/**/*"
 
 # ---------- Layout & Style ----------
 Layout/LineLength:
   Max: 120
+  AllowedPatterns:
+    - '\A\s*#'
   Exclude:
-    - "spec/**/*" # allow longer expectation/setup lines
+    - "spec/**/*"
+    - "jetstream_bridge.gemspec"
+
+Layout/EmptyLinesAroundAttributeAccessor:
+  Enabled: true
+
+Layout/SpaceAroundMethodCallOperator:
+  Enabled: true
+
+Layout/FirstArrayElementIndentation:
+  EnforcedStyle: consistent
+
+Layout/FirstHashElementIndentation:
+  EnforcedStyle: consistent
+
+Layout/MultilineMethodCallIndentation:
+  EnforcedStyle: aligned
+
+Layout/HashAlignment:
+  EnforcedHashRocketStyle: key
+  EnforcedColonStyle: key
+  EnforcedLastArgumentHashStyle: always_inspect
 
 Style/Documentation:
-  Enabled: false # don’t force top-level docs for every class/module in a gem
+  Enabled: false
 
 Style/FrozenStringLiteralComment:
   Enabled: true
+  EnforcedStyle: always
 
 Style/StringLiterals:
   EnforcedStyle: single_quotes
   ConsistentQuotesInMultiline: false
 
+Style/StringLiteralsInInterpolation:
+  EnforcedStyle: single_quotes
+
 Style/SymbolArray:
   EnforcedStyle: brackets
+  MinSize: 3
+
+Style/WordArray:
+  Enabled: false
 
 Style/HashSyntax:
   EnforcedShorthandSyntax: either
 
-# ---------- Metrics (balanced for libs) ----------
+Style/TrailingCommaInArrayLiteral:
+  EnforcedStyleForMultiline: no_comma
+
+Style/TrailingCommaInHashLiteral:
+  EnforcedStyleForMultiline: no_comma
+
+Style/TrailingCommaInArguments:
+  EnforcedStyleForMultiline: no_comma
+
+# ---------- Metrics ----------
+# Balanced for library code - stricter than applications, but pragmatic
 Metrics/BlockLength:
   Max: 25
+  CountAsOne: ['array', 'hash', 'heredoc']
   Exclude:
     - "spec/**/*"
     - "Rakefile"
     - "tasks/**/*.rake"
     - "lib/jetstream_bridge/tasks/**/*.rake"
     - "jetstream_bridge.gemspec"
-    - "lib/jetstream_bridge/core/connection.rb" # Connection validation logging blocks
-    - "lib/jetstream_bridge/railtie.rb" # Rails initializer setup
+    - "lib/jetstream_bridge/core/connection.rb"
+    - "lib/jetstream_bridge/railtie.rb"
 
 Metrics/MethodLength:
   Max: 25
+  CountAsOne: ['array', 'hash', 'heredoc']
   Exclude:
     - "lib/jetstream_bridge/**/publisher*.rb"
     - "lib/jetstream_bridge/consumer/**/*.rb"
     - "lib/jetstream_bridge/core/debug_helper.rb"
     - "lib/jetstream_bridge/topology/stream.rb"
-    - "lib/generators/jetstream_bridge/health_check/health_check_generator.rb"
-    - "lib/jetstream_bridge/core/connection.rb" # Connection validation with logging
-    - "lib/jetstream_bridge.rb" # Health check with performance metrics
-    - "lib/jetstream_bridge/test_helpers/mock_nats.rb" # Mock NATS implementation
+    - "lib/generators/**/*"
+    - "lib/jetstream_bridge/core/connection.rb"
+    - "lib/jetstream_bridge.rb"
+    - "lib/jetstream_bridge/test_helpers/mock_nats.rb"
+    - "lib/jetstream_bridge/core/config.rb"
+    - "lib/jetstream_bridge/core/connection_manager.rb"
+    - "lib/jetstream_bridge/core/health_checker.rb"
 
 Metrics/AbcSize:
   Max: 25
+  CountRepeatedAttributes: false
   Exclude:
     - "lib/jetstream_bridge/**/publisher*.rb"
     - "lib/jetstream_bridge/consumer/**/*.rb"
     - "lib/jetstream_bridge/core/config.rb"
     - "lib/jetstream_bridge/core/debug_helper.rb"
-    - "lib/jetstream_bridge/core/connection.rb" # Connection validation with logging
-    - "lib/jetstream_bridge.rb" # Health check with performance metrics
-    - "lib/jetstream_bridge/topology/stream.rb" # Stream update with compatibility checks
+    - "lib/jetstream_bridge/core/connection.rb"
+    - "lib/jetstream_bridge.rb"
+    - "lib/jetstream_bridge/topology/stream.rb"
+    - "lib/jetstream_bridge/core/connection_manager.rb"
 
 Metrics/CyclomaticComplexity:
   Max: 10
   Exclude:
-    - "lib/jetstream_bridge/models/event.rb" # Hash-like [] accessor with many keys
-    - "lib/jetstream_bridge/test_helpers.rb" # Test helper with complex setup
-    - "lib/jetstream_bridge/core/logging.rb" # URL sanitization with multiple branches
-    - "lib/jetstream_bridge/consumer/inbox/inbox_message.rb" # NATS message parsing
-    - "lib/jetstream_bridge/consumer/inbox/inbox_processor.rb" # Inbox processing with multiple branches
-    - "lib/jetstream_bridge/core/connection.rb" # Connection validation with multiple checks
-    - "lib/jetstream_bridge/core/debug_helper.rb" # Stream info with compatibility checks
-    - "lib/jetstream_bridge/test_helpers/mock_nats.rb" # Mock NATS implementation
+    - "lib/jetstream_bridge/models/event.rb"
+    - "lib/jetstream_bridge/test_helpers.rb"
+    - "lib/jetstream_bridge/core/logging.rb"
+    - "lib/jetstream_bridge/consumer/inbox/inbox_message.rb"
+    - "lib/jetstream_bridge/consumer/inbox/inbox_processor.rb"
+    - "lib/jetstream_bridge/core/connection.rb"
+    - "lib/jetstream_bridge/core/debug_helper.rb"
+    - "lib/jetstream_bridge/test_helpers/mock_nats.rb"
+    - "lib/jetstream_bridge/core/config.rb"
 
 Metrics/PerceivedComplexity:
   Max: 10
   Exclude:
-    - "lib/jetstream_bridge/test_helpers.rb" # Test helper with complex setup
-    - "lib/jetstream_bridge/core/logging.rb" # URL sanitization with multiple branches
-    - "lib/jetstream_bridge/consumer/inbox/inbox_message.rb" # NATS message parsing
-    - "lib/jetstream_bridge/core/connection.rb" # Connection validation with multiple checks
-    - "lib/jetstream_bridge/core/debug_helper.rb" # Stream info with compatibility checks
-    - "lib/jetstream_bridge/test_helpers/mock_nats.rb" # Mock NATS implementation
+    - "lib/jetstream_bridge/test_helpers.rb"
+    - "lib/jetstream_bridge/core/logging.rb"
+    - "lib/jetstream_bridge/consumer/inbox/inbox_message.rb"
+    - "lib/jetstream_bridge/core/connection.rb"
+    - "lib/jetstream_bridge/core/debug_helper.rb"
+    - "lib/jetstream_bridge/test_helpers/mock_nats.rb"
+    - "lib/jetstream_bridge/core/config.rb"
 
 Metrics/ModuleLength:
   Max: 100
+  CountAsOne: ['array', 'hash', 'heredoc']
   Exclude:
-    - "lib/jetstream_bridge.rb" # Main module with convenience methods
-    - "lib/jetstream_bridge/core/debug_helper.rb" # Debug helper with stream info methods
-    - "lib/jetstream_bridge/rails/integration.rb" # Rails integration with autostart logic
+    - "lib/jetstream_bridge.rb"
+    - "lib/jetstream_bridge/core/debug_helper.rb"
+    - "lib/jetstream_bridge/rails/integration.rb"
 
 Metrics/ClassLength:
   Max: 200
+  CountAsOne: ['array', 'hash', 'heredoc']
   Exclude:
-    - "lib/jetstream_bridge/core/connection.rb" # Connection validation adds significant logging
-    - "lib/jetstream_bridge/consumer/consumer.rb" # Consumer with health checks and lifecycle
+    - "lib/jetstream_bridge/core/connection.rb"
+    - "lib/jetstream_bridge/consumer/consumer.rb"
+    - "lib/jetstream_bridge/core/connection_manager.rb"
 
 Metrics/ParameterLists:
   Max: 5
-  CountKeywordArgs: false # allow more keyword args for clarity
+  CountKeywordArgs: false
   Exclude:
-    - "lib/jetstream_bridge/consumer/inbox/inbox_message.rb" # Internal message object with many fields
+    - "lib/jetstream_bridge/consumer/inbox/inbox_message.rb"
 
 # ---------- Naming ----------
 Naming/PredicateMethod:
@@ -121,6 +179,7 @@ Naming/PredicateMethod:
     - validate_component!
     - publish_to_nats
     - wait_for_messages
+    - check_health_if_due
 
 Naming/PredicatePrefix:
   Enabled: true
@@ -135,47 +194,93 @@ Naming/PredicatePrefix:
 Lint/EmptyClass:
   Enabled: true
   Exclude:
-    - "lib/jetstream_bridge/consumer/middleware.rb" # Forward declaration for circular dependency
+    - "lib/jetstream_bridge/consumer/middleware.rb"
 
 Lint/EmptyBlock:
   Enabled: true
   Exclude:
-    - "spec/**/*" # Empty blocks in tests are intentional for testing error handling
+    - "spec/**/*"
 
 Lint/UnusedBlockArgument:
   Enabled: true
+  AllowUnusedKeywordArguments: true
+  IgnoreEmptyBlocks: true
   Exclude:
-    - "spec/**/*" # Test mocks may not use all arguments
+    - "spec/**/*"
 
 Lint/UnusedMethodArgument:
   Enabled: true
+  AllowUnusedKeywordArguments: true
   Exclude:
-    - "lib/jetstream_bridge/test_helpers/mock_nats.rb" # Mock implementation compatibility
+    - "lib/jetstream_bridge/test_helpers/mock_nats.rb"
 
 Lint/IneffectiveAccessModifier:
-  Enabled: false # Allow class methods after private
+  Enabled: false
 
 Lint/UselessConstantScoping:
   Enabled: false
 
-# ---------- Style ----------
+Lint/MissingSuper:
+  Enabled: true
+  Exclude:
+    - "lib/jetstream_bridge/errors.rb"
+    - "lib/jetstream_bridge/test_helpers/**/*"
+
+Lint/ConstantDefinitionInBlock:
+  Enabled: true
+  Exclude:
+    - "spec/**/*"
+
+# ---------- Style (Additional) ----------
 Style/MultilineBlockChain:
   Exclude:
-    - "spec/**/*" # allow chaining in tests for better readability
+    - "spec/**/*"
 
 Style/OpenStructUse:
   Enabled: true
   Exclude:
-    - "lib/jetstream_bridge/test_helpers.rb" # Test doubles for NATS messages
-    - "lib/jetstream_bridge/test_helpers/integration_helpers.rb" # Test doubles for NATS messages
-    - "lib/jetstream_bridge/test_helpers/mock_nats.rb" # Mock NATS message objects
+    - "lib/jetstream_bridge/test_helpers.rb"
+    - "lib/jetstream_bridge/test_helpers/integration_helpers.rb"
+    - "lib/jetstream_bridge/test_helpers/mock_nats.rb"
+
+Style/ClassAndModuleChildren:
+  Enabled: false
+
+Style/NumericPredicate:
+  Enabled: false
+
+Style/EmptyMethod:
+  EnforcedStyle: expanded
+
+Style/AccessModifierDeclarations:
+  Enabled: true
+  EnforcedStyle: group
+
+Style/GuardClause:
+  Enabled: true
+  MinBodyLength: 1
+
+Style/ReturnNil:
+  Enabled: false
+
+Style/ReturnNilInPredicateMethodDefinition:
+  Enabled: false
+
+Style/SafeNavigation:
+  Enabled: true
+  ConvertCodeThatCanStartToReturnNil: true
 
 # ---------- Packaging / Gemspec ----------
-# These ship with RuboCop core and rubocop-packaging
 Gemspec/RequiredRubyVersion:
-  Enabled: true # aligns with your gemspec `required_ruby_version`
+  Enabled: true
 
 Gemspec/DevelopmentDependencies:
+  Enabled: true
+
+Gemspec/RequireMFA:
+  Enabled: true
+
+Gemspec/DeprecatedAttributeAssignment:
   Enabled: true
 
 Packaging/BundlerSetupInTests:
@@ -197,7 +302,30 @@ Bundler/GemComment:
 # ---------- Performance ----------
 Performance/Detect:
   Enabled: true
+
 Performance/RedundantMerge:
   Enabled: true
+
 Performance/FixedSize:
+  Enabled: true
+
+Performance/StringInclude:
+  Enabled: true
+
+Performance/StartWith:
+  Enabled: true
+
+Performance/EndWith:
+  Enabled: true
+
+Performance/Casecmp:
+  Enabled: true
+
+Performance/RangeInclude:
+  Enabled: true
+
+Performance/UnfreezeString:
+  Enabled: true
+
+Performance/StringIdentifierArgument:
   Enabled: true

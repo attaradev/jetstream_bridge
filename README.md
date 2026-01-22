@@ -47,17 +47,13 @@ bin/rails db:migrate
 # config/initializers/jetstream_bridge.rb
 JetstreamBridge.configure do |config|
   config.nats_urls       = ENV.fetch("NATS_URLS", "nats://localhost:4222")
-  config.env             = ENV.fetch("RAILS_ENV", "development")
   config.app_name        = "my_app"
   config.destination_app = "worker_app"
+  config.stream_name     = "my_app-jetstream-bridge-stream"
   config.use_outbox = true
   config.use_inbox  = true
   config.use_dlq    = true
 end
-
-# Note: configure only sets options; it does not connect. In Rails the Railtie
-# starts the bridge after initialization. In non-Rails apps call
-# `JetstreamBridge.startup!` (or rely on auto-connect on first publish/subscribe).
 ```
 
 Publish:

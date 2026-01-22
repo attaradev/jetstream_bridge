@@ -28,31 +28,28 @@ RSpec.describe MyService do
   include JetstreamBridge::TestHelpers::Matchers
 
   before do
-    # Reset singleton to ensure clean state
-    JetstreamBridge::Connection.instance_variable_set(:@singleton__instance__, nil)
+    # Reset state
     JetstreamBridge.reset!
 
     # Enable test mode - automatically sets up mock NATS
     JetstreamBridge::TestHelpers.enable_test_mode!
 
     JetstreamBridge.configure do |config|
-      config.env = 'test'
       config.app_name = 'my_app'
       config.destination_app = 'worker'
+      config.stream_name = 'test-stream'
     end
 
-    # Setup mock stream and stub topology
+    # Setup mock stream
     mock_jts = JetstreamBridge::TestHelpers.mock_connection.jetstream
     mock_jts.add_stream(
-      name: 'test-jetstream-bridge-stream',
-      subjects: ['test.>']
+      name: 'test-stream',
+      subjects: ['my_app.sync.worker', 'worker.sync.my_app']
     )
-    allow(JetstreamBridge::Topology).to receive(:ensure!)
   end
 
   after do
     JetstreamBridge::TestHelpers.reset_test_mode!
-    JetstreamBridge::Connection.instance_variable_set(:@singleton__instance__, nil)
   end
 
   it 'publishes events through the full stack' do
@@ -266,27 +263,20 @@ end.to raise_error(NATS::JetStream::Error, 'consumer not found')
 ```ruby
 before do
   JetstreamBridge.reset!
-
-  mock_conn = JetstreamBridge::TestHelpers::MockNats.create_mock_connection
-  mock_jts = mock_conn.jetstream
-
-  allow(NATS::IO::Client).to receive(:new).and_return(mock_conn)
-  allow(JetstreamBridge::Connection).to receive(:connect!).and_call_original
-
-  # Setup stream
-  mock_jts.add_stream(
-    name: 'test-jetstream-bridge-stream',
-    subjects: ['test.>']
-  )
-
-  # Allow topology check to succeed
-  allow(JetstreamBridge::Topology).to receive(:ensure!)
+  JetstreamBridge::TestHelpers.enable_test_mode!
 
   JetstreamBridge.configure do |config|
-    config.env = 'test'
     config.app_name = 'api'
     config.destination_app = 'worker'
+    config.stream_name = 'test-stream'
   end
+
+  # Setup mock stream
+  mock_jts = JetstreamBridge::TestHelpers.mock_connection.jetstream
+  mock_jts.add_stream(
+    name: 'test-stream',
+    subjects: ['api.sync.worker', 'worker.sync.api']
+  )
 end
 
 it 'publishes through JetstreamBridge' do
@@ -296,9 +286,9 @@ it 'publishes through JetstreamBridge' do
     payload: { id: 1, name: 'Test' }
   )
 
-  expect(result).to be_publish_success
+  expect(result.success?).to be true
   expect(result.event_id).to be_present
-  expect(result.subject).to eq('test.api.sync.worker')
+  expect(result.subject).to eq('api.sync.worker')
 
   # Verify in storage
   storage = JetstreamBridge::TestHelpers.mock_storage
@@ -306,16 +296,15 @@ it 'publishes through JetstreamBridge' do
 end
 ```
 
-### Full Consuming Flow
+### Full Consumer Flow
 
 ```ruby
-it 'consumes through JetstreamBridge' do
-  mock_conn = JetstreamBridge::TestHelpers.mock_connection
-  mock_jts = mock_conn.jetstream
+it 'consumes messages through JetstreamBridge' do
+  mock_jts = JetstreamBridge::TestHelpers.mock_connection.jetstream
 
   # Publish message to destination subject
   mock_jts.publish(
-    'test.worker.sync.api',
+    'worker.sync.api',
     Oj.dump({
       'event_id' => 'event-1',
       'schema_version' => 1,
@@ -338,9 +327,9 @@ it 'consumes through JetstreamBridge' do
 
   # Mock subscription
   subscription = mock_jts.pull_subscribe(
-    'test.worker.sync.api',
-    'test-consumer',
-    stream: 'test-jetstream-bridge-stream'
+    'worker.sync.api',
+    'api-workers',
+    stream: 'test-stream'
   )
 
   allow_any_instance_of(JetstreamBridge::SubscriptionManager)
@@ -391,7 +380,7 @@ storage.reset!
 3. **Test both success and failure paths**: Use the mock to simulate errors
 4. **Verify message content**: Check that envelopes are correctly formatted
 5. **Test idempotency**: Verify duplicate detection and redelivery behavior
-6. **Mock topology setup**: Remember to stub `JetstreamBridge::Topology.ensure!`
+6. **Set stream_name**: Always configure `stream_name` in your tests
 
 ## Examples
 

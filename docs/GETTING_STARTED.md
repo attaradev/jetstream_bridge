@@ -39,9 +39,9 @@ Generators create:
 # config/initializers/jetstream_bridge.rb
 JetstreamBridge.configure do |config|
   config.nats_urls       = ENV.fetch("NATS_URLS", "nats://localhost:4222")
-  config.env             = ENV.fetch("RAILS_ENV", "development")
   config.app_name        = "my_app"
   config.destination_app = ENV.fetch("DESTINATION_APP")
+  config.stream_name     = "my_app-jetstream-bridge-stream" # required
 
   config.use_outbox = true  # transactional publish
   config.use_inbox  = true  # idempotent consume
@@ -51,15 +51,19 @@ JetstreamBridge.configure do |config|
   config.max_deliver = 5
   config.ack_wait    = "30s"
   config.backoff     = %w[1s 5s 15s 30s 60s]
-end
 
-# Note: `configure` only sets options; it does not connect. Rails will start
-# JetstreamBridge after initialization via the Railtie. For non-Rails or custom
-# boot flows, call `JetstreamBridge.startup!` (or rely on auto-connect on first
-# publish/subscribe).
+  # Optional: Custom inbox prefix if NATS account restricts _INBOX.>
+  # config.inbox_prefix = "$RPC"
+
+  # Optional: Pre-provisioned stream/consumer names
+  # config.durable_name = "my-durable"
+
+  # Optional: Disable JetStream management APIs (requires pre-provisioning)
+  # config.disable_js_api = false
+end
 ```
 
-Rails autostart runs after initialization (including in console). You can opt out for rake tasks or other tooling with `config.lazy_connect = true` or `JETSTREAM_BRIDGE_DISABLE_AUTOSTART=1`; it will then connect on first publish/subscribe.
+Rails starts JetStream Bridge automatically after initialization. For non-Rails apps, call `JetstreamBridge.connect!` or rely on auto-connect on first publish/subscribe.
 
 ## Publish
 
