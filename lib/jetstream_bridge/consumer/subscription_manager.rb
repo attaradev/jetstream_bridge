@@ -10,10 +10,10 @@ module JetstreamBridge
       @jts     = jts
       @durable = durable
       @cfg     = cfg
-      unless @cfg.disable_js_api
+      return if @cfg.disable_js_api
+
       @desired_cfg      = build_consumer_config(@durable, filter_subject)
       @desired_cfg_norm = normalize_consumer_config(@desired_cfg)
-      end
     end
 
     def stream_name
@@ -183,6 +183,7 @@ module JetstreamBridge
       when Integer
         # Heuristic: extremely large integers are likely already nanoseconds
         return val if val >= 1_000_000_000 # >= 1s in nanos
+
         millis = Duration.to_millis(val, default_unit: :auto)
         (millis * 1_000_000).to_i
       when Float
@@ -206,6 +207,7 @@ module JetstreamBridge
       when Integer
         return (val / 1_000_000_000.0).round if val >= 1_000_000_000 # nanoseconds
         return val if val < 1000 # seconds
+
         (val / 1000.0).round # milliseconds as integer
       when Float
         val

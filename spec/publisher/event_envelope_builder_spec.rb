@@ -160,15 +160,15 @@ RSpec.describe JetstreamBridge::EventEnvelopeBuilder do
     end
 
     it 'raises ArgumentError if event_type is missing' do
-      expect {
+      expect do
         described_class.build(event_type: '', payload: { id: 1 })
-      }.to raise_error(ArgumentError, /event_type is required/)
+      end.to raise_error(ArgumentError, /event_type is required/)
     end
 
     it 'raises ArgumentError if payload is missing' do
-      expect {
+      expect do
         described_class.build(event_type: 'user.created', payload: nil)
-      }.to raise_error(ArgumentError, /payload is required/)
+      end.to raise_error(ArgumentError, /payload is required/)
     end
   end
 end

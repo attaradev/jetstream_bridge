@@ -283,7 +283,7 @@ RSpec.describe JetstreamBridge do
         expect(result[:performance][:nats_rtt_ms]).to be_nil
         expect(JetstreamBridge::Logging).to have_received(:warn).with(
           /Failed to measure NATS RTT/,
-          tag: 'JetstreamBridge'
+          tag: 'JetstreamBridge::HealthChecker'
         )
       end
 
@@ -396,16 +396,16 @@ RSpec.describe JetstreamBridge do
 
     it 'accepts block configuration' do
       described_class.configure do |c|
-        c.env = 'staging'
         c.app_name = 'test'
+        c.destination_app = 'dest'
       end
-      expect(described_class.config.env).to eq('staging')
       expect(described_class.config.app_name).to eq('test')
+      expect(described_class.config.destination_app).to eq('dest')
     end
 
     it 'returns config instance' do
       config = described_class.configure do |c|
-        c.env = 'test'
+        c.app_name = 'test'
       end
 
       expect(config).to be_a(JetstreamBridge::Config)
@@ -414,10 +414,10 @@ RSpec.describe JetstreamBridge do
 
   describe '.reset!' do
     it 'clears the facade (which includes configuration and connection)' do
-      described_class.configure { |c| c.env = 'custom' }
+      described_class.configure { |c| c.app_name = 'custom' }
       described_class.reset!
       # After reset, a new facade is created with fresh config
-      expect(described_class.config.env).to be_nil
+      expect(described_class.config.app_name).to eq('app')
     end
   end
 

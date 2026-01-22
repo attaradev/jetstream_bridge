@@ -103,7 +103,11 @@ module JetstreamBridge
       end
 
       def log_development_connection_details!
-        health = JetstreamBridge.health rescue nil
+        health = begin
+          JetstreamBridge.health
+        rescue StandardError
+          nil
+        end
         conn_state = health&.dig(:connection, :state) || 'unknown'
         active_logger&.info("[JetStream Bridge] Connection state: #{conn_state}")
         active_logger&.info("[JetStream Bridge] Connected to: #{JetstreamBridge.config.nats_urls}")

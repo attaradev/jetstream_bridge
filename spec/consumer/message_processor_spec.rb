@@ -17,9 +17,9 @@ RSpec.describe JetstreamBridge::MessageProcessor do
   let(:msg) do
     double('msg',
            data: Oj.dump({
-                           'event_type' => 'user.created',
-                           'payload' => { 'foo' => 'bar' }
-                         }),
+             'event_type' => 'user.created',
+             'payload' => { 'foo' => 'bar' }
+           }),
            header: { 'nats-msg-id' => 'abc-123' },
            subject: 'test.subject',
            metadata: metadata,

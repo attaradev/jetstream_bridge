@@ -9,7 +9,6 @@ RSpec.describe JetstreamBridge::DebugHelper do
       c.nats_urls = 'nats://localhost:4222'
       c.destination_app = 'dest_app'
       c.app_name = 'app'
-      c.env = 'development'
       c.stream_name = 'app-jetstream-bridge-stream'
       c.disable_js_api = false
     end
@@ -98,7 +97,6 @@ RSpec.describe JetstreamBridge::DebugHelper do
     it 'returns configuration hash' do
       result = described_class.send(:config_debug)
       expect(result).to be_a(Hash)
-      expect(result[:env]).to eq('development')
       expect(result[:app_name]).to eq('app')
       expect(result[:destination_app]).to eq('dest_app')
     end
@@ -192,13 +190,13 @@ RSpec.describe JetstreamBridge::DebugHelper do
       allow(mock_jts).to receive(:stream_info).and_return(mock_stream_info)
     end
 
-      context 'when connected' do
-        it 'returns stream information' do
-          result = described_class.send(:stream_debug)
-          expect(result[:name]).to eq('app-jetstream-bridge-stream')
-          expect(result[:exists]).to be true
-          expect(result[:subjects]).to eq(['development.test.*'])
-        end
+    context 'when connected' do
+      it 'returns stream information' do
+        result = described_class.send(:stream_debug)
+        expect(result[:name]).to eq('app-jetstream-bridge-stream')
+        expect(result[:exists]).to be true
+        expect(result[:subjects]).to eq(['development.test.*'])
+      end
 
       it 'includes stream config' do
         result = described_class.send(:stream_debug)

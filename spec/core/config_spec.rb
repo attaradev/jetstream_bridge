@@ -12,7 +12,6 @@ RSpec.describe JetstreamBridge::Config do
     end
 
     it 'sets default values' do
-      expect(config.env).to be_nil
       expect(config.app_name).to eq('app')
       expect(config.max_deliver).to eq(5)
       expect(config.ack_wait).to eq('30s')
@@ -29,7 +28,11 @@ RSpec.describe JetstreamBridge::Config do
       allow(ENV).to receive(:[]).with('NATS_URL').and_return(nil)
       allow(ENV).to receive(:[]).with('NATS_ENV').and_return(nil)
       allow(ENV).to receive(:[]).with('APP_NAME').and_return(nil)
+      allow(ENV).to receive(:[]).with('NATS_INBOX_PREFIX').and_return(nil)
+      allow(ENV).to receive(:[]).with('JETSTREAM_DISABLE_JS_API').and_return(nil)
       allow(ENV).to receive(:fetch).with('DESTINATION_APP', nil).and_return(nil)
+      allow(ENV).to receive(:fetch).with('STREAM_NAME', nil).and_return(nil)
+      allow(ENV).to receive(:fetch).with('DURABLE_NAME', nil).and_return(nil)
 
       config = described_class.new
 
@@ -41,7 +44,11 @@ RSpec.describe JetstreamBridge::Config do
       allow(ENV).to receive(:[]).with('NATS_URL').and_return('nats://fallback:4222')
       allow(ENV).to receive(:[]).with('NATS_ENV').and_return(nil)
       allow(ENV).to receive(:[]).with('APP_NAME').and_return(nil)
+      allow(ENV).to receive(:[]).with('NATS_INBOX_PREFIX').and_return(nil)
+      allow(ENV).to receive(:[]).with('JETSTREAM_DISABLE_JS_API').and_return(nil)
       allow(ENV).to receive(:fetch).with('DESTINATION_APP', nil).and_return(nil)
+      allow(ENV).to receive(:fetch).with('STREAM_NAME', nil).and_return(nil)
+      allow(ENV).to receive(:fetch).with('DURABLE_NAME', nil).and_return(nil)
 
       config = described_class.new
 
@@ -72,7 +79,6 @@ RSpec.describe JetstreamBridge::Config do
     it 'creates subject in format app.sync.dest' do
       expect(config.source_subject).to eq('orders.sync.warehouse')
     end
-
   end
 
   describe '#destination_subject' do
@@ -97,7 +103,6 @@ RSpec.describe JetstreamBridge::Config do
 
       expect(config.dlq_subject).to eq('api.sync.dlq')
     end
-
   end
 
   describe '#durable_name' do
@@ -143,7 +148,6 @@ RSpec.describe JetstreamBridge::Config do
     before do
       config.destination_app = 'other_app'
       config.nats_urls = 'nats://localhost:4222'
-      config.env = 'test'
       config.app_name = 'my_app'
       config.stream_name = 'my_app-jetstream-bridge-stream'
     end

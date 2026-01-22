@@ -57,9 +57,9 @@ RSpec.describe 'Publisher#publish_envelope' do
     it 'validates required fields' do
       incomplete_envelope = valid_envelope.except('event_id')
 
-      expect {
+      expect do
         publisher.publish_envelope(incomplete_envelope)
-      }.to raise_error(ArgumentError, /missing required fields.*event_id/)
+      end.to raise_error(ArgumentError, /missing required fields.*event_id/)
     end
 
     it 'validates all required fields' do
@@ -69,9 +69,9 @@ RSpec.describe 'Publisher#publish_envelope' do
       required_fields.each do |field|
         incomplete_envelope = valid_envelope.except(field)
 
-        expect {
+        expect do
           publisher.publish_envelope(incomplete_envelope)
-        }.to raise_error(ArgumentError, /missing required fields.*#{field}/)
+        end.to raise_error(ArgumentError, /missing required fields.*#{field}/)
       end
     end
 

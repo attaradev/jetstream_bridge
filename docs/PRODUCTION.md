@@ -102,49 +102,28 @@ end
 
 ### Permissions and Inbox Prefix
 
-JetStream API calls use request/reply and subscribe to an inbox subject. If your NATS account restricts `_INBOX.>` subscriptions, either grant the bridge user `_INBOX.>` subscribe permission **or** set an allowed prefix:
+If your NATS account restricts `_INBOX.>` subscriptions, set an allowed prefix:
 
 ```ruby
 JetstreamBridge.configure do |config|
-  config.inbox_prefix = "$RPC" # choose a prefix permitted by your NATS account
+  config.inbox_prefix = "$RPC"
 end
 ```
 
-If you pre-provision stream/consumer names, set:
+For pre-provisioned streams and consumers:
 
 ```ruby
 JetstreamBridge.configure do |config|
   config.stream_name = "my-stream"      # required
   config.durable_name = "my-durable"    # optional
+  config.disable_js_api = true          # skip JetStream management APIs
 end
 ```
 
-If production clusters are isolated and you want env-less subjects instead of the default env-prefixed form:
+Minimum NATS permissions:
 
-```ruby
-JetstreamBridge.configure do |config|
-  # Default subjects: "#{app}.sync.#{dest}"
-  config.stream_name = "my-stream" # required
-end
-```
-
-With `disable_js_api = true` (the default), JetstreamBridge will not attempt to provision or verify streams. Ensure streams and consumers are pre-provisioned and aligned with your configuration.
-
-Minimum permissions for the bridge user:
-
-- Publish: `"$JS.API.>"`, `"$JS.ACK.>"`, your `source_subject` (`<env>.<app>.sync.<dest>`), your `destination_subject` (`<env>.<dest>.sync.<app>`), and the DLQ subject (`<env>.<app>.sync.dlq`) when DLQ is enabled.
-- Subscribe: `_INBOX.>` (or your chosen `inbox_prefix` + `.>`), and your `destination_subject`.
-
-If your security policy cannot allow any inbox subscriptions, pre-provision the stream and consumers and set:
-
-```ruby
-JetstreamBridge.configure do |config|
-  # Default is true (management APIs skipped). Set to false if permissions allow JS management APIs.
-  config.disable_js_api = false
-end
-```
-
-When `disable_js_api` is true, JetstreamBridge will not perform JetStream management calls; ensure the stream, subjects, and consumers already exist and remain aligned with your configuration.
+- **Publish**: `$JS.API.>`, `$JS.ACK.>`, source/destination subjects, DLQ subject
+- **Subscribe**: `_INBOX.>` (or custom inbox_prefix), destination subject
 
 ---
 

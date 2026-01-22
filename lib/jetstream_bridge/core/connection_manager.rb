@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 require 'nats/io/client'
+require 'uri'
 require_relative 'logging'
 require_relative 'config'
-require_relative 'connection_validator'
 require_relative '../topology/topology'
 
 module JetstreamBridge
@@ -11,6 +11,7 @@ module JetstreamBridge
   #
   # Responsible for:
   # - Establishing and closing connections
+  # - Validating connection URLs
   # - Health checking
   # - Reconnection handling
   # - JetStream context management
@@ -26,6 +27,9 @@ module JetstreamBridge
       FAILED = :failed
     end
 
+    # Valid NATS URL schemes
+    VALID_NATS_SCHEMES = %w[nats nats+tls].freeze
+
     DEFAULT_CONN_OPTS = {
       reconnect: true,
       reconnect_time_wait: 2,
@@ -33,12 +37,14 @@ module JetstreamBridge
       connect_timeout: 5
     }.freeze
 
+    # Health check cache TTL in seconds
+    HEALTH_CHECK_CACHE_TTL = 30
+
     attr_reader :config, :connected_at, :last_reconnect_error, :last_reconnect_error_at, :state
 
     # @param config [Config] Configuration instance
     def initialize(config)
       @config = config
-      @validator = ConnectionValidator.new
       @mutex = Mutex.new
       @state = State::DISCONNECTED
       @nc = nil
@@ -59,7 +65,7 @@ module JetstreamBridge
       @mutex.synchronize do
         return @jts if connected_without_lock?
 
-        servers = @validator.validate_servers!(@config.nats_urls)
+        servers = validate_and_parse_servers!(@config.nats_urls)
         @state = State::CONNECTING
 
         establish_connection_with_retry(servers)
@@ -76,7 +82,7 @@ module JetstreamBridge
         @state = State::CONNECTED
         @jts
       end
-    rescue StandardError => e
+    rescue StandardError
       @state = State::FAILED
       cleanup_connection!
       raise
@@ -126,13 +132,17 @@ module JetstreamBridge
 
       # Use cached result if available and fresh
       now = Time.now.to_i
-      return @cached_health_status if !skip_cache && @last_health_check && (now - @last_health_check) < 30
+      if !skip_cache && @last_health_check && (now - @last_health_check) < HEALTH_CHECK_CACHE_TTL
+        return @cached_health_status
+      end
 
       # Thread-safe cache update
       @mutex.synchronize do
         # Double-check after acquiring lock
         now = Time.now.to_i
-        return @cached_health_status if !skip_cache && @last_health_check && (now - @last_health_check) < 30
+        if !skip_cache && @last_health_check && (now - @last_health_check) < HEALTH_CHECK_CACHE_TTL
+          return @cached_health_status
+        end
 
         # Perform actual health check
         @cached_health_status = jetstream_healthy?
@@ -405,6 +415,99 @@ module JetstreamBridge
 
     def sanitize_urls(urls)
       urls.map { |u| Logging.sanitize_url(u) }
+    end
+
+    # Validate and parse NATS server URLs
+    #
+    # @param urls [String] Comma-separated NATS URLs
+    # @return [Array<String>] Validated server URLs
+    # @raise [ConnectionError] If validation fails
+    def validate_and_parse_servers!(urls)
+      servers = parse_urls(urls)
+      validate_not_empty!(servers)
+
+      servers.each { |url| validate_url!(url) }
+
+      Logging.info(
+        'All NATS URLs validated successfully',
+        tag: 'JetstreamBridge::ConnectionManager'
+      )
+
+      servers
+    end
+
+    def parse_urls(urls)
+      urls.to_s
+          .split(',')
+          .map(&:strip)
+          .reject(&:empty?)
+    end
+
+    def validate_not_empty!(servers)
+      return unless servers.empty?
+
+      raise ConnectionError, 'No NATS URLs configured'
+    end
+
+    def validate_url!(url)
+      validate_url_format!(url)
+
+      uri = URI.parse(url)
+      validate_url_scheme!(uri, url)
+      validate_url_host!(uri, url)
+      validate_url_port!(uri, url)
+
+      Logging.debug(
+        "URL validated: #{Logging.sanitize_url(url)}",
+        tag: 'JetstreamBridge::ConnectionManager'
+      )
+    rescue URI::InvalidURIError => e
+      Logging.error(
+        "Malformed URL: #{url} (#{e.message})",
+        tag: 'JetstreamBridge::ConnectionManager'
+      )
+      raise ConnectionError, "Invalid NATS URL format: #{url} (#{e.message})"
+    end
+
+    def validate_url_format!(url)
+      return if url.include?('://')
+
+      Logging.error(
+        "Invalid URL format (missing scheme): #{url}",
+        tag: 'JetstreamBridge::ConnectionManager'
+      )
+      raise ConnectionError, "Invalid NATS URL format: #{url}. Expected format: nats://host:port"
+    end
+
+    def validate_url_scheme!(uri, url)
+      scheme = uri.scheme&.downcase
+      return if VALID_NATS_SCHEMES.include?(scheme)
+
+      Logging.error(
+        "Invalid URL scheme '#{uri.scheme}': #{Logging.sanitize_url(url)}",
+        tag: 'JetstreamBridge::ConnectionManager'
+      )
+      raise ConnectionError, "Invalid NATS URL scheme '#{uri.scheme}' in: #{url}. Expected 'nats' or 'nats+tls'"
+    end
+
+    def validate_url_host!(uri, url)
+      return unless uri.host.nil? || uri.host.empty?
+
+      Logging.error(
+        "Missing host in URL: #{Logging.sanitize_url(url)}",
+        tag: 'JetstreamBridge::ConnectionManager'
+      )
+      raise ConnectionError, "Invalid NATS URL - missing host: #{url}"
+    end
+
+    def validate_url_port!(uri, url)
+      return unless uri.port && (uri.port < 1 || uri.port > 65_535)
+
+      Logging.error(
+        "Invalid port #{uri.port} in URL: #{Logging.sanitize_url(url)}",
+        tag: 'JetstreamBridge::ConnectionManager'
+      )
+      raise ConnectionError, "Invalid NATS URL - port must be 1-65535: #{url}"
     end
   end
 end

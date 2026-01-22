@@ -2,8 +2,10 @@
 
 require_relative 'core/config'
 require_relative 'core/connection_manager'
+require_relative 'core/health_checker'
 require_relative 'core/logging'
-require_relative 'factories'
+require_relative 'publisher/publisher'
+require_relative 'consumer/consumer'
 require_relative 'topology/topology'
 
 module JetstreamBridge
@@ -12,18 +14,16 @@ module JetstreamBridge
   # Responsible for:
   # - Managing configuration
   # - Managing connection lifecycle
-  # - Creating publishers and consumers via factories
-  # - Health checking
+  # - Creating publishers and consumers
+  # - Delegating health checks
   class Facade
     attr_reader :config
 
     def initialize
       @config = Config.new
       @connection_manager = nil
-      @publisher_factory = nil
-      @consumer_factory = nil
-      @health_check_mutex = Mutex.new
-      @last_uncached_health_check = nil
+      @publisher = nil
+      @health_checker = nil
     end
 
     # Configure JetStream Bridge
@@ -69,9 +69,9 @@ module JetstreamBridge
     # @param payload [Hash] Event payload
     # @param options [Hash] Additional options
     # @return [Models::PublishResult] Result object
-    def publish(event_type:, payload:, **options)
+    def publish(event_type:, payload:, **)
       connect_if_needed!
-      publisher_factory.create.publish(event_type: event_type, payload: payload, **options)
+      publisher.publish(event_type: event_type, payload: payload, **)
     end
 
     # Publish a complete event envelope (advanced)
@@ -81,7 +81,7 @@ module JetstreamBridge
     # @return [Models::PublishResult] Result object
     def publish_envelope(envelope, subject: nil)
       connect_if_needed!
-      publisher_factory.create.publish_envelope(envelope, subject: subject)
+      publisher.publish_envelope(envelope, subject: subject)
     end
 
     # Subscribe to events
@@ -90,9 +90,9 @@ module JetstreamBridge
     # @param options [Hash] Consumer options
     # @yield [event] Optional block as handler
     # @return [Consumer] Consumer instance
-    def subscribe(handler = nil, **options, &block)
+    def subscribe(handler = nil, **, &block)
       connect_if_needed!
-      consumer_factory.create(handler || block, **options)
+      create_consumer(handler || block, **)
     end
 
     # Check if connected to NATS
@@ -124,60 +124,7 @@ module JetstreamBridge
     #   puts "Stream exists: #{health[:stream][:exists]}"
     #   puts "RTT: #{health[:performance][:nats_rtt_ms]}ms"
     def health(skip_cache: false)
-      # Rate limit uncached requests
-      enforce_health_check_rate_limit! if skip_cache
-
-      start_time = Time.now
-
-      # Connection health
-      connection_health = if @connection_manager
-                            @connection_manager.health_check(skip_cache: skip_cache)
-                          else
-                            {
-                              connected: false,
-                              state: :disconnected,
-                              connected_at: nil,
-                              last_error: 'Not connected',
-                              last_error_at: nil
-                            }
-                          end
-
-      # Stream info
-      stream_info = fetch_stream_info if connection_health[:connected] && !@config.disable_js_api
-
-      # RTT measurement
-      rtt_ms = measure_nats_rtt if connection_health[:connected] && !@config.disable_js_api
-
-      health_check_duration_ms = ((Time.now - start_time) * 1000).round(2)
-
-      {
-        healthy: connection_health[:connected] && (@config.disable_js_api ? true : stream_info&.fetch(:exists, false)),
-        connection: connection_health,
-        stream: stream_info || { exists: nil, name: @config.stream_name },
-        performance: {
-          nats_rtt_ms: rtt_ms,
-          health_check_duration_ms: health_check_duration_ms
-        },
-        config: {
-          env: @config.env,
-          app_name: @config.app_name,
-          destination_app: @config.destination_app,
-          use_outbox: @config.use_outbox,
-          use_inbox: @config.use_inbox,
-          use_dlq: @config.use_dlq,
-          disable_js_api: @config.disable_js_api
-        },
-        version: JetstreamBridge::VERSION
-      }
-    rescue StandardError => e
-      {
-        healthy: false,
-        connection: {
-          state: :failed,
-          connected: false
-        },
-        error: "#{e.class}: #{e.message}"
-      }
+      health_checker.check(skip_cache: skip_cache)
     end
 
     # Backward compatibility: Alias for health method
@@ -207,7 +154,7 @@ module JetstreamBridge
     #
     # @return [Hash] Stream information
     def stream_info
-      fetch_stream_info
+      health_checker.send(:fetch_stream_info)
     end
 
     private
@@ -225,95 +172,41 @@ module JetstreamBridge
       connect!
     end
 
-    def publisher_factory
-      @publisher_factory ||= begin
+    # Get or create publisher instance (cached)
+    def publisher
+      @publisher ||= begin
         ensure_connection_manager!
-        PublisherFactory.new(@connection_manager, @config)
+        Publisher.new(
+          connection: @connection_manager.jetstream,
+          config: @config
+        )
       end
     end
 
-    def consumer_factory
-      @consumer_factory ||= begin
-        ensure_connection_manager!
-        ConsumerFactory.new(@connection_manager, @config)
-      end
-    end
-
-    def enforce_health_check_rate_limit!
-      @health_check_mutex.synchronize do
-        now = Time.now
-        if @last_uncached_health_check
-          time_since = now - @last_uncached_health_check
-          if time_since < 5
-            raise HealthCheckFailedError,
-                  "Health check rate limit exceeded. Please wait #{(5 - time_since).ceil} second(s)"
-          end
-        end
-        @last_uncached_health_check = now
-      end
-    end
-
-    def fetch_stream_info
-      return nil unless @connection_manager
-
-      jts = @connection_manager.jetstream
-      return nil unless jts
-
-      info = jts.stream_info(@config.stream_name)
-
-      # Handle both object-style and hash-style access for compatibility
-      config_data = info.config
-      state_data = info.state
-      subjects = config_data.respond_to?(:subjects) ? config_data.subjects : config_data[:subjects]
-      messages = state_data.respond_to?(:messages) ? state_data.messages : state_data[:messages]
-
-      {
-        exists: true,
-        name: @config.stream_name,
-        subjects: subjects,
-        messages: messages
-      }
-    rescue StandardError => e
-      {
-        exists: false,
-        name: @config.stream_name,
-        error: "#{e.class}: #{e.message}"
-      }
-    end
-
-    def measure_nats_rtt
-      return nil unless @connection_manager
-
-      nc = @connection_manager.nats_client
-      return nil unless nc
-
-      # Prefer native RTT API when available
-      if nc.respond_to?(:rtt)
-        rtt_value = normalize_ms(nc.rtt)
-        return rtt_value if rtt_value
-      end
-
-      # Fallback: measure ping/pong via flush
-      start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      nc.flush(1)
-      duration = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start
-      normalize_ms(duration)
-    rescue StandardError => e
-      Logging.warn(
-        "Failed to measure NATS RTT: #{e.class} #{e.message}",
-        tag: 'JetstreamBridge'
+    # Create a new consumer instance (not cached - each subscription is independent)
+    def create_consumer(handler, durable_name: nil, batch_size: nil)
+      ensure_connection_manager!
+      Consumer.new(
+        handler,
+        connection: @connection_manager.jetstream,
+        config: @config,
+        durable_name: durable_name,
+        batch_size: batch_size
       )
-      nil
     end
 
-    def normalize_ms(value)
-      return nil if value.nil?
-      return nil unless value.respond_to?(:to_f)
-
-      numeric = value.to_f
-      # Heuristic: sub-1 values are likely seconds; convert them to ms
-      ms = numeric < 1 ? numeric * 1000 : numeric
-      ms.round(2)
+    # Get or create health checker instance (cached)
+    def health_checker
+      @health_checker ||= begin
+        # Try to ensure connection manager, but don't fail if config is invalid
+        # HealthChecker will handle the nil connection_manager gracefully
+        begin
+          ensure_connection_manager!
+        rescue ConfigurationError
+          # Config not valid yet, health checker will report as unhealthy
+        end
+        HealthChecker.new(@connection_manager, @config)
+      end
     end
   end
 end

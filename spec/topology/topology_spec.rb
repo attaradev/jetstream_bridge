@@ -9,7 +9,6 @@ RSpec.describe JetstreamBridge::Topology do
       c.nats_urls = 'nats://localhost:4222'
       c.destination_app = 'dest_app'
       c.app_name = 'test_app'
-      c.env = 'development'
       c.stream_name = 'test_app-jetstream-bridge-stream'
     end
   end
@@ -42,16 +41,16 @@ RSpec.describe JetstreamBridge::Topology do
 
       it 'includes DLQ subject' do
         expect(JetstreamBridge::Stream).to receive(:ensure!).with(
-        mock_jts,
-        'test_app-jetstream-bridge-stream',
-        array_including(
-          'test_app.sync.dest_app',
-          'dest_app.sync.test_app',
-          'test_app.sync.dlq'
+          mock_jts,
+          'test_app-jetstream-bridge-stream',
+          array_including(
+            'test_app.sync.dest_app',
+            'dest_app.sync.test_app',
+            'test_app.sync.dlq'
+          )
         )
-      )
-      described_class.ensure!(mock_jts, force: true)
-    end
+        described_class.ensure!(mock_jts, force: true)
+      end
     end
 
     context 'when DLQ is disabled' do

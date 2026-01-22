@@ -108,14 +108,14 @@ module JetstreamBridge
     #     logger.error "Failed to publish: #{result.error.message}"
     #   end
     #
-    def publish(event_type:, payload:, resource_type: nil, subject: nil, **options)
+    def publish(event_type:, payload:, resource_type: nil, subject: nil, **)
       ensure_destination_app_configured!
 
       envelope = @envelope_builder.build(
         event_type: event_type,
         payload: payload,
         resource_type: resource_type,
-        **options
+        **
       )
 
       resolved_subject = subject || @config.source_subject

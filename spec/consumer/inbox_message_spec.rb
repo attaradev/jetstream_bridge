@@ -224,9 +224,9 @@ RSpec.describe JetstreamBridge::InboxMessage do
       it 'normalizes all header keys to lowercase' do
         msg = described_class.from_nats(nats_msg_mixed_case)
         expect(msg.headers).to eq({
-                                    'nats-msg-id' => 'id-upper',
-                                    'content-type' => 'application/json'
-                                  })
+          'nats-msg-id' => 'id-upper',
+          'content-type' => 'application/json'
+        })
       end
     end
 

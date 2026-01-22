@@ -11,7 +11,6 @@ module JetstreamBridge
   # @example Basic configuration
   #   JetstreamBridge.configure do |config|
   #     config.nats_urls = "nats://localhost:4222"
-  #     config.env = "production"
   #     config.app_name = "api_service"
   #     config.destination_app = "worker_service"
   #     config.use_outbox = true
@@ -50,8 +49,6 @@ module JetstreamBridge
     # NATS server URL(s)
     # @return [String]
     attr_accessor :nats_urls
-    # Environment (unused in subjects; optional)
-    attr_accessor :env
     # Application name for subject routing
     attr_accessor :app_name
     # Maximum delivery attempts before moving to DLQ
@@ -100,20 +97,16 @@ module JetstreamBridge
     # Requires streams/consumers to be pre-provisioned and permissions handled externally.
     # @return [Boolean]
     attr_accessor :disable_js_api
-    # Required stream name
-    attr_accessor :stream_name
     # Optional durable consumer name
-    attr_accessor :durable_name
+    attr_writer :durable_name
+
     def initialize
       @nats_urls       = ENV['NATS_URLS'] || ENV['NATS_URL'] || 'nats://localhost:4222'
-      env_from_env     = ENV['NATS_ENV']
-      @env             = env_from_env
-      @env_set         = !env_from_env.to_s.strip.empty?
       @app_name        = ENV['APP_NAME']  || 'app'
       @destination_app = ENV.fetch('DESTINATION_APP', nil)
-      @stream_name     = ENV['STREAM_NAME']
+      @stream_name     = ENV.fetch('STREAM_NAME', nil)
       @stream_name_set = !@stream_name.nil?
-      @durable_name    = ENV['DURABLE_NAME']
+      @durable_name    = ENV.fetch('DURABLE_NAME', nil)
 
       @max_deliver = 5
       @ack_wait    = '30s'
@@ -133,7 +126,6 @@ module JetstreamBridge
       @lazy_connect = false
       @inbox_prefix = ENV['NATS_INBOX_PREFIX'] || '_INBOX'
       @disable_js_api = (ENV['JETSTREAM_DISABLE_JS_API'] || 'true') == 'true'
-      # Subjects are env-less by default; set env to nil/blank to keep compatibility with isolated clusters.
     end
 
     # Apply a configuration preset
@@ -212,11 +204,6 @@ module JetstreamBridge
       value
     end
 
-    def env=(value)
-      @env_set = !value.to_s.strip.empty? && value.to_s.strip != 'development'
-      @env = value
-    end
-
     def stream_name=(value)
       @stream_name_set = true
       @stream_name = value
@@ -293,32 +280,30 @@ module JetstreamBridge
 
     # Build source subject without side effects
     def build_source_subject
-      return nil if app_name.to_s.strip.empty? || destination_app.to_s.strip.empty?
-
-      env_part = @env_set ? env.to_s.strip : ''
-      return "#{env_part}.#{app_name}.sync.#{destination_app}" unless env_part.empty?
-
-      "#{app_name}.sync.#{destination_app}"
+      build_subject(app_name, 'sync', destination_app)
     end
 
     # Build destination subject without side effects
     def build_destination_subject
-      return nil if app_name.to_s.strip.empty? || destination_app.to_s.strip.empty?
-
-      env_part = @env_set ? env.to_s.strip : ''
-      return "#{env_part}.#{destination_app}.sync.#{app_name}" unless env_part.empty?
-
-      "#{destination_app}.sync.#{app_name}"
+      build_subject(destination_app, 'sync', app_name)
     end
 
     # Build DLQ subject without side effects
     def build_dlq_subject
       return nil if app_name.to_s.strip.empty?
 
-      env_part = @env_set ? env.to_s.strip : ''
-      return "#{env_part}.#{app_name}.sync.dlq" unless env_part.empty?
+      build_subject(app_name, 'sync', 'dlq')
+    end
 
-      "#{app_name}.sync.dlq"
+    # Generic subject builder
+    #
+    # @param parts [Array<String>] Subject parts to join
+    # @return [String, nil] Built subject or nil if any required part is empty
+    def build_subject(*parts)
+      # Check if any required parts are empty
+      return nil if parts.any? { |p| p.to_s.strip.empty? }
+
+      parts.join('.')
     end
 
     def validate_inbox_prefix!(value)
@@ -326,27 +311,28 @@ module JetstreamBridge
       raise InvalidSubjectError, 'inbox_prefix cannot be empty' if str.empty?
 
       # Disallow wildcards, spaces, or control characters in inbox prefix
-      if str.match?(/[*> \t\r\n\x00-\x1F\x7F]/)
-        raise InvalidSubjectError,
-              "inbox_prefix contains invalid characters (wildcards, spaces, or control chars): #{value.inspect}"
-      end
+      return unless str.match?(/[*> \t\r\n\x00-\x1F\x7F]/)
+
+      raise InvalidSubjectError,
+            "inbox_prefix contains invalid characters (wildcards, spaces, or control chars): #{value.inspect}"
     end
 
     def validate_override!(name, value)
       str = value.to_s.strip
       raise InvalidSubjectError, "#{name} cannot be empty" if str.empty?
-      if str.match?(/[ \t\r\n\x00-\x1F\x7F]/)
-        raise InvalidSubjectError, "#{name} contains invalid whitespace/control characters: #{value.inspect}"
-      end
+      return unless str.match?(/[ \t\r\n\x00-\x1F\x7F]/)
+
+      raise InvalidSubjectError, "#{name} contains invalid whitespace/control characters: #{value.inspect}"
     end
 
     def validate_stream_name!(value)
       str = value.to_s.strip
       raise MissingConfigurationError, 'stream_name is required' if str.empty?
-      if str.match?(/[*> \t\r\n\x00-\x1F\x7F]/)
-        raise InvalidSubjectError,
-              "stream_name contains invalid characters (wildcards, whitespace, or control chars): #{value.inspect}"
-      end
+
+      return unless str.match?(/[*> \t\r\n\x00-\x1F\x7F]/)
+
+      raise InvalidSubjectError,
+            "stream_name contains invalid characters (wildcards, whitespace, or control chars): #{value.inspect}"
     end
 
     def default_stream_name

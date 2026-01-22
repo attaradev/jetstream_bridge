@@ -49,24 +49,11 @@ JetstreamBridge.configure do |config|
   config.nats_urls       = ENV.fetch("NATS_URLS", "nats://localhost:4222")
   config.app_name        = "my_app"
   config.destination_app = "worker_app"
-  config.stream_name     = "my_app-jetstream-bridge-stream" # required
+  config.stream_name     = "my_app-jetstream-bridge-stream"
   config.use_outbox = true
   config.use_inbox  = true
   config.use_dlq    = true
-  # If NATS account restricts _INBOX.>, set an allowed reply prefix:
-  # config.inbox_prefix = "$RPC"
-  # Pre-provisioned names (skip defaults):
-  # config.stream_name = "my-stream"      # required
-  # config.durable_name = "my-durable"    # optional
-  # JetStream management APIs are disabled by default for safety. Set to false if your
-  # NATS permissions allow provisioning/verification:
-  # config.disable_js_api = false
 end
-
-# Note: configure only sets options; it does not connect. In Rails, the Railtie
-# starts the bridge automatically after initialization. In non-Rails apps, call
-# `JetstreamBridge.connect!` (or rely on auto-connect on first publish/subscribe).
-# Subjects are env-less by default: "#{app_name}.sync.#{destination_app}" / "#{destination_app}.sync.#{app_name}".
 ```
 
 Publish:

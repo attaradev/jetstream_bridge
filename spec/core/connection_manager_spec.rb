@@ -64,18 +64,18 @@ RSpec.describe JetstreamBridge::ConnectionManager do
     it 'validates NATS URLs' do
       config.nats_urls = 'invalid'
 
-      expect {
+      expect do
         connection_manager.connect!
-      }.to raise_error(JetstreamBridge::ConnectionError, /Invalid NATS URL/)
+      end.to raise_error(JetstreamBridge::ConnectionError, /Invalid NATS URL/)
     end
 
     it 'verifies JetStream availability' do
       config.disable_js_api = false
       allow(mock_jts).to receive(:account_info).and_raise(NATS::IO::NoRespondersError)
 
-      expect {
+      expect do
         connection_manager.connect!
-      }.to raise_error(JetstreamBridge::ConnectionError, /JetStream not enabled/)
+      end.to raise_error(JetstreamBridge::ConnectionError, /JetStream not enabled/)
     end
   end
 

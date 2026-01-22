@@ -9,7 +9,6 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
       c.nats_urls = 'nats://localhost:4222'
       c.destination_app = 'dest_app'
       c.app_name = 'test_app'
-      c.env = 'development'
       c.stream_name = 'test_app-jetstream-bridge-stream'
       c.max_deliver = 5
       c.ack_wait = 30

@@ -37,9 +37,9 @@ RSpec.describe JetstreamBridge::Facade do
     it 'validates configuration before connecting' do
       facade.config.stream_name = nil
 
-      expect {
+      expect do
         facade.connect!
-      }.to raise_error(JetstreamBridge::ConfigurationError, /stream_name is required/)
+      end.to raise_error(JetstreamBridge::ConfigurationError, /stream_name is required/)
     end
 
     it 'creates connection manager and connects' do

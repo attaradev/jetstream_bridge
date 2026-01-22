@@ -52,26 +52,18 @@ JetstreamBridge.configure do |config|
   config.ack_wait    = "30s"
   config.backoff     = %w[1s 5s 15s 30s 60s]
 
-  # If your NATS account restricts _INBOX.> subscriptions, set an allowed reply prefix
-  # (or use ENV["NATS_INBOX_PREFIX"]):
+  # Optional: Custom inbox prefix if NATS account restricts _INBOX.>
   # config.inbox_prefix = "$RPC"
 
-  # If you pre-provision streams/consumers with custom names:
-  # config.stream_name = "my-stream"      # required
-  # config.durable_name = "my-durable"    # optional
+  # Optional: Pre-provisioned stream/consumer names
+  # config.durable_name = "my-durable"
 
-  # JetStream management APIs are disabled by default. Set to false if your
-  # NATS permissions allow provisioning/verification:
+  # Optional: Disable JetStream management APIs (requires pre-provisioning)
   # config.disable_js_api = false
 end
-
-# Note: `configure` only sets options; it does not connect. Rails will start
-# JetstreamBridge automatically after initialization via the Railtie. For non-Rails
-# apps or custom boot flows, call `JetstreamBridge.connect!` (or rely on auto-connect
-# on first publish/subscribe). Subjects are env-less by default: "#{app}.sync.#{dest}" / "#{dest}.sync.#{app}".
 ```
 
-Rails autostart runs automatically after initialization (including in console). You can opt out for rake tasks or other tooling by setting `config.lazy_connect = true` or `JETSTREAM_BRIDGE_DISABLE_AUTOSTART=1`; it will then connect on first publish/subscribe.
+Rails starts JetStream Bridge automatically after initialization. For non-Rails apps, call `JetstreamBridge.connect!` or rely on auto-connect on first publish/subscribe.
 
 ## Publish
 

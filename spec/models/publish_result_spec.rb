@@ -122,12 +122,12 @@ RSpec.describe JetstreamBridge::Models::PublishResult do
       it 'returns hash with nil error' do
         hash = result.to_h
         expect(hash).to eq({
-                             success: true,
-                             event_id: 'evt-success',
-                             subject: 'test.subject',
-                             duplicate: false,
-                             error: nil
-                           })
+          success: true,
+          event_id: 'evt-success',
+          subject: 'test.subject',
+          duplicate: false,
+          error: nil
+        })
       end
     end
 
@@ -147,12 +147,12 @@ RSpec.describe JetstreamBridge::Models::PublishResult do
       it 'returns hash with error message' do
         hash = result.to_h
         expect(hash).to eq({
-                             success: false,
-                             event_id: 'evt-failed',
-                             subject: 'test.subject',
-                             duplicate: false,
-                             error: 'Connection timeout'
-                           })
+          success: false,
+          event_id: 'evt-failed',
+          subject: 'test.subject',
+          duplicate: false,
+          error: 'Connection timeout'
+        })
       end
     end
 

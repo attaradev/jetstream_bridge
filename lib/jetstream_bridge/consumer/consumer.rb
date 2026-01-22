@@ -9,6 +9,7 @@ require_relative '../core/model_utils'
 require_relative 'message_processor'
 require_relative 'subscription_manager'
 require_relative 'inbox/inbox_processor'
+require_relative 'health_monitor'
 
 module JetstreamBridge
   # Subscribes to destination subject and processes messages via a pull durable consumer.
@@ -47,6 +48,14 @@ module JetstreamBridge
     IDLE_SLEEP_SECS       = 0.05
     # Maximum sleep duration during idle periods (seconds)
     MAX_IDLE_BACKOFF_SECS = 1.0
+    # Maximum number of batches to drain during shutdown
+    MAX_DRAIN_BATCHES = 5
+    # Drain timeout per batch in seconds
+    DRAIN_BATCH_TIMEOUT = 1
+    # Minimum reconnect backoff in seconds
+    MIN_RECONNECT_BACKOFF = 0.1
+    # Maximum reconnect backoff in seconds
+    MAX_RECONNECT_BACKOFF = 30.0
 
     # Alias middleware classes for easier access
     MiddlewareChain = ConsumerMiddleware::MiddlewareChain
@@ -99,11 +108,9 @@ module JetstreamBridge
       @reconnect_attempts = 0
       @running = true
       @shutdown_requested = false
-      @start_time    = Time.now
-      @iterations    = 0
-      @last_health_check = Time.now
 
       @middleware_chain = MiddlewareChain.new
+      @health_monitor = ConsumerHealthMonitor.new(@durable)
 
       ensure_destination_app_configured!
 
@@ -192,10 +199,8 @@ module JetstreamBridge
         processed = process_batch
         idle_sleep(processed)
 
-        @iterations += 1
-
-        # Periodic health checks every 10 minutes (600 seconds)
-        perform_health_check_if_due
+        @health_monitor.increment_iterations
+        @health_monitor.check_health_if_due
       end
 
       # Drain in-flight messages before exiting
@@ -306,10 +311,8 @@ module JetstreamBridge
     end
 
     def calculate_reconnect_backoff(attempt)
-      # Exponential backoff: 0.1s, 0.2s, 0.4s, 0.8s, 1.6s, ... up to 30s max
-      base_delay = 0.1
-      max_delay = 30.0
-      [base_delay * (2**(attempt - 1)), max_delay].min
+      # Exponential backoff: 0.1s, 0.2s, 0.4s, 0.8s, 1.6s, ... up to max
+      [MIN_RECONNECT_BACKOFF * (2**(attempt - 1)), MAX_RECONNECT_BACKOFF].min
     end
 
     def recoverable_consumer_error?(error)
@@ -349,75 +352,13 @@ module JetstreamBridge
       Logging.debug("Could not set up signal handlers: #{e.message}", tag: 'JetstreamBridge::Consumer')
     end
 
-    def perform_health_check_if_due
-      now = Time.now
-      time_since_check = now - @last_health_check
-
-      return unless time_since_check >= 600 # 10 minutes
-
-      @last_health_check = now
-      uptime = now - @start_time
-      memory_mb = memory_usage_mb
-
-      Logging.info(
-        "Consumer health: iterations=#{@iterations}, " \
-        "memory=#{memory_mb}MB, uptime=#{uptime.round}s",
-        tag: 'JetstreamBridge::Consumer'
-      )
-
-      # Warn if memory usage is high (over 1GB)
-      if memory_mb > 1000
-        Logging.warn(
-          "High memory usage detected: #{memory_mb}MB",
-          tag: 'JetstreamBridge::Consumer'
-        )
-      end
-
-      # Suggest GC if heap is growing significantly
-      suggest_gc_if_needed
-    rescue StandardError => e
-      Logging.debug(
-        "Health check failed: #{e.class} #{e.message}",
-        tag: 'JetstreamBridge::Consumer'
-      )
-    end
-
-    def memory_usage_mb
-      # Get memory usage from OS (works on Linux/macOS)
-      rss_kb = `ps -o rss= -p #{Process.pid}`.to_i
-      rss_kb / 1024.0
-    rescue StandardError
-      0.0
-    end
-
-    def suggest_gc_if_needed
-      return unless defined?(GC) && GC.respond_to?(:stat)
-
-      stats = GC.stat
-      heap_live_slots = stats[:heap_live_slots] || stats['heap_live_slots'] || 0
-
-      threshold = 200_000
-      return if heap_live_slots < threshold || @gc_warning_logged
-
-      @gc_warning_logged = true
-      Logging.warn(
-        "High heap object count detected (#{heap_live_slots}); consider profiling or manual GC in the host app",
-        tag: 'JetstreamBridge::Consumer'
-      )
-    rescue StandardError => e
-      Logging.debug(
-        "GC check failed: #{e.class} #{e.message}",
-        tag: 'JetstreamBridge::Consumer'
-      )
-    end
-
     def drain_inflight_messages
       return unless @psub
 
       Logging.info('Draining in-flight messages...', tag: 'JetstreamBridge::Consumer')
       # Process any pending messages with a short timeout
-      5.times do
-        msgs = @psub.fetch(@batch_size, timeout: 1)
+      MAX_DRAIN_BATCHES.times do
+        msgs = @psub.fetch(@batch_size, timeout: DRAIN_BATCH_TIMEOUT)
         break if msgs.nil? || msgs.empty?
 
         msgs.each { |m| process_one(m) }

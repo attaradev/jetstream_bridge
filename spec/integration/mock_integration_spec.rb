@@ -111,16 +111,16 @@ RSpec.describe 'Mock NATS Integration Examples', :allow_real_connection do
         mock_jts.publish(
           'test.worker.sync.api',
           Oj.dump({
-                    'event_id' => "event-#{i}",
-                    'schema_version' => 1,
-                    'event_type' => 'task.created',
-                    'producer' => 'api',
-                    'resource_id' => (i + 1).to_s,
-                    'resource_type' => 'task',
-                    'occurred_at' => Time.now.utc.iso8601,
-                    'trace_id' => SecureRandom.hex(8),
-                    'payload' => { 'id' => i + 1, 'title' => "Task #{i + 1}" }
-                  }),
+            'event_id' => "event-#{i}",
+            'schema_version' => 1,
+            'event_type' => 'task.created',
+            'producer' => 'api',
+            'resource_id' => (i + 1).to_s,
+            'resource_type' => 'task',
+            'occurred_at' => Time.now.utc.iso8601,
+            'trace_id' => SecureRandom.hex(8),
+            'payload' => { 'id' => i + 1, 'title' => "Task #{i + 1}" }
+          }),
           header: { 'nats-msg-id' => "event-#{i}" }
         )
       end
