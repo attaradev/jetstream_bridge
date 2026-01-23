@@ -41,12 +41,12 @@ module JetstreamBridge
             "connected_at": "2025-11-22T20:00:00Z",
             "stream": {
               "exists": true,
-              "name": "development-jetstream-bridge-stream",
-              "subjects": ["dev.app1.sync.app2"],
+              "name": "jetstream-bridge-stream",
+              "subjects": ["app1.sync.app2"],
               "messages": 42
             },
             "config": {
-              "env": "development",
+              "stream_name": "jetstream-bridge-stream",
               "app_name": "my_app",
               "destination_app": "other_app"
             },

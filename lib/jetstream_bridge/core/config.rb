@@ -11,9 +11,9 @@ module JetstreamBridge
   # @example Basic configuration
   #   JetstreamBridge.configure do |config|
   #     config.nats_urls = "nats://localhost:4222"
-  #     config.env = "production"
   #     config.app_name = "api_service"
   #     config.destination_app = "worker_service"
+  #     config.stream_name = "jetstream-bridge-stream"
   #     config.use_outbox = true
   #     config.use_inbox = true
   #   end
@@ -23,6 +23,7 @@ module JetstreamBridge
   #     config.nats_urls = ENV["NATS_URLS"]
   #     config.app_name = "api"
   #     config.destination_app = "worker"
+  #     config.stream_name = "jetstream-bridge-stream"
   #   end
   #
   class Config
@@ -50,9 +51,9 @@ module JetstreamBridge
     # NATS server URL(s)
     # @return [String]
     attr_accessor :nats_urls
-    # Environment namespace (development, staging, production)
+    # JetStream stream name (required)
     # @return [String]
-    attr_accessor :env
+    attr_accessor :stream_name
     # Application name for subject routing
     # @return [String]
     attr_accessor :app_name
@@ -95,11 +96,15 @@ module JetstreamBridge
     # Enable lazy connection (connect on first use instead of during configure)
     # @return [Boolean]
     attr_accessor :lazy_connect
+    # Allow JetStream Bridge to create/update streams/consumers and call JetStream management APIs.
+    # Disable for locked-down environments and handle provisioning separately.
+    # @return [Boolean]
+    attr_accessor :auto_provision
 
     def initialize
       @nats_urls       = ENV['NATS_URLS'] || ENV['NATS_URL'] || 'nats://localhost:4222'
-      @env             = ENV['NATS_ENV']  || 'development'
-      @app_name        = ENV['APP_NAME']  || 'app'
+      @stream_name     = ENV['JETSTREAM_STREAM_NAME'] || 'jetstream-bridge-stream'
+      @app_name        = ENV['APP_NAME'] || 'app'
       @destination_app = ENV.fetch('DESTINATION_APP', nil)
 
       @max_deliver = 5
@@ -118,6 +123,7 @@ module JetstreamBridge
       @connect_retry_attempts = 3
       @connect_retry_delay = 2
       @lazy_connect = false
+      @auto_provision = true
     end
 
     # Apply a configuration preset
@@ -131,34 +137,22 @@ module JetstreamBridge
       self
     end
 
-    # Get the JetStream stream name for this environment.
-    #
-    # @return [String] Stream name in format "{env}-jetstream-bridge-stream"
-    # @example
-    #   config.env = "production"
-    #   config.stream_name  # => "production-jetstream-bridge-stream"
-    def stream_name
-      "#{env}-jetstream-bridge-stream"
-    end
-
     # Get the NATS subject this application publishes to.
     #
-    # Producer publishes to:   {env}.{app}.sync.{dest}
-    # Consumer subscribes to:  {env}.{dest}.sync.{app}
+    # Producer publishes to:   {app}.sync.{dest}
+    # Consumer subscribes to:  {dest}.sync.{app}
     #
     # @return [String] Source subject for publishing
     # @raise [InvalidSubjectError] If components contain NATS wildcards
     # @raise [MissingConfigurationError] If required components empty
     # @example
-    #   config.env = "production"
     #   config.app_name = "api"
     #   config.destination_app = "worker"
-    #   config.source_subject  # => "production.api.sync.worker"
+    #   config.source_subject  # => "api.sync.worker"
     def source_subject
-      validate_subject_component!(env, 'env')
       validate_subject_component!(app_name, 'app_name')
       validate_subject_component!(destination_app, 'destination_app')
-      "#{env}.#{app_name}.sync.#{destination_app}"
+      "#{app_name}.sync.#{destination_app}"
     end
 
     # Get the NATS subject this application subscribes to.
@@ -166,44 +160,28 @@ module JetstreamBridge
     # @return [String] Destination subject for consuming
     # @raise [InvalidSubjectError] If components contain NATS wildcards
     # @raise [MissingConfigurationError] If required components empty
-    # @example
-    #   config.env = "production"
-    #   config.app_name = "api"
-    #   config.destination_app = "worker"
-    #   config.destination_subject  # => "production.worker.sync.api"
     def destination_subject
-      validate_subject_component!(env, 'env')
       validate_subject_component!(app_name, 'app_name')
       validate_subject_component!(destination_app, 'destination_app')
-      "#{env}.#{destination_app}.sync.#{app_name}"
+      "#{destination_app}.sync.#{app_name}"
     end
 
     # Get the dead letter queue subject for this application.
     #
     # Each app has its own DLQ for better isolation and monitoring.
     #
-    # @return [String] DLQ subject in format "{env}.{app_name}.sync.dlq"
+    # @return [String] DLQ subject in format "{app_name}.sync.dlq"
     # @raise [InvalidSubjectError] If components contain NATS wildcards
     # @raise [MissingConfigurationError] If required components are empty
-    # @example
-    #   config.env = "production"
-    #   config.app_name = "api"
-    #   config.dlq_subject  # => "production.api.sync.dlq"
     def dlq_subject
-      validate_subject_component!(env, 'env')
       validate_subject_component!(app_name, 'app_name')
-      "#{env}.#{app_name}.sync.dlq"
+      "#{app_name}.sync.dlq"
     end
 
     # Get the durable consumer name for this application.
     #
-    # @return [String] Durable name in format "{env}-{app_name}-workers"
-    # @example
-    #   config.env = "production"
-    #   config.app_name = "api"
-    #   config.durable_name  # => "production-api-workers"
     def durable_name
-      "#{env}-#{app_name}-workers"
+      "#{app_name}-workers"
     end
 
     # Validate all configuration settings.
@@ -219,7 +197,7 @@ module JetstreamBridge
       errors = []
       errors << 'destination_app is required' if destination_app.to_s.strip.empty?
       errors << 'nats_urls is required' if nats_urls.to_s.strip.empty?
-      errors << 'env is required' if env.to_s.strip.empty?
+      errors << 'stream_name is required' if stream_name.to_s.strip.empty?
       errors << 'app_name is required' if app_name.to_s.strip.empty?
       errors << 'max_deliver must be >= 1' if max_deliver.to_i < 1
       errors << 'backoff must be an array' unless backoff.is_a?(Array)

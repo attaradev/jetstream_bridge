@@ -37,32 +37,17 @@ module JetstreamBridge
       end
 
       def fetch_stream_info
+        return skipped_stream_info unless config.auto_provision
+
         # Ensure we have an active connection before querying stream info
         connect_if_needed!
 
         jts = Connection.jetstream
         raise ConnectionNotEstablishedError, 'NATS connection not established' unless jts
 
-        info = jts.stream_info(config.stream_name)
-
-        # Handle both object-style and hash-style access for compatibility
-        config_data = info.config
-        state_data = info.state
-        subjects = config_data.respond_to?(:subjects) ? config_data.subjects : config_data[:subjects]
-        messages = state_data.respond_to?(:messages) ? state_data.messages : state_data[:messages]
-
-        {
-          exists: true,
-          name: config.stream_name,
-          subjects: subjects,
-          messages: messages
-        }
+        stream_info_payload(jts.stream_info(config.stream_name))
       rescue StandardError => e
-        {
-          exists: false,
-          name: config.stream_name,
-          error: "#{e.class}: #{e.message}"
-        }
+        stream_error_payload(e)
       end
 
       def measure_nats_rtt
@@ -103,6 +88,39 @@ module JetstreamBridge
         raise ArgumentError, "Unknown configuration option: #{key}" unless cfg.respond_to?(setter)
 
         cfg.public_send(setter, val)
+      end
+
+      def stream_info_payload(info)
+        config_data = info.config
+        state_data = info.state
+
+        {
+          exists: true,
+          name: config.stream_name,
+          subjects: extract_field(config_data, :subjects),
+          messages: extract_field(state_data, :messages)
+        }
+      end
+
+      def extract_field(data, key)
+        data.respond_to?(key) ? data.public_send(key) : data[key]
+      end
+
+      def stream_error_payload(error)
+        {
+          exists: false,
+          name: config.stream_name,
+          error: "#{error.class}: #{error.message}"
+        }
+      end
+
+      def skipped_stream_info
+        {
+          exists: nil,
+          name: config.stream_name,
+          skipped: true,
+          reason: 'auto_provision=false (skip $JS.API.STREAM.INFO)'
+        }
       end
     end
   end

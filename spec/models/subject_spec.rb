@@ -5,9 +5,9 @@ require 'jetstream_bridge/models/subject'
 RSpec.describe JetstreamBridge::Models::Subject do
   describe '.new' do
     it 'creates a subject with valid value' do
-      subject = described_class.new('dev.app1.sync.app2')
+      subject = described_class.new('app1.sync.app2')
 
-      expect(subject.to_s).to eq('dev.app1.sync.app2')
+      expect(subject.to_s).to eq('app1.sync.app2')
     end
 
     it 'validates subject format' do
@@ -23,98 +23,92 @@ RSpec.describe JetstreamBridge::Models::Subject do
     end
 
     it 'accepts subject with multiple tokens' do
-      subject = described_class.new('env.source.sync.destination.extra')
+      subject = described_class.new('source.sync.destination.extra')
 
-      expect(subject.to_s).to eq('env.source.sync.destination.extra')
+      expect(subject.to_s).to eq('source.sync.destination.extra')
     end
   end
 
   describe '.source' do
-    it 'creates a source subject with environment, app name, and destination' do
-      subject = described_class.source(env: 'production', app_name: 'orders', dest: 'warehouse')
+    it 'creates a source subject with app name and destination' do
+      subject = described_class.source(app_name: 'orders', dest: 'warehouse')
 
-      expect(subject.to_s).to eq('production.orders.sync.warehouse')
-    end
-
-    it 'works with development environment' do
-      subject = described_class.source(env: 'dev', app_name: 'users', dest: 'notifications')
-
-      expect(subject.to_s).to eq('dev.users.sync.notifications')
+      expect(subject.to_s).to eq('orders.sync.warehouse')
     end
 
     it 'handles underscored app names' do
-      subject = described_class.source(env: 'staging', app_name: 'user_service', dest: 'email_service')
+      subject = described_class.source(app_name: 'user_service', dest: 'email_service')
 
-      expect(subject.to_s).to eq('staging.user_service.sync.email_service')
+      expect(subject.to_s).to eq('user_service.sync.email_service')
     end
   end
 
   describe '.destination' do
-    it 'creates a destination subject with environment, source, and app name' do
-      subject = described_class.destination(env: 'production', source: 'orders', app_name: 'warehouse')
+    it 'creates a destination subject with source and app name' do
+      subject = described_class.destination(source: 'orders', app_name: 'warehouse')
 
-      expect(subject.to_s).to eq('production.orders.sync.warehouse')
+      expect(subject.to_s).to eq('orders.sync.warehouse')
     end
 
     it 'maintains consistency with source subject' do
-      source_subj = described_class.source(env: 'dev', app_name: 'app1', dest: 'app2')
-      dest_subj = described_class.destination(env: 'dev', source: 'app1', app_name: 'app2')
+      source_subj = described_class.source(app_name: 'app1', dest: 'app2')
+      dest_subj = described_class.destination(source: 'app1', app_name: 'app2')
 
       expect(source_subj.to_s).to eq(dest_subj.to_s)
     end
   end
 
   describe '#matches?' do
-    let(:subject) { described_class.new('production.orders.sync.warehouse') }
+    let(:subject) { described_class.new('orders.sync.warehouse') }
 
     it 'matches exact subject' do
-      expect(subject.matches?('production.orders.sync.warehouse')).to be true
+      expect(subject.matches?('orders.sync.warehouse')).to be true
     end
 
     it 'matches wildcard patterns' do
-      expect(subject.matches?('production.orders.sync.*')).to be true
-      expect(subject.matches?('production.*.sync.warehouse')).to be true
-      expect(subject.matches?('*.orders.sync.warehouse')).to be true
+      expect(subject.matches?('orders.sync.*')).to be true
+      expect(subject.matches?('*.sync.warehouse')).to be true
+      expect(subject.matches?('orders.*.warehouse')).to be true
     end
 
     it 'matches greedy wildcard' do
-      expect(subject.matches?('production.>')).to be true
-      expect(subject.matches?('production.orders.>')).to be true
+      expect(subject.matches?('orders.>')).to be true
+      expect(subject.matches?('orders.sync.>')).to be true
     end
 
     it 'does not match different subject' do
-      expect(subject.matches?('staging.orders.sync.warehouse')).to be false
-      expect(subject.matches?('production.users.sync.warehouse')).to be false
+      expect(subject.matches?('users.sync.warehouse')).to be false
+      expect(subject.matches?('orders.sync.payments')).to be false
     end
 
     it 'does not match partial subject' do
-      expect(subject.matches?('production.orders')).to be false
+      expect(subject.matches?('orders')).to be false
     end
 
     it 'works with Subject objects' do
-      pattern = described_class.new('production.*.sync.*')
+      pattern = described_class.new('*.sync.*')
       expect(subject.matches?(pattern)).to be true
     end
   end
 
   describe '#==' do
     it 'returns true for subjects with same value' do
-      subject1 = described_class.new('dev.app1.sync.app2')
-      subject2 = described_class.new('dev.app1.sync.app2')
+      subject1 = described_class.new('app1.sync.app2')
+      subject2 = described_class.new('app1.sync.app2')
 
       expect(subject1).to eq(subject2)
     end
 
     it 'returns false for subjects with different values' do
-      subject1 = described_class.new('dev.app1.sync.app2')
-      subject2 = described_class.new('prod.app1.sync.app2')
+      subject1 = described_class.new('app1.sync.app2')
+      subject2 = described_class.new('app2.sync.app2')
 
       expect(subject1).not_to eq(subject2)
     end
 
     it 'can be used as hash key' do
-      subject1 = described_class.new('dev.app.sync.dest')
-      subject2 = described_class.new('dev.app.sync.dest')
+      subject1 = described_class.new('app.sync.dest')
+      subject2 = described_class.new('app.sync.dest')
 
       hash = { subject1 => 'value1' }
       expect(hash[subject2]).to eq('value1')
@@ -129,22 +123,22 @@ RSpec.describe JetstreamBridge::Models::Subject do
     end
 
     it 'can be used in string interpolation' do
-      subject = described_class.new('production.orders.sync.warehouse')
+      subject = described_class.new('orders.sync.warehouse')
 
       message = "Publishing to #{subject}"
-      expect(message).to eq('Publishing to production.orders.sync.warehouse')
+      expect(message).to eq('Publishing to orders.sync.warehouse')
     end
   end
 
   describe 'immutability' do
     it 'freezes the subject instance' do
-      subject = described_class.new('dev.app.sync.dest')
+      subject = described_class.new('app.sync.dest')
 
       expect(subject).to be_frozen
     end
 
     it 'prevents modification' do
-      subject = described_class.new('dev.app.sync.dest')
+      subject = described_class.new('app.sync.dest')
 
       expect do
         subject.instance_variable_set(:@value, 'modified')
@@ -167,91 +161,78 @@ RSpec.describe JetstreamBridge::Models::Subject do
     end
 
     it 'preserves dashes and underscores' do
-      subject = described_class.new('env-staging.user_service.sync.email-service')
+      subject = described_class.new('user_service.sync.email-service')
 
-      expect(subject.to_s).to eq('env-staging.user_service.sync.email-service')
-    end
-  end
-
-  describe '#env' do
-    it 'returns first token as environment' do
-      subject = described_class.new('production.app.sync.dest')
-      expect(subject.env).to eq('production')
-    end
-
-    it 'returns nil when no tokens exist' do
-      # Single token without separator
-      subject = described_class.new('production')
-      expect(subject.env).to eq('production')
+      expect(subject.to_s).to eq('user_service.sync.email-service')
     end
   end
 
   describe '#source_app' do
-    it 'returns second token as source app' do
-      subject = described_class.new('production.orders.sync.warehouse')
+    it 'returns first token as source app' do
+      subject = described_class.new('orders.sync.warehouse')
       expect(subject.source_app).to eq('orders')
     end
 
     it 'returns app name for DLQ subjects' do
-      dlq_subject = described_class.dlq(env: 'production', app_name: 'api')
+      dlq_subject = described_class.dlq(app_name: 'api')
       expect(dlq_subject.source_app).to eq('api')
     end
 
-    it 'returns nil when second token does not exist' do
+    it 'returns value for single-token subject' do
       subject = described_class.new('production')
-      expect(subject.source_app).to be_nil
+      expect(subject.source_app).to eq('production')
     end
   end
 
   describe '#dest_app' do
-    it 'returns fourth token as destination app' do
-      subject = described_class.new('production.orders.sync.warehouse')
+    it 'returns third token as destination app' do
+      subject = described_class.new('orders.sync.warehouse')
       expect(subject.dest_app).to eq('warehouse')
     end
 
-    it 'returns nil when fourth token does not exist' do
-      subject = described_class.new('production.orders.sync')
+    it 'returns nil when third token does not exist' do
+      subject = described_class.new('orders.sync')
       expect(subject.dest_app).to be_nil
     end
   end
 
   describe '#dlq?' do
     it 'returns true for DLQ subjects' do
-      subject = described_class.dlq(env: 'production', app_name: 'api')
+      subject = described_class.dlq(app_name: 'api')
       expect(subject.dlq?).to be true
     end
 
     it 'returns false for regular subjects' do
-      subject = described_class.new('production.orders.sync.warehouse')
+      subject = described_class.new('orders.sync.warehouse')
       expect(subject.dlq?).to be false
     end
 
     it 'returns false when second token is not sync' do
-      subject = described_class.new('production.orders.other.dlq')
+      subject = described_class.new('orders.other.dlq')
       expect(subject.dlq?).to be false
     end
 
     it 'returns false when third token is not dlq' do
-      subject = described_class.new('production.sync.other')
+      subject = described_class.new('orders.sync.other')
       expect(subject.dlq?).to be false
     end
 
     it 'returns false for short subjects' do
-      subject = described_class.new('production.sync')
+      subject = described_class.new('orders.sync')
       expect(subject.dlq?).to be false
     end
   end
 
   describe '.dlq' do
     it 'creates a DLQ subject with app name' do
-      subject = described_class.dlq(env: 'production', app_name: 'api')
-      expect(subject.to_s).to eq('production.api.sync.dlq')
+      subject = described_class.dlq(app_name: 'api')
+      expect(subject.to_s).to eq('api.sync.dlq')
       expect(subject.dlq?).to be true
     end
 
-    it 'creates DLQ subject for different environments' do
-      subject = described_class.dlq(env: 'staging', app_name: 'worker')
-      expect(subject.to_s).to eq('staging.worker.sync.dlq')
+    it 'creates DLQ subject for different apps' do
+      subject = described_class.dlq(app_name: 'worker')
+      expect(subject.to_s).to eq('worker.sync.dlq')
     end
   end
 

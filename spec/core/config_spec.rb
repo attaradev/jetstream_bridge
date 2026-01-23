@@ -7,7 +7,7 @@ RSpec.describe JetstreamBridge::Config do
 
   describe '#initialize' do
     it 'sets default values' do
-      expect(config.env).to eq('development')
+      expect(config.stream_name).to eq('jetstream-bridge-stream')
       expect(config.app_name).to eq('app')
       expect(config.max_deliver).to eq(5)
       expect(config.ack_wait).to eq('30s')
@@ -20,7 +20,7 @@ RSpec.describe JetstreamBridge::Config do
     it 'reads NATS_URLS from environment' do
       allow(ENV).to receive(:[]).with('NATS_URLS').and_return('nats://test:4222')
       allow(ENV).to receive(:[]).with('NATS_URL').and_return(nil)
-      allow(ENV).to receive(:[]).with('NATS_ENV').and_return(nil)
+      allow(ENV).to receive(:[]).with('JETSTREAM_STREAM_NAME').and_return(nil)
       allow(ENV).to receive(:[]).with('APP_NAME').and_return(nil)
       allow(ENV).to receive(:fetch).with('DESTINATION_APP', nil).and_return(nil)
 
@@ -32,7 +32,7 @@ RSpec.describe JetstreamBridge::Config do
     it 'falls back to NATS_URL if NATS_URLS not set' do
       allow(ENV).to receive(:[]).with('NATS_URLS').and_return(nil)
       allow(ENV).to receive(:[]).with('NATS_URL').and_return('nats://fallback:4222')
-      allow(ENV).to receive(:[]).with('NATS_ENV').and_return(nil)
+      allow(ENV).to receive(:[]).with('JETSTREAM_STREAM_NAME').and_return(nil)
       allow(ENV).to receive(:[]).with('APP_NAME').and_return(nil)
       allow(ENV).to receive(:fetch).with('DESTINATION_APP', nil).and_return(nil)
 
@@ -42,35 +42,14 @@ RSpec.describe JetstreamBridge::Config do
     end
   end
 
-  describe '#stream_name' do
-    it 'combines env with stream suffix' do
-      config.env = 'production'
-
-      expect(config.stream_name).to eq('production-jetstream-bridge-stream')
-    end
-
-    it 'uses development by default' do
-      expect(config.stream_name).to eq('development-jetstream-bridge-stream')
-    end
-  end
-
   describe '#source_subject' do
     before do
-      config.env = 'staging'
       config.app_name = 'orders'
       config.destination_app = 'warehouse'
     end
 
-    it 'creates subject in format env.app.sync.dest' do
-      expect(config.source_subject).to eq('staging.orders.sync.warehouse')
-    end
-
-    it 'validates env component' do
-      config.env = 'prod*'
-
-      expect do
-        config.source_subject
-      end.to raise_error(JetstreamBridge::InvalidSubjectError, /env.*wildcards/)
+    it 'creates subject in format app.sync.dest' do
+      expect(config.source_subject).to eq('orders.sync.warehouse')
     end
 
     it 'validates app_name component' do
@@ -100,39 +79,28 @@ RSpec.describe JetstreamBridge::Config do
 
   describe '#destination_subject' do
     before do
-      config.env = 'production'
       config.app_name = 'warehouse'
       config.destination_app = 'orders'
     end
 
-    it 'creates subject in format env.dest.sync.app' do
-      expect(config.destination_subject).to eq('production.orders.sync.warehouse')
+    it 'creates subject in format dest.sync.app' do
+      expect(config.destination_subject).to eq('orders.sync.warehouse')
     end
 
     it 'swaps source and destination compared to source_subject' do
-      expect(config.destination_subject).to eq('production.orders.sync.warehouse')
-      expect(config.source_subject).to eq('production.warehouse.sync.orders')
+      expect(config.destination_subject).to eq('orders.sync.warehouse')
+      expect(config.source_subject).to eq('warehouse.sync.orders')
     end
   end
 
   describe '#dlq_subject' do
-    it 'creates DLQ subject with environment and app name' do
-      config.env = 'production'
+    it 'creates DLQ subject with app name' do
       config.app_name = 'api'
 
-      expect(config.dlq_subject).to eq('production.api.sync.dlq')
-    end
-
-    it 'validates env component' do
-      config.env = 'env*'
-
-      expect do
-        config.dlq_subject
-      end.to raise_error(JetstreamBridge::InvalidSubjectError, /env.*wildcards/)
+      expect(config.dlq_subject).to eq('api.sync.dlq')
     end
 
     it 'validates app_name component' do
-      config.env = 'production'
       config.app_name = 'app*'
 
       expect do
@@ -142,11 +110,10 @@ RSpec.describe JetstreamBridge::Config do
   end
 
   describe '#durable_name' do
-    it 'combines env and app_name' do
-      config.env = 'staging'
+    it 'uses app_name' do
       config.app_name = 'notifications'
 
-      expect(config.durable_name).to eq('staging-notifications-workers')
+      expect(config.durable_name).to eq('notifications-workers')
     end
   end
 
@@ -154,7 +121,7 @@ RSpec.describe JetstreamBridge::Config do
     before do
       config.destination_app = 'other_app'
       config.nats_urls = 'nats://localhost:4222'
-      config.env = 'test'
+      config.stream_name = 'jetstream-bridge-stream'
       config.app_name = 'my_app'
     end
 
@@ -204,13 +171,13 @@ RSpec.describe JetstreamBridge::Config do
       end
     end
 
-    context 'with missing env' do
+    context 'with missing stream_name' do
       it 'raises ConfigurationError' do
-        config.env = ''
+        config.stream_name = ''
 
         expect do
           config.validate!
-        end.to raise_error(JetstreamBridge::ConfigurationError, /env is required/)
+        end.to raise_error(JetstreamBridge::ConfigurationError, /stream_name is required/)
       end
     end
 

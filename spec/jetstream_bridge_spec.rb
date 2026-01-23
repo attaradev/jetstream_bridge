@@ -18,7 +18,7 @@ RSpec.describe JetstreamBridge do
     described_class.configure do |c|
       c.destination_app = 'dest'
       c.app_name = 'source'
-      c.env = 'test'
+      c.stream_name = 'jetstream-bridge-stream'
     end
     # Mock connection for operations that need it
     allow(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
@@ -53,7 +53,7 @@ RSpec.describe JetstreamBridge do
   describe '.publish' do
     it 'publishes with structured parameters' do
       expect(jts).to receive(:publish) do |subject, data, header:|
-        expect(subject).to eq('test.source.sync.dest')
+        expect(subject).to eq('source.sync.dest')
         expect(header).to be_a(Hash)
         envelope = Oj.load(data, mode: :strict)
         expect(envelope['event_type']).to eq('created')
@@ -206,7 +206,7 @@ RSpec.describe JetstreamBridge do
 
     it 'includes config information' do
       result = described_class.health_check
-      expect(result[:config][:env]).to eq('test')
+      expect(result[:config][:stream_name]).to eq('jetstream-bridge-stream')
       expect(result[:config][:app_name]).to eq('source')
       expect(result[:config][:destination_app]).to eq('dest')
     end
@@ -353,7 +353,7 @@ RSpec.describe JetstreamBridge do
     it 'returns stream information' do
       result = described_class.stream_info
       expect(result[:exists]).to be true
-      expect(result[:name]).to eq('test-jetstream-bridge-stream')
+      expect(result[:name]).to eq('jetstream-bridge-stream')
       expect(result[:subjects]).to eq(['test.subject'])
       expect(result[:messages]).to eq(10)
     end
@@ -376,7 +376,7 @@ RSpec.describe JetstreamBridge do
         described_class.configure do |c|
           c.destination_app = 'dest'
           c.app_name = 'source'
-          c.env = 'test'
+          c.stream_name = 'jetstream-bridge-stream'
         end
       end
 
@@ -424,25 +424,25 @@ RSpec.describe JetstreamBridge do
     end
 
     it 'accepts hash overrides' do
-      described_class.configure(env: 'production', app_name: 'my_app')
-      expect(described_class.config.env).to eq('production')
+      described_class.configure(stream_name: 'custom-stream', app_name: 'my_app')
+      expect(described_class.config.stream_name).to eq('custom-stream')
       expect(described_class.config.app_name).to eq('my_app')
     end
 
     it 'accepts block configuration' do
       described_class.configure do |c|
-        c.env = 'staging'
+        c.stream_name = 'staging-stream'
         c.app_name = 'test'
       end
-      expect(described_class.config.env).to eq('staging')
+      expect(described_class.config.stream_name).to eq('staging-stream')
       expect(described_class.config.app_name).to eq('test')
     end
 
     it 'accepts both hash and block' do
-      described_class.configure(env: 'dev') do |c|
+      described_class.configure(stream_name: 'dev-stream') do |c|
         c.app_name = 'combined'
       end
-      expect(described_class.config.env).to eq('dev')
+      expect(described_class.config.stream_name).to eq('dev-stream')
       expect(described_class.config.app_name).to eq('combined')
     end
 
@@ -454,13 +454,13 @@ RSpec.describe JetstreamBridge do
 
     it 'handles nil overrides' do
       expect do
-        described_class.configure(nil) { |c| c.env = 'test' }
+        described_class.configure(nil) { |c| c.stream_name = 'test-stream' }
       end.not_to raise_error
     end
 
     it 'handles empty hash overrides' do
       expect do
-        described_class.configure({}) { |c| c.env = 'test' }
+        described_class.configure({}) { |c| c.stream_name = 'test-stream' }
       end.not_to raise_error
     end
 
@@ -468,17 +468,13 @@ RSpec.describe JetstreamBridge do
       connection_count = 0
       allow(JetstreamBridge::Connection).to receive(:connect!) { connection_count += 1 }
 
-      described_class.configure do |c|
-        c.env = 'test'
-      end
+      described_class.configure { |c| c.stream_name = 'test-stream' }
 
       expect(connection_count).to eq(0)
     end
 
     it 'returns config instance' do
-      config = described_class.configure do |c|
-        c.env = 'test'
-      end
+      config = described_class.configure { |c| c.stream_name = 'test-stream' }
 
       expect(config).to be_a(JetstreamBridge::Config)
     end
@@ -486,9 +482,9 @@ RSpec.describe JetstreamBridge do
 
   describe '.reset!' do
     it 'clears the configuration' do
-      described_class.configure { |c| c.env = 'custom' }
+      described_class.configure { |c| c.stream_name = 'custom-stream' }
       described_class.reset!
-      expect(described_class.config.env).to eq('development')
+      expect(described_class.config.stream_name).to eq('jetstream-bridge-stream')
     end
 
     it 'resets connection_initialized flag' do
@@ -501,6 +497,11 @@ RSpec.describe JetstreamBridge do
   describe '.startup!' do
     before do
       described_class.reset!
+      described_class.configure do |c|
+        c.destination_app = 'dest'
+        c.app_name = 'source'
+        c.stream_name = 'jetstream-bridge-stream'
+      end
     end
 
     it 'initializes the connection' do
@@ -559,7 +560,7 @@ RSpec.describe JetstreamBridge do
       described_class.configure do |c|
         c.destination_app = 'dest'
         c.app_name = 'source'
-        c.env = 'test'
+        c.stream_name = 'jetstream-bridge-stream'
       end
     end
 

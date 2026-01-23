@@ -244,15 +244,14 @@ module JetstreamBridge
 
     private
 
-    def ensure_destination_app_configured!
-      return unless JetstreamBridge.config.destination_app.to_s.empty?
-
-      raise ArgumentError, 'destination_app must be configured'
-    end
-
     def ensure_subscription!
       @sub_mgr.ensure_consumer!
       @psub = @sub_mgr.subscribe!
+    end
+
+    def ensure_destination_app_configured!
+      # Use subject builder to enforce required components and align with existing validation messages.
+      JetstreamBridge.config.destination_subject
     end
 
     # Returns number of messages processed; 0 on timeout/idle or after recovery.

@@ -18,7 +18,7 @@ RSpec.describe JetstreamBridge::Publisher do
     JetstreamBridge.configure do |c|
       c.destination_app = 'dest'
       c.app_name        = 'source'
-      c.env             = 'test'
+      c.stream_name     = 'jetstream-bridge-stream'
     end
     # Manually mark as initialized so Publisher can be created
     JetstreamBridge.instance_variable_set(:@connection_initialized, true)
@@ -33,7 +33,7 @@ RSpec.describe JetstreamBridge::Publisher do
     it 'publishes with nats-msg-id header matching envelope event_id' do
       expect(jts).to receive(:publish) do |subject, data, header:|
         envelope = Oj.load(data, mode: :strict)
-        expect(subject).to eq('test.source.sync.dest')
+        expect(subject).to eq('source.sync.dest')
         expect(header['nats-msg-id']).to eq(envelope['event_id'])
         ack
       end
@@ -42,7 +42,7 @@ RSpec.describe JetstreamBridge::Publisher do
       expect(result).to be_a(JetstreamBridge::Models::PublishResult)
       expect(result.success?).to be(true)
       expect(result.event_id).to be_a(String)
-      expect(result.subject).to eq('test.source.sync.dest')
+      expect(result.subject).to eq('source.sync.dest')
     end
   end
 
@@ -51,7 +51,7 @@ RSpec.describe JetstreamBridge::Publisher do
       expect(jts).to receive(:publish) do |subject, data, header:|
         expect(header).to be_a(Hash)
         envelope = Oj.load(data, mode: :strict)
-        expect(subject).to eq('test.source.sync.dest')
+        expect(subject).to eq('source.sync.dest')
         expect(envelope['event_type']).to eq('user.created')
         expect(envelope['resource_type']).to eq('user')
         expect(envelope['payload']).to eq(payload)
@@ -74,7 +74,7 @@ RSpec.describe JetstreamBridge::Publisher do
       expect(jts).to receive(:publish) do |subject, data, header:|
         expect(header).to be_a(Hash)
         envelope = Oj.load(data, mode: :strict)
-        expect(subject).to eq('test.source.sync.dest')
+        expect(subject).to eq('source.sync.dest')
         expect(envelope['event_type']).to eq('created')
         expect(envelope['resource_type']).to eq('user')
         expect(envelope['event_id']).to eq('custom-id-123')
@@ -110,7 +110,7 @@ RSpec.describe JetstreamBridge::Publisher do
       JetstreamBridge.configure { |c| c.destination_app = nil }
       expect do
         publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
-      end.to raise_error(ArgumentError, /destination_app must be configured/)
+      end.to raise_error(JetstreamBridge::MissingConfigurationError, /destination_app cannot be empty/)
     end
   end
 

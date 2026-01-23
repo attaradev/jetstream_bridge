@@ -9,7 +9,7 @@ RSpec.describe JetstreamBridge::RetryStrategy do
     JetstreamBridge.configure do |c|
       c.destination_app = 'dest'
       c.app_name        = 'test_app'
-      c.env             = 'test'
+      c.stream_name     = 'jetstream-bridge-stream'
     end
   end
 

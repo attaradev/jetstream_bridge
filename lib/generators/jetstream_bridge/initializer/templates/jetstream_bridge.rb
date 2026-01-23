@@ -13,9 +13,8 @@ JetstreamBridge.configure do |config|
   # NATS server URLs (comma-separated for cluster)
   config.nats_urls = ENV.fetch('NATS_URLS', 'nats://localhost:4222')
 
-  # Environment identifier (e.g., 'development', 'production')
-  # Used in stream names and subject routing
-  config.env = ENV.fetch('NATS_ENV', Rails.env)
+  # Stream name (required) - managed separately from runtime credentials
+  config.stream_name = ENV.fetch('JETSTREAM_STREAM_NAME', 'jetstream-bridge-stream')
 
   # Application name (used in subject routing)
   config.app_name = ENV.fetch('APP_NAME', Rails.application.class.module_parent_name.underscore)

@@ -9,7 +9,7 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
       c.nats_urls = 'nats://localhost:4222'
       c.destination_app = 'dest_app'
       c.app_name = 'test_app'
-      c.env = 'development'
+      c.stream_name = 'jetstream-bridge-stream'
       c.max_deliver = 5
       c.ack_wait = 30
       c.backoff = [1, 5, 10]
@@ -34,7 +34,7 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
     it 'builds consumer config' do
       expect(manager.desired_consumer_cfg).to include(
         durable_name: durable,
-        filter_subject: 'development.dest_app.sync.test_app',
+        filter_subject: 'dest_app.sync.test_app',
         ack_policy: 'explicit',
         deliver_policy: 'all',
         max_deliver: 5
@@ -44,13 +44,13 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
 
   describe '#stream_name' do
     it 'returns the stream name from config' do
-      expect(manager.stream_name).to eq('development-jetstream-bridge-stream')
+      expect(manager.stream_name).to eq('jetstream-bridge-stream')
     end
   end
 
   describe '#filter_subject' do
     it 'returns the destination subject from config' do
-      expect(manager.filter_subject).to eq('development.dest_app.sync.test_app')
+      expect(manager.filter_subject).to eq('dest_app.sync.test_app')
     end
   end
 
@@ -60,7 +60,7 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
     end
 
     it 'includes filter subject' do
-      expect(manager.desired_consumer_cfg[:filter_subject]).to eq('development.dest_app.sync.test_app')
+      expect(manager.desired_consumer_cfg[:filter_subject]).to eq('dest_app.sync.test_app')
     end
 
     it 'includes ack policy' do
@@ -85,112 +85,46 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
   end
 
   describe '#ensure_consumer!' do
-    context 'when consumer does not exist' do
-      before do
-        allow(mock_jts).to receive(:consumer_info).and_raise(NATS::JetStream::Error)
-        allow(mock_jts).to receive(:add_consumer)
-      end
+    context 'when forced (provisioning)' do
+      before { allow(mock_jts).to receive(:add_consumer) }
 
-      it 'creates a new consumer' do
+      it 'creates the consumer without verifying' do
         expect(mock_jts).to receive(:add_consumer).with(
           config.stream_name,
           hash_including(durable_name: durable)
         )
-        manager.ensure_consumer!
+        manager.ensure_consumer!(force: true)
       end
     end
 
-    context 'when consumer exists with desired config' do
-      let(:mock_config) do
-        double('ConsumerConfig',
-               filter_subject: 'development.dest_app.sync.test_app',
-               ack_policy: :explicit,
-               deliver_policy: :all,
-               max_deliver: 5,
-               ack_wait: 30,
-               backoff: [1, 5, 10])
-      end
-      let(:mock_info) { double('ConsumerInfo', config: mock_config) }
+    context 'when auto_provision is enabled' do
+      before { allow(mock_jts).to receive(:add_consumer) }
 
-      before do
-        allow(mock_jts).to receive(:consumer_info).and_return(mock_info)
-      end
-
-      it 'does not recreate the consumer' do
-        expect(mock_jts).not_to receive(:delete_consumer)
-        expect(mock_jts).not_to receive(:add_consumer)
+      it 'creates the consumer' do
         manager.ensure_consumer!
-      end
-    end
-
-    context 'when consumer exists with different config' do
-      let(:mock_config) do
-        double('ConsumerConfig',
-               filter_subject: 'development.dest_app.sync.test_app',
-               ack_policy: :explicit,
-               deliver_policy: :all,
-               max_deliver: 3,
-               ack_wait: 30,
-               backoff: [1])
-      end
-      let(:mock_info) { double('ConsumerInfo', config: mock_config) }
-
-      before do
-        allow(mock_jts).to receive(:consumer_info).and_return(mock_info)
-        allow(mock_jts).to receive(:delete_consumer)
-        allow(mock_jts).to receive(:add_consumer)
-      end
-
-      it 'deletes the existing consumer' do
-        expect(mock_jts).to receive(:delete_consumer).with(config.stream_name, durable)
-        manager.ensure_consumer!
-      end
-
-      it 'creates a new consumer with desired config' do
-        expect(mock_jts).to receive(:add_consumer).with(
+        expect(mock_jts).to have_received(:add_consumer).with(
           config.stream_name,
-          hash_including(durable_name: durable, max_deliver: 5)
+          hash_including(durable_name: durable)
         )
-        manager.ensure_consumer!
       end
     end
 
-    context 'when delete fails during recreate' do
-      let(:mock_config) do
-        double('ConsumerConfig',
-               filter_subject: 'development.dest_app.sync.test_app',
-               ack_policy: :explicit,
-               deliver_policy: :all,
-               max_deliver: 3,
-               ack_wait: 30,
-               backoff: [1])
-      end
-      let(:mock_info) { double('ConsumerInfo', config: mock_config) }
-
+    context 'when auto_provision is disabled' do
       before do
-        allow(mock_jts).to receive(:consumer_info).and_return(mock_info)
-        allow(mock_jts).to receive(:delete_consumer).and_raise(NATS::JetStream::Error.new('not found'))
+        allow(config).to receive(:auto_provision).and_return(false)
         allow(mock_jts).to receive(:add_consumer)
       end
 
-      it 'logs warning but continues to create' do
-        expect(mock_jts).to receive(:add_consumer)
+      it 'skips provisioning' do
         manager.ensure_consumer!
+        expect(mock_jts).not_to have_received(:add_consumer)
       end
     end
   end
 
   describe '#subscribe!' do
-    before do
-      allow(mock_jts).to receive(:pull_subscribe)
-    end
-
-    it 'creates a pull subscription' do
-      expect(mock_jts).to receive(:pull_subscribe).with(
-        manager.filter_subject,
-        durable,
-        hash_including(stream: manager.stream_name, config: manager.desired_consumer_cfg)
-      )
+    it 'uses verification-free subscription path' do
+      expect(manager).to receive(:subscribe_without_verification!)
       manager.subscribe!
     end
   end
@@ -232,74 +166,7 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
       end
     end
 
-    describe 'config normalization' do
-      it 'normalizes consumer config from server' do
-        server_cfg = {
-          filter_subject: 'test.subject',
-          ack_policy: :explicit,
-          deliver_policy: :all,
-          max_deliver: 5,
-          ack_wait: 30,
-          backoff: [1, 5]
-        }
-
-        normalized = manager_instance.send(:normalize_consumer_config, server_cfg)
-
-        expect(normalized).to eq(
-          filter_subject: 'test.subject',
-          ack_policy: 'explicit',
-          deliver_policy: 'all',
-          max_deliver: 5,
-          ack_wait_secs: 30,
-          backoff_secs: [1, 5]
-        )
-      end
-
-      it 'handles symbol ack_policy conversion' do
-        cfg = { ack_policy: :Explicit }
-        normalized = manager_instance.send(:normalize_consumer_config, cfg)
-        expect(normalized[:ack_policy]).to eq('explicit')
-      end
-
-      it 'normalizes nil values' do
-        cfg = { filter_subject: nil, ack_policy: nil }
-        normalized = manager_instance.send(:normalize_consumer_config, cfg)
-        expect(normalized[:filter_subject]).to be_nil
-        expect(normalized[:ack_policy]).to be_nil
-      end
-
-      it 'normalizes JetStream ConsumerInfo units (ack_wait/backoff) in seconds' do
-        created_at = Time.now.iso8601
-        consumer_info = NATS::JetStream::API::ConsumerInfo.new(
-          type: 'pull',
-          stream_name: config.stream_name,
-          name: durable,
-          created: created_at,
-          config: {
-            durable_name: durable,
-            filter_subject: config.destination_subject,
-            ack_policy: 'explicit',
-            deliver_policy: 'all',
-            max_deliver: 5,
-            ack_wait: 30 * NATS::NANOSECONDS,
-            backoff: [1, 5].map { |s| s * NATS::NANOSECONDS }
-          },
-          delivered: { consumer_seq: 0, stream_seq: 0, last_active: created_at },
-          ack_floor: { consumer_seq: 0, stream_seq: 0, last_active: created_at },
-          num_ack_pending: 0,
-          num_redelivered: 0,
-          num_waiting: 0,
-          num_pending: 0,
-          cluster: {},
-          push_bound: false
-        )
-
-        normalized = manager_instance.send(:normalize_consumer_config, consumer_info.config)
-
-        expect(normalized[:ack_wait_secs]).to eq(30)
-        expect(normalized[:backoff_secs]).to eq([1, 5])
-      end
-    end
+    # config normalization no longer used (verification removed)
   end
 
   describe 'struct and hash access' do

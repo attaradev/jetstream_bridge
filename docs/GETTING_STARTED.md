@@ -6,7 +6,7 @@ This guide covers installation, Rails setup, configuration, and basic publish/co
 
 ```ruby
 # Gemfile
-gem "jetstream_bridge", "~> 4.0"
+gem "jetstream_bridge", "~> 4.5"
 ```
 
 ```bash
@@ -39,7 +39,7 @@ Generators create:
 # config/initializers/jetstream_bridge.rb
 JetstreamBridge.configure do |config|
   config.nats_urls       = ENV.fetch("NATS_URLS", "nats://localhost:4222")
-  config.env             = ENV.fetch("RAILS_ENV", "development")
+  config.stream_name     = ENV.fetch("JETSTREAM_STREAM_NAME", "jetstream-bridge-stream")
   config.app_name        = "my_app"
   config.destination_app = ENV.fetch("DESTINATION_APP")
 

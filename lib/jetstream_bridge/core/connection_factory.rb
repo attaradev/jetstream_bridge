@@ -9,12 +9,7 @@ module JetstreamBridge
     class ConnectionFactory
       # Connection options builder
       class ConnectionOptions
-        DEFAULT_OPTS = {
-          reconnect: true,
-          reconnect_time_wait: 2,
-          max_reconnect_attempts: 10,
-          connect_timeout: 5
-        }.freeze
+        DEFAULT_OPTS = JetstreamBridge::Connection::DEFAULT_CONN_OPTS
 
         attr_accessor :servers, :reconnect, :reconnect_time_wait,
                       :max_reconnect_attempts, :connect_timeout,
@@ -73,7 +68,7 @@ module JetstreamBridge
 
           ConnectionOptions.new(
             servers: servers,
-            name: "#{config.app_name}-#{config.env}"
+            name: config.app_name
           )
         end
 

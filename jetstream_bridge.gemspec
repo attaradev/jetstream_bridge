@@ -10,7 +10,7 @@ Gem::Specification.new do |spec|
 
   spec.summary     = 'Production-safe realtime data bridge using NATS JetStream'
   spec.description = <<~DESC.strip
-    Production-ready publishers/consumers for NATS JetStream with environment-scoped
+    Production-ready publishers/consumers for NATS JetStream with app-scoped
     subjects, overlap guards, DLQ routing, retries/backoff, and optional inbox/outbox
     patterns. Includes health checks, auto-reconnection, graceful shutdown, topology
     setup helpers, and Rails generators.

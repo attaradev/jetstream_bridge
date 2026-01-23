@@ -8,6 +8,7 @@ require_relative 'jetstream_bridge/consumer/consumer'
 require_relative 'jetstream_bridge/consumer/middleware'
 require_relative 'jetstream_bridge/models/publish_result'
 require_relative 'jetstream_bridge/models/event'
+require_relative 'jetstream_bridge/provisioner'
 
 # Rails-specific entry point (lifecycle helpers + Railtie)
 require_relative 'jetstream_bridge/rails' if defined?(Rails::Railtie)
@@ -34,7 +35,6 @@ require_relative 'jetstream_bridge/models/outbox_event'
 #   # Configure
 #   JetstreamBridge.configure do |config|
 #     config.nats_urls = "nats://localhost:4222"
-#     config.env = "development"
 #     config.app_name = "my_app"
 #     config.destination_app = "other_app"
 #     config.use_outbox = true
@@ -87,7 +87,7 @@ module JetstreamBridge
     #   JetstreamBridge.startup!  # Explicitly start connection
     #
     # @example With hash overrides
-    #   JetstreamBridge.configure(env: 'production', app_name: 'my_app')
+    #   JetstreamBridge.configure(app_name: 'my_app')
     #
     # @param overrides [Hash] Configuration key-value pairs to set
     # @yield [Config] Configuration object for block-based configuration
@@ -139,6 +139,7 @@ module JetstreamBridge
     def startup!
       return if @connection_initialized
 
+      config.validate!
       connect_and_ensure_stream!
       @connection_initialized = true
       Logging.info('JetStream Bridge started successfully', tag: 'JetstreamBridge')
@@ -200,10 +201,32 @@ module JetstreamBridge
     #
     # @return [Object] JetStream context
     def connect_and_ensure_stream!
-      Connection.connect!
+      config.validate!
+      provision = config.auto_provision
+      Connection.connect!(verify_js: provision)
       jts = Connection.jetstream
-      Topology.ensure!(jts)
+      raise ConnectionNotEstablishedError, 'JetStream connection not available' unless jts
+
+      if provision
+        Provisioner.new(config: config).ensure_stream!(jts: jts)
+      else
+        Logging.info(
+          'auto_provision=false: skipping stream provisioning and JetStream account_info. ' \
+          'Run `bundle exec rake jetstream_bridge:provision` with admin credentials to create/update topology.',
+          tag: 'JetstreamBridge'
+        )
+      end
+
       jts
+    end
+
+    # Provision stream/consumer using management credentials (out of band from runtime).
+    #
+    # @param ensure_consumer [Boolean] Whether to create/align the consumer along with the stream.
+    # @return [Object] JetStream context
+    def provision!(ensure_consumer: true)
+      config.validate!
+      Provisioner.new(config: config).ensure!(ensure_consumer: ensure_consumer)
     end
 
     # Backwards-compatible alias for the previous method name
@@ -229,46 +252,20 @@ module JetstreamBridge
       enforce_health_check_rate_limit! if skip_cache
 
       start_time = Time.now
-      conn_instance = Connection.instance
-
-      # Active check: calls @jts.account_info internally
-      # Pass skip_cache to force fresh check if requested
-      connected = conn_instance.connected?(skip_cache: skip_cache)
-      connected_at = conn_instance.connected_at
-      connection_state = conn_instance.state
-      last_error = conn_instance.last_reconnect_error
-      last_error_at = conn_instance.last_reconnect_error_at
-
-      # Active check: queries actual stream from NATS server
-      stream_info = connected ? fetch_stream_info : { exists: false, name: config.stream_name }
-
-      # Active check: measure NATS round-trip time
-      rtt_ms = measure_nats_rtt if connected
-
-      health_check_duration_ms = ((Time.now - start_time) * 1000).round(2)
+      conn_status = connection_snapshot(Connection.instance, skip_cache: skip_cache)
+      stream_info = stream_status(conn_status[:connected])
+      rtt_ms = measure_nats_rtt if conn_status[:connected]
+      health_check_duration_ms = elapsed_ms(start_time)
 
       {
-        healthy: connected && stream_info&.fetch(:exists, false),
-        connection: {
-          state: connection_state,
-          connected: connected,
-          connected_at: connected_at&.iso8601,
-          last_error: last_error&.message,
-          last_error_at: last_error_at&.iso8601
-        },
+        healthy: health_flag(conn_status[:connected], stream_info),
+        connection: connection_payload(conn_status),
         stream: stream_info,
         performance: {
           nats_rtt_ms: rtt_ms,
           health_check_duration_ms: health_check_duration_ms
         },
-        config: {
-          env: config.env,
-          app_name: config.app_name,
-          destination_app: config.destination_app,
-          use_outbox: config.use_outbox,
-          use_inbox: config.use_inbox,
-          use_dlq: config.use_dlq
-        },
+        config: config_summary,
         version: JetstreamBridge::VERSION
       }
     rescue StandardError => e
@@ -415,6 +412,61 @@ module JetstreamBridge
       else
         consumer
       end
+    end
+
+    private
+
+    def connection_snapshot(conn_instance, skip_cache:)
+      {
+        connected: conn_instance.connected?(skip_cache: skip_cache),
+        connected_at: conn_instance.connected_at,
+        state: conn_instance.state,
+        last_error: conn_instance.last_reconnect_error,
+        last_error_at: conn_instance.last_reconnect_error_at
+      }
+    end
+
+    def stream_status(connected)
+      return stream_missing unless connected
+      return skipped_stream_info unless config.auto_provision
+
+      fetch_stream_info
+    end
+
+    def stream_missing
+      { exists: false, name: config.stream_name }
+    end
+
+    def health_flag(connected, stream_info)
+      return connected unless config.auto_provision
+
+      connected && stream_info&.fetch(:exists, false)
+    end
+
+    def connection_payload(status)
+      {
+        state: status[:state],
+        connected: status[:connected],
+        connected_at: status[:connected_at]&.iso8601,
+        last_error: status[:last_error]&.message,
+        last_error_at: status[:last_error_at]&.iso8601
+      }
+    end
+
+    def config_summary
+      {
+        app_name: config.app_name,
+        destination_app: config.destination_app,
+        stream_name: config.stream_name,
+        auto_provision: config.auto_provision,
+        use_outbox: config.use_outbox,
+        use_inbox: config.use_inbox,
+        use_dlq: config.use_dlq
+      }
+    end
+
+    def elapsed_ms(start_time)
+      ((Time.now - start_time) * 1000).round(2)
     end
   end
 end

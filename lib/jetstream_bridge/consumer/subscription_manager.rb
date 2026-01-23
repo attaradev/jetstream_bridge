@@ -2,6 +2,7 @@
 
 require_relative '../core/logging'
 require_relative '../core/duration'
+require_relative '../errors'
 
 module JetstreamBridge
   # Encapsulates durable ensure + subscribe for a pull consumer.
@@ -10,8 +11,7 @@ module JetstreamBridge
       @jts     = jts
       @durable = durable
       @cfg     = cfg
-      @desired_cfg      = build_consumer_config(@durable, filter_subject)
-      @desired_cfg_norm = normalize_consumer_config(@desired_cfg)
+      @desired_cfg = build_consumer_config(@durable, filter_subject)
     end
 
     def stream_name
@@ -26,52 +26,68 @@ module JetstreamBridge
       @desired_cfg
     end
 
-    def ensure_consumer!
-      info = consumer_info_or_nil
-      return create_consumer! unless info
-
-      have_norm = normalize_consumer_config(info.config)
-      if have_norm == @desired_cfg_norm
-        log_consumer_ok
-      else
-        log_consumer_diff(have_norm)
-        recreate_consumer!
+    def ensure_consumer!(force: false)
+      # Runtime path: never hit JetStream management APIs to avoid admin permissions.
+      unless force || @cfg.auto_provision
+        log_runtime_skip
+        return
       end
+
+      create_consumer!
     end
 
     # Bind a pull subscriber to the existing durable.
     def subscribe!
-      @jts.pull_subscribe(
-        filter_subject,
-        @durable,
-        stream: stream_name,
-        config: desired_consumer_cfg
-      )
+      # Always bypass consumer_info to avoid requiring JetStream API permissions at runtime.
+      subscribe_without_verification!
+    end
+
+    def subscribe_without_verification!
+      # Manually create a pull subscription without calling consumer_info
+      # This bypasses the permission check in nats-pure's pull_subscribe
+      nc = resolve_nc
+
+      if nc.respond_to?(:new_inbox) && nc.respond_to?(:subscribe)
+        prefix = @jts.instance_variable_get(:@prefix) || '$JS.API'
+        deliver = nc.new_inbox
+        sub = nc.subscribe(deliver)
+
+        # Extend with PullSubscription module to add fetch methods
+        sub.extend(NATS::JetStream::PullSubscription)
+
+        # Set up the JSI (JetStream Info) struct that PullSubscription expects
+        # This matches what nats-pure does in pull_subscribe
+        subject = "#{prefix}.CONSUMER.MSG.NEXT.#{stream_name}.#{@durable}"
+        sub.jsi = NATS::JetStream::JS::Sub.new(
+          js: @jts,
+          stream: stream_name,
+          consumer: @durable,
+          nms: subject
+        )
+
+        Logging.info(
+          "Created pull subscription without verification for consumer #{@durable} " \
+          "(stream=#{stream_name}, filter=#{filter_subject})",
+          tag: 'JetstreamBridge::Consumer'
+        )
+
+        return sub
+      end
+
+      # Fallback for environments (mocks/tests) where low-level NATS client is unavailable.
+      if @jts.respond_to?(:pull_subscribe)
+        Logging.info(
+          "Using pull_subscribe fallback for consumer #{@durable} (stream=#{stream_name})",
+          tag: 'JetstreamBridge::Consumer'
+        )
+        return @jts.pull_subscribe(filter_subject, @durable, stream: stream_name)
+      end
+
+      raise JetstreamBridge::ConnectionError,
+            'Unable to create subscription without verification: NATS client not available'
     end
 
     private
-
-    def consumer_info_or_nil
-      @jts.consumer_info(stream_name, @durable)
-    rescue NATS::JetStream::Error
-      nil
-    end
-
-    # ---- comparison ----
-
-    def log_consumer_diff(have_norm)
-      want_norm = @desired_cfg_norm
-
-      diffs = {}
-      (have_norm.keys | want_norm.keys).each do |k|
-        diffs[k] = { have: have_norm[k], want: want_norm[k] } unless have_norm[k] == want_norm[k]
-      end
-
-      Logging.warn(
-        "Consumer #{@durable} config mismatch (filter=#{filter_subject}) diff=#{diffs}",
-        tag: 'JetstreamBridge::Consumer'
-      )
-    end
 
     def build_consumer_config(durable, filter_subject)
       {
@@ -86,50 +102,10 @@ module JetstreamBridge
       }
     end
 
-    # Normalize both server-returned config objects and our desired hash
-    # into a common hash with consistent units/types for accurate comparison.
-    def normalize_consumer_config(cfg)
-      {
-        filter_subject: sval(cfg, :filter_subject), # string
-        ack_policy: sval(cfg, :ack_policy), # string
-        deliver_policy: sval(cfg, :deliver_policy), # string
-        max_deliver: ival(cfg, :max_deliver), # integer
-        ack_wait_secs: d_secs(cfg, :ack_wait), # integer seconds
-        backoff_secs: darr_secs(cfg, :backoff) # array of integer seconds
-      }
-    end
-
-    # ---- lifecycle helpers ----
-
-    def recreate_consumer!
-      Logging.warn(
-        "Consumer #{@durable} exists with mismatched config; recreating (filter=#{filter_subject})",
-        tag: 'JetstreamBridge::Consumer'
-      )
-      safe_delete_consumer
-      create_consumer!
-    end
-
     def create_consumer!
       @jts.add_consumer(stream_name, **desired_consumer_cfg)
       Logging.info(
         "Created consumer #{@durable} (filter=#{filter_subject})",
-        tag: 'JetstreamBridge::Consumer'
-      )
-    end
-
-    def log_consumer_ok
-      Logging.info(
-        "Consumer #{@durable} exists with desired config.",
-        tag: 'JetstreamBridge::Consumer'
-      )
-    end
-
-    def safe_delete_consumer
-      @jts.delete_consumer(stream_name, @durable)
-    rescue NATS::JetStream::Error => e
-      Logging.warn(
-        "Delete consumer #{@durable} ignored: #{e.class} #{e.message}",
         tag: 'JetstreamBridge::Consumer'
       )
     end
@@ -199,6 +175,23 @@ module JetstreamBridge
     def seconds_from_millis(millis)
       # Always round up to avoid zero-second waits when sub-second durations are provided.
       [(millis / 1000.0).ceil, 1].max
+    end
+
+    def log_runtime_skip
+      Logging.info(
+        "Skipping consumer provisioning/verification for #{@durable} at runtime to avoid JetStream API usage. " \
+        'Ensure it is pre-created via provisioning.',
+        tag: 'JetstreamBridge::Consumer'
+      )
+    end
+
+    def resolve_nc
+      return @jts.nc if @jts.respond_to?(:nc)
+      return @jts.instance_variable_get(:@nc) if @jts.instance_variable_defined?(:@nc)
+
+      return @cfg.mock_nats_client if @cfg.respond_to?(:mock_nats_client) && @cfg.mock_nats_client
+
+      nil
     end
   end
 end

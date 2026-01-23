@@ -30,7 +30,6 @@ module JetstreamBridge
       def config_debug
         cfg = JetstreamBridge.config
         {
-          env: cfg.env,
           app_name: cfg.app_name,
           destination_app: cfg.destination_app,
           stream_name: cfg.stream_name,

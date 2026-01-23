@@ -32,22 +32,26 @@ production:
 ### Sizing Guidelines
 
 **Publishers (Web/API processes):**
+
 - 1-2 connections per process (uses existing AR pool)
 - Example: 4 Puma workers × 5 threads = 20 connections minimum
 
 **Consumers:**
+
 - Dedicated connections per consumer process
 - Recommended: 2-5 connections per consumer
 - Example: 3 consumer processes = 6-15 connections
 
 **Total Formula:**
-```
+
+```markdown
 Total Connections = (Web Workers × Threads) + (Consumers × 3) + 10 buffer
 ```
 
 ### Example Calculation
 
 For a typical production setup:
+
 - 4 Puma workers × 5 threads = 20 connections
 - 3 consumer processes × 3 connections = 9 connections
 - 10 connection buffer = 10 connections
@@ -74,7 +78,7 @@ JetstreamBridge.configure do |config|
   config.connect_retry_delay = 3     # Default: 2 seconds
 
   # Required configuration
-  config.env = ENV.fetch("RAILS_ENV", "production")
+  config.stream_name = ENV.fetch("JETSTREAM_STREAM_NAME", "jetstream-bridge-stream")
   config.app_name = ENV.fetch("APP_NAME", "myapp")
   config.destination_app = ENV.fetch("DESTINATION_APP")
 
@@ -135,6 +139,7 @@ end
 ### Memory Management
 
 Long-running consumers automatically:
+
 - Log health checks every 10 minutes (iterations, memory, uptime)
 - Warn when memory exceeds 1GB
 - Suggest garbage collection when heap grows large
@@ -148,7 +153,7 @@ Monitor these logs to detect memory leaks early.
 ### Key Metrics to Track
 
 | Metric | Description | Alert Threshold |
-|--------|-------------|-----------------|
+| --- | --- | --- |
 | Consumer Lag | Pending messages in stream | > 1000 messages |
 | DLQ Size | Messages in dead letter queue | > 100 messages |
 | Connection Status | Health check failures | 2 consecutive failures |
@@ -183,8 +188,8 @@ end
   },
   "stream": {
     "exists": true,
-    "name": "production-jetstream-bridge-stream",
-    "subjects": ["production.app.sync.worker"],
+    "name": "jetstream-bridge-stream",
+    "subjects": ["app.sync.worker"],
     "messages": 1523
   },
   "performance": {
@@ -192,7 +197,7 @@ end
     "health_check_duration_ms": 45.2
   },
   "config": {
-    "env": "production",
+    "stream_name": "jetstream-bridge-stream",
     "app_name": "app",
     "destination_app": "worker",
     "use_outbox": true,
@@ -236,6 +241,10 @@ jetstream_dlq = prometheus.gauge(
 
 ## Security Hardening
 
+### Permissions & Topology
+
+Keep runtime credentials least-privileged: set `config.auto_provision = false` and provision the stream/consumer during deploy (`bundle exec rake jetstream_bridge:provision` or NATS CLI). The exact durable/subject layout and minimal publish/subscribe permissions live in [RESTRICTED_PERMISSIONS.md](RESTRICTED_PERMISSIONS.md). Health checks skip stream info when `auto_provision=false`; rely on your provisioning pipeline for validation.
+
 ### Rate Limiting
 
 The health check endpoint has built-in rate limiting (1 uncached request per 5 seconds). For HTTP endpoints, add additional protection:
@@ -253,6 +262,7 @@ end
 ### Subject Validation
 
 JetStream Bridge validates subject components to prevent injection attacks. The following are automatically rejected:
+
 - NATS wildcards (`.`, `*`, `>`)
 - Spaces and control characters
 - Components exceeding 255 characters
@@ -270,6 +280,7 @@ config.nats_urls = ENV.fetch("NATS_URLS")
 ```
 
 Credentials in logs are automatically sanitized:
+
 - `nats://user:pass@host:4222` → `nats://user:***@host:4222`
 - `nats://token@host:4222` → `nats://***@host:4222`
 
@@ -345,6 +356,7 @@ spec:
 ### Health Probes
 
 **Liveness Probe:** Checks if the consumer process is running
+
 ```yaml
 livenessProbe:
   exec:
@@ -354,6 +366,7 @@ livenessProbe:
 ```
 
 **Readiness Probe:** Checks if NATS connection is healthy
+
 ```yaml
 readinessProbe:
   httpGet:
@@ -413,7 +426,7 @@ CREATE INDEX idx_inbox_stream_seq ON jetstream_inbox_events(stream, stream_seq);
 CREATE INDEX idx_inbox_status ON jetstream_inbox_events(status);
 ```
 
-2. **Partition large tables** (for high-volume applications):
+1. **Partition large tables** (for high-volume applications):
 
 ```sql
 -- Partition outbox by month
@@ -426,7 +439,7 @@ CREATE TABLE jetstream_outbox_events_2025_11
   FOR VALUES FROM ('2025-11-01') TO ('2025-12-01');
 ```
 
-3. **Archive old records** to prevent table bloat:
+1. **Archive old records** to prevent table bloat:
 
 ```ruby
 # lib/tasks/jetstream_maintenance.rake
@@ -462,24 +475,28 @@ end
 ### Common Issues
 
 **High Consumer Lag:**
+
 - Scale up consumer instances
 - Increase batch size
 - Optimize handler processing time
 - Check database connection pool
 
 **Memory Leaks:**
+
 - Monitor consumer health logs
 - Enable memory profiling
 - Check for circular references in handlers
 - Restart consumers periodically (Kubernetes handles this)
 
 **Connection Issues:**
+
 - Verify NATS server is accessible
 - Check firewall rules
 - Validate TLS certificates
 - Review connection retry settings
 
 **DLQ Growing:**
+
 - Investigate failed message patterns
 - Fix bugs in message handlers
 - Increase max_deliver for transient errors
@@ -499,5 +516,6 @@ end
 ## Support
 
 For issues or questions:
-- GitHub Issues: https://github.com/attaradev/jetstream_bridge/issues
-- Documentation: https://github.com/attaradev/jetstream_bridge
+
+- GitHub Issues: <https://github.com/attaradev/jetstream_bridge/issues>
+- Documentation: <https://github.com/attaradev/jetstream_bridge>

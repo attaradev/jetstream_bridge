@@ -9,7 +9,7 @@ RSpec.describe JetstreamBridge::DebugHelper do
       c.nats_urls = 'nats://localhost:4222'
       c.destination_app = 'dest_app'
       c.app_name = 'test_app'
-      c.env = 'development'
+      c.stream_name = 'jetstream-bridge-stream'
     end
   end
 
@@ -96,14 +96,13 @@ RSpec.describe JetstreamBridge::DebugHelper do
     it 'returns configuration hash' do
       result = described_class.send(:config_debug)
       expect(result).to be_a(Hash)
-      expect(result[:env]).to eq('development')
       expect(result[:app_name]).to eq('test_app')
       expect(result[:destination_app]).to eq('dest_app')
     end
 
     it 'includes stream name' do
       result = described_class.send(:config_debug)
-      expect(result[:stream_name]).to eq('development-jetstream-bridge-stream')
+      expect(result[:stream_name]).to eq('jetstream-bridge-stream')
     end
 
     it 'includes nats urls' do
@@ -172,7 +171,7 @@ RSpec.describe JetstreamBridge::DebugHelper do
     let(:mock_stream_info) do
       double('StreamInfo',
              config: double('Config',
-                            subjects: ['development.test.*'],
+                            subjects: ['test.*'],
                             retention: 'limits',
                             storage: 'file',
                             max_consumers: 10),
@@ -193,9 +192,9 @@ RSpec.describe JetstreamBridge::DebugHelper do
     context 'when connected' do
       it 'returns stream information' do
         result = described_class.send(:stream_debug)
-        expect(result[:name]).to eq('development-jetstream-bridge-stream')
+        expect(result[:name]).to eq('jetstream-bridge-stream')
         expect(result[:exists]).to be true
-        expect(result[:subjects]).to eq(['development.test.*'])
+        expect(result[:subjects]).to eq(['test.*'])
       end
 
       it 'includes stream config' do
@@ -232,7 +231,7 @@ RSpec.describe JetstreamBridge::DebugHelper do
 
       it 'returns error with stream name' do
         result = described_class.send(:stream_debug)
-        expect(result[:name]).to eq('development-jetstream-bridge-stream')
+        expect(result[:name]).to eq('jetstream-bridge-stream')
         expect(result[:exists]).to be false
         expect(result[:error]).to eq('StandardError: Stream not found')
       end

@@ -8,7 +8,7 @@ RSpec.describe JetstreamBridge::Models::PublishResult do
       described_class.new(
         success: true,
         event_id: 'evt-123',
-        subject: 'test.app.sync.worker',
+        subject: 'app.sync.worker',
         duplicate: false
       )
     end
@@ -30,7 +30,7 @@ RSpec.describe JetstreamBridge::Models::PublishResult do
     end
 
     it 'exposes subject' do
-      expect(result.subject).to eq('test.app.sync.worker')
+      expect(result.subject).to eq('app.sync.worker')
     end
 
     it 'has nil error' do
@@ -49,7 +49,7 @@ RSpec.describe JetstreamBridge::Models::PublishResult do
       described_class.new(
         success: false,
         event_id: 'evt-456',
-        subject: 'test.app.sync.worker',
+        subject: 'app.sync.worker',
         error: error
       )
     end
@@ -80,7 +80,7 @@ RSpec.describe JetstreamBridge::Models::PublishResult do
       described_class.new(
         success: true,
         event_id: 'evt-789',
-        subject: 'test.app.sync.worker',
+        subject: 'app.sync.worker',
         duplicate: true
       )
     end

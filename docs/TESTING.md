@@ -36,7 +36,7 @@ RSpec.describe MyService do
     JetstreamBridge::TestHelpers.enable_test_mode!
 
     JetstreamBridge.configure do |config|
-      config.env = 'test'
+      config.stream_name = 'jetstream-bridge-stream'
       config.app_name = 'my_app'
       config.destination_app = 'worker'
     end
@@ -283,7 +283,7 @@ before do
   allow(JetstreamBridge::Topology).to receive(:ensure!)
 
   JetstreamBridge.configure do |config|
-    config.env = 'test'
+    config.stream_name = 'jetstream-bridge-stream'
     config.app_name = 'api'
     config.destination_app = 'worker'
   end
@@ -298,7 +298,7 @@ it 'publishes through JetstreamBridge' do
 
   expect(result).to be_publish_success
   expect(result.event_id).to be_present
-  expect(result.subject).to eq('test.api.sync.worker')
+   expect(result.subject).to eq('api.sync.worker')
 
   # Verify in storage
   storage = JetstreamBridge::TestHelpers.mock_storage
@@ -315,7 +315,7 @@ it 'consumes through JetstreamBridge' do
 
   # Publish message to destination subject
   mock_jts.publish(
-    'test.worker.sync.api',
+    'worker.sync.api',
     Oj.dump({
       'event_id' => 'event-1',
       'schema_version' => 1,
@@ -338,7 +338,7 @@ it 'consumes through JetstreamBridge' do
 
   # Mock subscription
   subscription = mock_jts.pull_subscribe(
-    'test.worker.sync.api',
+    'worker.sync.api',
     'test-consumer',
     stream: 'test-jetstream-bridge-stream'
   )

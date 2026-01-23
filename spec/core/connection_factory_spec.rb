@@ -9,7 +9,7 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
     JetstreamBridge.configure do |c|
       c.destination_app = 'dest'
       c.app_name        = 'test_app'
-      c.env             = 'test'
+      c.stream_name     = 'jetstream-bridge-stream'
     end
   end
 
@@ -176,20 +176,18 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
     it 'builds options from JetstreamBridge config' do
       config = double('config',
                       nats_urls: 'nats://localhost:4222',
-                      app_name: 'test_app',
-                      env: 'test')
+                      app_name: 'test_app')
 
       options = described_class.build_options(config)
 
       expect(options.servers).to eq(['nats://localhost:4222'])
-      expect(options.name).to eq('test_app-test')
+      expect(options.name).to eq('test_app')
     end
 
     it 'uses defaults when config returns nil' do
       config = double('config',
                       nats_urls: 'nats://localhost:4222',
-                      app_name: 'test_app',
-                      env: 'test')
+                      app_name: 'test_app')
 
       options = described_class.build_options(config)
 
@@ -207,7 +205,7 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
     end
 
     it 'raises error when nats_urls is nil' do
-      config = double('config', nats_urls: nil, app_name: 'test', env: 'test')
+      config = double('config', nats_urls: nil, app_name: 'test')
 
       expect do
         described_class.build_options(config)
@@ -215,7 +213,7 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
     end
 
     it 'raises error when nats_urls is empty string' do
-      config = double('config', nats_urls: '', app_name: 'test', env: 'test')
+      config = double('config', nats_urls: '', app_name: 'test')
 
       expect do
         described_class.build_options(config)
@@ -223,7 +221,7 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
     end
 
     it 'raises error when nats_urls is whitespace only' do
-      config = double('config', nats_urls: '   ', app_name: 'test', env: 'test')
+      config = double('config', nats_urls: '   ', app_name: 'test')
 
       expect do
         described_class.build_options(config)
@@ -233,13 +231,12 @@ RSpec.describe JetstreamBridge::Core::ConnectionFactory do
     it 'handles multiple server URLs' do
       config = double('config',
                       nats_urls: 'nats://server1:4222,nats://server2:4222',
-                      app_name: 'test_app',
-                      env: 'production')
+                      app_name: 'test_app')
 
       options = described_class.build_options(config)
 
       expect(options.servers).to eq(['nats://server1:4222', 'nats://server2:4222'])
-      expect(options.name).to eq('test_app-production')
+      expect(options.name).to eq('test_app')
     end
   end
 

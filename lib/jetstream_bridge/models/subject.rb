@@ -5,12 +5,11 @@ module JetstreamBridge
     # Value object representing a NATS subject
     #
     # @example Creating a subject
-    #   subject = Subject.source(env: "production", app_name: "api", dest: "worker")
-    #   subject.to_s # => "production.api.sync.worker"
+    #   subject = Subject.source(app_name: "api", dest: "worker")
+    #   subject.to_s # => "api.sync.worker"
     #
     # @example Parsing a subject string
-    #   subject = Subject.parse("production.api.sync.worker")
-    #   subject.env         # => "production"
+    #   subject = Subject.parse("api.sync.worker")
     #   subject.source_app  # => "api"
     #   subject.dest_app    # => "worker"
     class Subject
@@ -31,16 +30,16 @@ module JetstreamBridge
       end
 
       # Factory methods
-      def self.source(env:, app_name:, dest:)
-        new("#{env}.#{app_name}.sync.#{dest}")
+      def self.source(app_name:, dest:)
+        new("#{app_name}.sync.#{dest}")
       end
 
-      def self.destination(env:, source:, app_name:)
-        new("#{env}.#{source}.sync.#{app_name}")
+      def self.destination(source:, app_name:)
+        new("#{source}.sync.#{app_name}")
       end
 
-      def self.dlq(env:, app_name:)
-        new("#{env}.#{app_name}.sync.dlq")
+      def self.dlq(app_name:)
+        new("#{app_name}.sync.dlq")
       end
 
       # Parse a subject string into a Subject object with metadata
@@ -51,37 +50,30 @@ module JetstreamBridge
         new(string)
       end
 
-      # Get environment from subject (first token)
-      #
-      # @return [String, nil] Environment
-      def env
-        @tokens[0]
-      end
-
       # Get source application from subject
       #
-      # For regular subjects: {env}.{source_app}.sync.{dest}
-      # For DLQ subjects: {env}.{app_name}.sync.dlq
+      # For regular subjects: {source_app}.sync.{dest}
+      # For DLQ subjects: {app_name}.sync.dlq
       #
       # @return [String, nil] Source application
       def source_app
-        @tokens[1]
+        @tokens[0]
       end
 
       # Get destination application from subject
       #
       # @return [String, nil] Destination application
       def dest_app
-        @tokens[3]
+        @tokens[2]
       end
 
       # Check if this is a DLQ subject
       #
-      # DLQ subjects follow the pattern: {env}.{app}.sync.dlq
+      # DLQ subjects follow the pattern: {app}.sync.dlq
       #
       # @return [Boolean] True if this is a DLQ subject
       def dlq?
-        @tokens.length == 4 && @tokens[2] == 'sync' && @tokens[3] == 'dlq'
+        @tokens.length == 3 && @tokens[1] == 'sync' && @tokens[2] == 'dlq'
       end
 
       # Check if this subject matches a pattern

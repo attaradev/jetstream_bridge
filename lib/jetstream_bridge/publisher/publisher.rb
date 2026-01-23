@@ -13,7 +13,7 @@ require_relative 'outbox_repository'
 module JetstreamBridge
   # Publishes events to NATS JetStream with reliability features.
   #
-  # Publishes events to "{env}.{app}.sync.{dest}" subject pattern.
+  # Publishes events to "{app}.sync.{dest}" subject pattern.
   # Supports optional transactional outbox pattern for guaranteed delivery.
   #
   # @example Basic publishing
@@ -115,8 +115,8 @@ module JetstreamBridge
       envelope, resolved_subject = route_publish_params(params)
 
       do_publish(resolved_subject, envelope)
-    rescue ArgumentError
-      # Re-raise validation errors for invalid parameters
+    rescue ArgumentError, JetstreamBridge::ConfigurationError
+      # Re-raise validation/configuration errors (e.g., missing destination_app)
       raise
     rescue StandardError => e
       # Return failure result for publishing errors
@@ -189,12 +189,6 @@ module JetstreamBridge
       raise ArgumentError, 'payload is required' unless payload
 
       normalize_envelope({ 'event_type' => event_type, 'payload' => payload }, options)
-    end
-
-    def ensure_destination_app_configured!
-      return unless JetstreamBridge.config.destination_app.to_s.empty?
-
-      raise ArgumentError, 'destination_app must be configured'
     end
 
     def publish_to_nats(subject, envelope)
@@ -346,6 +340,11 @@ module JetstreamBridge
 
       payload = payload.transform_keys(&:to_s) if payload.respond_to?(:transform_keys)
       (payload['id'] || payload[:id] || payload['resource_id'] || payload[:resource_id]).to_s
+    end
+
+    def ensure_destination_app_configured!
+      # Leverage subject builder to enforce required components and surface consistent error messaging.
+      JetstreamBridge.config.source_subject
     end
   end
 end

@@ -36,7 +36,7 @@ namespace :jetstream_bridge do
 
     if health[:config]
       puts "\nConfiguration:"
-      puts "  Environment: #{health[:config][:env]}"
+      puts "  Stream: #{health[:config][:stream_name]}"
       puts "  App Name: #{health[:config][:app_name]}"
       puts "  Destination: #{health[:config][:destination_app] || 'NOT SET'}"
       puts "  Outbox: #{health[:config][:use_outbox] ? 'Enabled' : 'Disabled'}"
@@ -62,7 +62,7 @@ namespace :jetstream_bridge do
       JetstreamBridge.config.validate!
       puts '✓ Configuration is valid'
       puts "\nCurrent settings:"
-      puts "  Environment: #{JetstreamBridge.config.env}"
+      puts "  Stream: #{JetstreamBridge.config.stream_name}"
       puts "  App Name: #{JetstreamBridge.config.app_name}"
       puts "  Destination: #{JetstreamBridge.config.destination_app}"
       puts "  Stream: #{JetstreamBridge.config.stream_name}"
@@ -78,6 +78,21 @@ namespace :jetstream_bridge do
   desc 'Show debug information'
   task debug: :environment do
     JetstreamBridge::DebugHelper.debug_info
+  end
+
+  desc 'Provision stream and consumer (requires JetStream admin permissions)'
+  task provision: :environment do
+    puts '[jetstream_bridge] Provisioning JetStream stream and consumer...'
+
+    begin
+      provisioner = JetstreamBridge::Provisioner.new
+      provisioner.ensure!(ensure_consumer: true)
+      puts "✓ Provisioned stream=#{JetstreamBridge.config.stream_name} consumer=#{JetstreamBridge.config.durable_name}"
+      exit 0
+    rescue StandardError => e
+      puts "✗ Provisioning failed: #{e.message}"
+      exit 1
+    end
   end
 
   desc 'Test connection to NATS'

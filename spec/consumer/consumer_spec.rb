@@ -280,10 +280,10 @@ RSpec.describe JetstreamBridge::Consumer do
       JetstreamBridge.configure { |c| c.destination_app = nil }
     end
 
-    it 'raises ArgumentError' do
+    it 'raises MissingConfigurationError' do
       expect do
         described_class.new { |*| nil }
-      end.to raise_error(ArgumentError, /destination_app must be configured/)
+      end.to raise_error(JetstreamBridge::MissingConfigurationError, /destination_app cannot be empty/)
     end
   end
 

@@ -58,8 +58,8 @@ module JetstreamBridge
       # Safe to call from multiple threads - uses class-level mutex for synchronization.
       #
       # @return [NATS::JetStream::JS] JetStream context
-      def connect!
-        @@connection_lock.synchronize { instance.connect! }
+      def connect!(verify_js: nil)
+        @@connection_lock.synchronize { instance.connect!(verify_js: verify_js) }
       end
 
       # Optional accessors if callers need raw handles
@@ -73,7 +73,8 @@ module JetstreamBridge
     end
 
     # Idempotent: returns an existing, healthy JetStream context or establishes one.
-    def connect!
+    def connect!(verify_js: nil)
+      verify_js = config_auto_provision if verify_js.nil?
       # Check if already connected without acquiring mutex (for performance)
       return @jts if @jts && @nc&.connected?
 
@@ -81,16 +82,13 @@ module JetstreamBridge
       raise 'No NATS URLs configured' if servers.empty?
 
       @state = State::CONNECTING
-      establish_connection_with_retry(servers)
+      establish_connection_with_retry(servers, verify_js: verify_js)
 
       Logging.info(
         "Connected to NATS (#{servers.size} server#{'s' unless servers.size == 1}): " \
         "#{sanitize_urls(servers).join(', ')}",
         tag: 'JetstreamBridge::Connection'
       )
-
-      # Ensure topology (streams, subjects, overlap guard, etc.)
-      Topology.ensure!(@jts)
 
       @connected_at = Time.now.utc
       @state = State::CONNECTED
@@ -124,8 +122,8 @@ module JetstreamBridge
         now = Time.now.to_i
         return @cached_health_status if !skip_cache && @last_health_check && (now - @last_health_check) < 30
 
-        # Perform actual health check
-        @cached_health_status = jetstream_healthy?
+        # Perform actual health check (management APIs optional)
+        @cached_health_status = jetstream_healthy?(verify_js: config_auto_provision)
         @last_health_check = now
         @cached_health_status
       end
@@ -151,13 +149,30 @@ module JetstreamBridge
 
     private
 
-    def jetstream_healthy?
+    def jetstream_healthy?(verify_js:)
+      # Lightweight health when management APIs are disabled
+      return ping_only_health unless verify_js
+
       # Verify JetStream responds to simple API call
       @jts.account_info
       true
     rescue StandardError => e
       Logging.warn(
         "JetStream health check failed: #{e.class} #{e.message}",
+        tag: 'JetstreamBridge::Connection'
+      )
+      false
+    end
+
+    def ping_only_health
+      return false unless @nc&.connected?
+
+      # Flush acts as a ping/pong round-trip without hitting JetStream management subjects
+      @nc.flush(0.5)
+      true
+    rescue StandardError => e
+      Logging.warn(
+        "NATS connectivity check failed: #{e.class} #{e.message}",
         tag: 'JetstreamBridge::Connection'
       )
       false
@@ -174,14 +189,14 @@ module JetstreamBridge
       servers
     end
 
-    def establish_connection_with_retry(servers)
+    def establish_connection_with_retry(servers, verify_js:)
       attempts = 0
       max_attempts = JetstreamBridge.config.connect_retry_attempts
       retry_delay = JetstreamBridge.config.connect_retry_delay
 
       begin
         attempts += 1
-        establish_connection(servers)
+        establish_connection(servers, verify_js: verify_js)
       rescue ConnectionError => e
         if attempts < max_attempts
           delay = retry_delay * attempts
@@ -203,7 +218,7 @@ module JetstreamBridge
       end
     end
 
-    def establish_connection(servers)
+    def establish_connection(servers, verify_js:)
       # Use mock NATS client if explicitly enabled for testing
       # This allows test helpers to inject a mock without affecting normal operation
       @nc = if defined?(JetstreamBridge::TestHelpers) &&
@@ -257,7 +272,22 @@ module JetstreamBridge
       @jts = @nc.jetstream
 
       # Verify JetStream is available
-      verify_jetstream!
+      if verify_js
+        verify_jetstream!
+        if config_auto_provision
+          Topology.ensure!(@jts)
+          Logging.info(
+            'Topology ensured after connection (auto_provision=true).',
+            tag: 'JetstreamBridge::Connection'
+          )
+        end
+      else
+        Logging.info(
+          'Skipping JetStream account_info verification (auto_provision=false). ' \
+          'Assuming JetStream is enabled.',
+          tag: 'JetstreamBridge::Connection'
+        )
+      end
 
       # Ensure JetStream responds to #nc
       return if @jts.respond_to?(:nc)
@@ -400,8 +430,15 @@ module JetstreamBridge
       nc_ref = @nc
       @jts.define_singleton_method(:nc) { nc_ref } unless @jts.respond_to?(:nc)
 
-      # Re-ensure topology after reconnect
-      Topology.ensure!(@jts)
+      # Re-ensure topology after reconnect when allowed
+      if config_auto_provision
+        Topology.ensure!(@jts)
+      else
+        Logging.info(
+          'Skipping topology provisioning after reconnect (auto_provision=false).',
+          tag: 'JetstreamBridge::Connection'
+        )
+      end
 
       # Invalidate health check cache on successful reconnect
       @cached_health_status = nil
@@ -459,6 +496,13 @@ module JetstreamBridge
       @cached_health_status = nil
       @last_health_check = nil
       @connected_at = nil
+    end
+
+    def config_auto_provision
+      cfg = JetstreamBridge.config
+      cfg.respond_to?(:auto_provision) ? cfg.auto_provision : true
+    rescue StandardError
+      true
     end
   end
 end
