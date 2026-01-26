@@ -170,11 +170,11 @@ module JetstreamBridge
       nil
     end
 
-    def build_pull_subscription(nc)
+    def build_pull_subscription(nats_client)
       prefix = @jts.instance_variable_get(:@prefix) || '$JS.API'
-      deliver = nc.new_inbox
-      sub = nc.subscribe(deliver)
-      sub.instance_variable_set(:@_jsb_nc, nc)
+      deliver = nats_client.new_inbox
+      sub = nats_client.subscribe(deliver)
+      sub.instance_variable_set(:@_jsb_nc, nats_client)
       sub.instance_variable_set(:@_jsb_deliver, deliver)
       sub.instance_variable_set(:@_jsb_next_subject, "#{prefix}.CONSUMER.MSG.NEXT.#{stream_name}.#{@durable}")
 
