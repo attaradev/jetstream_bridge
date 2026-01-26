@@ -233,7 +233,13 @@ module JetstreamBridge
     end
 
     def attach_jsi(sub)
-      sub.jsi = NATS::JetStream::JS::Sub.new(
+      js_sub_class = begin
+        NATS::JetStream.const_get(:JS).const_get(:Sub)
+      rescue NameError
+        Struct.new(:js, :stream, :consumer, :nms, keyword_init: true)
+      end
+
+      sub.jsi = js_sub_class.new(
         js: @jts,
         stream: stream_name,
         consumer: @durable,
