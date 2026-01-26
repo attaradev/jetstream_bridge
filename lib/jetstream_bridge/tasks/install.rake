@@ -99,23 +99,54 @@ namespace :jetstream_bridge do
   task test_connection: :environment do
     puts '[jetstream_bridge] Testing NATS connection...'
 
-    begin
-      jts = JetstreamBridge.connect_and_ensure_stream!
-      puts '✓ Successfully connected to NATS'
-      puts '✓ JetStream is available'
-      puts '✓ Stream topology ensured'
+    permission_violation = lambda do |err|
+      current = err
+      while current
+        message = current.message.to_s
+        return true if message.include?('Permissions Violation for Publish to "$JS.API')
+        return true if message.match?(/permission(?:s)? violation/i)
 
-      # Check if we can get account info
-      info = jts.account_info
-      puts "\nAccount Info:"
-      puts "  Memory: #{info.memory}"
-      puts "  Storage: #{info.storage}"
-      puts "  Streams: #{info.streams}"
-      puts "  Consumers: #{info.consumers}"
+        current = current.cause if current.respond_to?(:cause)
+      end
+      false
+    end
+
+    begin
+      provision_enabled = JetstreamBridge.config.auto_provision
+      jts = JetstreamBridge.connect_and_ensure_stream!
+
+      if provision_enabled
+        puts '✓ Successfully connected to NATS'
+        puts '✓ JetStream is available'
+        puts '✓ Stream topology ensured'
+
+        # Check if we can get account info
+        info = jts.account_info
+        puts "\nAccount Info:"
+        puts "  Memory: #{info.memory}"
+        puts "  Storage: #{info.storage}"
+        puts "  Streams: #{info.streams}"
+        puts "  Consumers: #{info.consumers}"
+      else
+        nc = jts.nc if jts.respond_to?(:nc)
+        nc ||= JetstreamBridge::Connection.nc
+        nc&.flush(0.5)
+
+        puts '✓ Successfully connected to NATS (ping-only: auto_provision=false)'
+        puts '✓ JetStream client initialized (skipped $JS.API.* calls)'
+        puts "✓ Stream provisioning/verification skipped for '#{JetstreamBridge.config.stream_name}' " \
+             '(assumes pre-provisioned via admin credentials)'
+      end
 
       exit 0
     rescue StandardError => e
       puts "✗ Connection failed: #{e.message}"
+      if permission_violation.call(e)
+        puts "\nHint: current NATS credentials cannot call JetStream API subjects ($JS.API.*). " \
+             'Set config.auto_provision = false and pre-provision using ' \
+             '`bundle exec rake jetstream_bridge:provision` with admin credentials. ' \
+             'See docs/RESTRICTED_PERMISSIONS.md.'
+      end
       puts "\nBacktrace:" if ENV['VERBOSE']
       puts e.backtrace.first(10).map { |line| "  #{line}" }.join("\n") if ENV['VERBOSE']
       exit 1

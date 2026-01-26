@@ -34,7 +34,7 @@ When you cannot modify NATS server permissions, you need to:
 ## Runtime requirements (least privilege)
 
 - Config: `config.auto_provision = false`, `config.stream_name` set explicitly.
-- Topology: stream + durable consumer must be pre-provisioned (via `bundle exec rake jetstream_bridge:provision` or NATS CLI).
+- Topology: **one shared stream per app pair**, with one durable consumer per app (each filters the opposite direction). Pre-provision via `bundle exec rake jetstream_bridge:provision` or NATS CLI.
 - NATS permissions for runtime creds:
   - publish allow: `">"` (or narrowed to your business subjects) and `$JS.API.CONSUMER.MSG.NEXT.{stream_name}.{app_name}-workers`
   - subscribe allow: `">"` (or narrowed) and `_INBOX.>` (responses for pull consumers)
@@ -51,13 +51,25 @@ When you cannot modify NATS server permissions, you need to:
 
 ---
 
+### Connectivity check with restricted creds
+
+After setting `config.auto_provision = false`, you can still confirm basic connectivity without touching `$JS.API.*` by running:
+
+```bash
+bundle exec rake jetstream_bridge:test_connection
+```
+
+In this mode the task performs a NATS ping and JetStream client setup only; it assumes the stream + consumer are already provisioned with admin credentials. If you see a permissions violation for `$JS.API.*`, re-run with a privileged user to provision or set `auto_provision=false` and pre-create the stream/consumer first.
+
+---
+
 ## Option A: Provision with the built-in task (creates stream + consumer)
 
 Run this from CI/deploy with admin NATS credentials:
 
 ```bash
 # Uses your configured stream/app/destination to create the stream + durable consumer
-NATS_URLS="nats://admin:pass@10.199.12.34:4222" \
+NATS_URLS="nats://admin:pass@nats.example.com:4222" \
 bundle exec rake jetstream_bridge:provision
 ```
 
@@ -77,28 +89,28 @@ brew install nats-io/nats-tools/nats
 
 ### Create the Consumer
 
-You need to create a durable pull consumer with the exact configuration your app expects.
+You need to create a durable pull consumer with the exact configuration your app expects. Both apps share a single stream; create one consumer per app (each filters the opposite direction).
 
 **Required values from your JetStream Bridge config:**
 
-- **Stream name**: `JETSTREAM_STREAM_NAME` (e.g., `jetstream-bridge-stream`)
+- **Stream name**: `JETSTREAM_STREAM_NAME` (e.g., `pwas-heavyworth-sync`)
 - **Consumer name**: `{app_name}-workers` (e.g., `pwas-workers`)
-- **Filter subject**: `{app_name}.sync.{destination_app}` (e.g., `pwas-workers.sync.heavyworth`)
+- **Filter subject**: `{destination_app}.sync.{app_name}` (e.g., `heavyworth.sync.pwas`)
 
 **Create consumer command:**
 
 ```bash
 # Connect using a privileged NATS account
 nats context save admin \
-  --server=nats://admin-user:admin-pass@10.199.12.34:4222 \
+  --server=nats://admin-user:admin-pass@nats.example.com:4222 \
   --description="Admin account for consumer creation"
 
 # Select the context
 nats context select admin
 
-# Create the consumer
-nats consumer add production-jetstream-bridge-stream production-pwas-workers \
-  --filter "production.pwas-workers.sync.heavyworth" \
+# Create the consumer (replace stream/app/destination with yours)
+nats consumer add pwas-heavyworth-sync pwas-workers \
+  --filter "heavyworth.sync.pwas" \
   --ack explicit \
   --pull \
   --deliver all \
@@ -111,8 +123,8 @@ nats consumer add production-jetstream-bridge-stream production-pwas-workers \
 **With backoff (recommended for production):**
 
 ```bash
-nats consumer add production-jetstream-bridge-stream production-pwas-workers \
-  --filter "production.pwas-workers.sync.heavyworth" \
+nats consumer add pwas-heavyworth-sync pwas-workers \
+  --filter "heavyworth.sync.pwas" \
   --ack explicit \
   --pull \
   --deliver all \
@@ -123,21 +135,116 @@ nats consumer add production-jetstream-bridge-stream production-pwas-workers \
   --max-pending 25000
 ```
 
+**Example using your observed stream (`pwas-heavyworth-sync`) and defaults (shared stream, two consumers):**
+
+```bash
+# Admin context
+nats context save admin \
+  --server=nats://admin-user:admin-pass@nats.example.com:4222 \
+  --description="Admin account for jetstream_bridge provisioning"
+nats context select admin
+
+# Create stream with bridge subjects + DLQ
+nats stream add pwas-heavyworth-sync \
+  --subjects "pwas.sync.heavyworth" "heavyworth.sync.pwas" "pwas.sync.dlq" \
+  --retention workqueue \
+  --storage file
+
+# Create durable pull consumer (must match JetstreamBridge config)
+nats consumer add pwas-heavyworth-sync pwas-workers \
+  --filter "heavyworth.sync.pwas" \
+  --ack explicit \
+  --pull \
+  --deliver all \
+  --max-deliver 5 \
+  --ack-wait 30s \
+  --backoff 1s,5s,15s,30s,60s \
+  --replay instant \
+  --max-pending 25000
+
+# Consumer for heavyworth (receives pwas -> heavyworth)
+nats consumer add pwas-heavyworth-sync heavyworth-workers \
+  --filter "pwas.sync.heavyworth" \
+  --ack explicit \
+  --pull \
+  --deliver all \
+  --max-deliver 5 \
+  --ack-wait 30s \
+  --backoff 1s,5s,15s,30s,60s \
+  --replay instant \
+  --max-pending 25000
+
+# Verify
+nats stream info pwas-heavyworth-sync
+nats consumer info pwas-heavyworth-sync heavyworth-workers
+nats consumer info pwas-heavyworth-sync pwas-workers
+```
+
+### Provision both apps (shared stream + two consumers)
+
+If both apps share one stream, create it once and add a durable consumer for each side:
+
+```bash
+STREAM="appA-appB-sync"
+APP_A="appA" # first app name
+APP_B="appB" # second app name
+
+# Admin context (update server/creds as needed)
+nats context save admin \
+  --server=nats://admin-user:admin-pass@nats.example.com:4222 \
+  --description="Admin account for jetstream_bridge provisioning"
+nats context select admin
+
+# Stream covers both publish directions + both DLQs
+nats stream add "$STREAM" \
+  --subjects "$APP_A.sync.$APP_B" "$APP_B.sync.$APP_A" "$APP_A.sync.dlq" "$APP_B.sync.dlq" \
+  --retention workqueue \
+  --storage file
+
+# Consumer for APP_A (receives messages destined to APP_A)
+nats consumer add "$STREAM" "$APP_A-workers" \
+  --filter "$APP_B.sync.$APP_A" \
+  --ack explicit \
+  --pull \
+  --deliver all \
+  --max-deliver 5 \
+  --ack-wait 30s \
+  --backoff 1s,5s,15s,30s,60s \
+  --replay instant \
+  --max-pending 25000
+
+# Consumer for APP_B (receives messages destined to APP_B)
+nats consumer add "$STREAM" "$APP_B-workers" \
+  --filter "$APP_A.sync.$APP_B" \
+  --ack explicit \
+  --pull \
+  --deliver all \
+  --max-deliver 5 \
+  --ack-wait 30s \
+  --backoff 1s,5s,15s,30s,60s \
+  --replay instant \
+  --max-pending 25000
+
+# Verify both
+nats consumer info "$STREAM" "$APP_A-workers"
+nats consumer info "$STREAM" "$APP_B-workers"
+```
+
 ### Verify Consumer Creation
 
 ```bash
-nats consumer info production-jetstream-bridge-stream production-pwas-workers
+nats consumer info pwas-heavyworth-sync pwas-workers
 ```
 
 Expected output:
 
 ```bash
-Information for Consumer production-jetstream-bridge-stream > production-pwas-workers
+Information for Consumer pwas-heavyworth-sync > pwas-workers
 
 Configuration:
 
-        Durable Name: production-pwas-workers
-      Filter Subject: production.pwas-workers.sync.heavyworth
+        Durable Name: pwas-workers
+      Filter Subject: heavyworth.sync.pwas
           Ack Policy: explicit
             Ack Wait: 30s
        Replay Policy: instant
@@ -162,8 +269,8 @@ Configure JetStream Bridge to avoid JetStream management APIs at runtime (pre-pr
 # config/initializers/jetstream_bridge.rb
 JetstreamBridge.configure do |config|
   config.nats_urls = ENV.fetch("NATS_URLS")
-  config.stream_name = "jetstream-bridge-stream"
-  config.app_name = "pwas-workers"
+  config.stream_name = "pwas-heavyworth-sync"
+  config.app_name = "pwas"
   config.destination_app = "heavyworth"
   config.auto_provision = false
 
@@ -222,7 +329,7 @@ sudo journalctl -u pwas_production_sync -f
 
 ```bash
 INFO -- : [JetstreamBridge::ConnectionManager] Connected to NATS (1 server): nats://pwas:***@10.199.12.34:4222
-INFO -- : [DataSync] Consumer starting (durable=production-pwas-workers, batch=25, dest="heavyworth")
+INFO -- : [DataSync] Consumer starting (durable=pwas-workers, batch=25, dest="heavyworth")
 INFO -- : [DataSync] run! started successfully
 ```
 
@@ -233,7 +340,7 @@ Health checks will report connectivity only when `auto_provision=false` (stream 
 1. **Timeout during subscribe** - The pre-created consumer name/filter might not match. Verify:
 
    ```bash
-   nats consumer ls production-jetstream-bridge-stream
+   nats consumer ls pwas-heavyworth-sync
    ```
 
 2. **Permission violations on fetch** - The NATS user also needs permission to fetch messages. Minimum required:
@@ -259,23 +366,23 @@ If you need to change consumer settings (e.g., increase `max_deliver`):
 2. **Delete the old consumer** (using privileged account)
 
    ```bash
-   nats consumer rm production-jetstream-bridge-stream production-pwas-workers -f
+   nats consumer rm pwas-heavyworth-sync pwas-workers -f
    ```
 
 3. **Create the new consumer** with updated settings
 
-   ```bash
-   nats consumer add production-jetstream-bridge-stream production-pwas-workers \
-     --filter "production.pwas-workers.sync.heavyworth" \
-     --ack explicit \
-     --pull \
-     --deliver all \
-     --max-deliver 10 \
-     --ack-wait 60s \
-     --backoff 2s,10s,30s,60s,120s \
-     --replay instant \
-     --max-pending 25000
-   ```
+    ```bash
+    nats consumer add pwas-heavyworth-sync pwas-workers \
+      --filter "heavyworth.sync.pwas" \
+      --ack explicit \
+      --pull \
+      --deliver all \
+      --max-deliver 10 \
+      --ack-wait 60s \
+      --backoff 2s,10s,30s,60s,120s \
+      --replay instant \
+      --max-pending 25000
+    ```
 
 4. **Update your application config** to match
 
@@ -312,7 +419,7 @@ end
 **Check stream has messages:**
 
 ```bash
-nats stream info production-jetstream-bridge-stream
+nats stream info pwas-heavyworth-sync
 ```
 
 **Verify filter subject matches your topology:**
@@ -347,24 +454,43 @@ Check if the issue is:
 Based on your logs, here's the exact setup:
 
 ```bash
-# 1. Pre-create the consumer (as admin)
-nats consumer add pwas-heavyworth-sync production-pwas-workers \
-  --filter "production.pwas-workers.sync.heavyworth" \
+# 1. Provision stream and both consumers (as admin)
+nats stream add pwas-heavyworth-sync \
+  --subjects "pwas.sync.heavyworth" "heavyworth.sync.pwas" "pwas.sync.dlq" "heavyworth.sync.dlq" \
+  --retention workqueue \
+  --storage file
+
+# Consumer for pwas (receives heavyworth -> pwas)
+nats consumer add pwas-heavyworth-sync pwas-workers \
+  --filter "heavyworth.sync.pwas" \
   --ack explicit \
   --pull \
   --deliver all \
   --max-deliver 5 \
   --ack-wait 30s \
   --backoff 1s,5s,15s,30s,60s \
-  --replay instant
+  --replay instant \
+  --max-pending 25000
+
+# Consumer for heavyworth (receives pwas -> heavyworth)
+nats consumer add pwas-heavyworth-sync heavyworth-workers \
+  --filter "pwas.sync.heavyworth" \
+  --ack explicit \
+  --pull \
+  --deliver all \
+  --max-deliver 5 \
+  --ack-wait 30s \
+  --backoff 1s,5s,15s,30s,60s \
+  --replay instant \
+  --max-pending 25000
 ```
 
 ```ruby
 # 2. Update config/initializers/jetstream_bridge.rb
 JetstreamBridge.configure do |config|
-  config.nats_urls = "nats://pwas:***@10.199.12.34:4222"
-  config.stream_name = "jetstream-bridge-stream"
-  config.app_name = "pwas-workers"
+  config.nats_urls = ENV.fetch("NATS_URLS") # e.g., nats://pwas:***@10.199.12.34:4222
+  config.stream_name = "pwas-heavyworth-sync"
+  config.app_name = "pwas"
   config.destination_app = "heavyworth"
   config.max_deliver = 5
   config.ack_wait = "30s"
