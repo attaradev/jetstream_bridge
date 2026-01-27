@@ -272,7 +272,28 @@ module JetstreamBridge
     # --- helpers ---
 
     def fetch_messages
+      if JetstreamBridge.config.push_consumer?
+        fetch_messages_push
+      else
+        fetch_messages_pull
+      end
+    end
+
+    def fetch_messages_pull
       @psub.fetch(@batch_size, timeout: FETCH_TIMEOUT_SECS)
+    end
+
+    def fetch_messages_push
+      # For push consumers, collect messages from the subscription queue
+      # Push subscriptions don't have a fetch method, so we use next_msg
+      messages = []
+      @batch_size.times do
+        msg = @psub.next_msg(FETCH_TIMEOUT_SECS)
+        messages << msg if msg
+      rescue NATS::Timeout, NATS::IO::Timeout
+        break
+      end
+      messages
     end
 
     def process_one(msg)

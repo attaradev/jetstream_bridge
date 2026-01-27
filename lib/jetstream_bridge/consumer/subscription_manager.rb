@@ -4,6 +4,7 @@ require 'json'
 require_relative '../core/logging'
 require_relative '../core/duration'
 require_relative '../errors'
+require_relative 'pull_subscription_builder'
 
 module JetstreamBridge
   # Encapsulates durable ensure + subscribe for a pull consumer.
@@ -37,10 +38,14 @@ module JetstreamBridge
       create_consumer!
     end
 
-    # Bind a pull subscriber to the existing durable.
+    # Bind a subscriber to the existing durable consumer.
     def subscribe!
-      # Always bypass consumer_info to avoid requiring JetStream API permissions at runtime.
-      subscribe_without_verification!
+      if @cfg.push_consumer?
+        subscribe_push!
+      else
+        # Always bypass consumer_info to avoid requiring JetStream API permissions at runtime.
+        subscribe_without_verification!
+      end
     end
 
     def subscribe_without_verification!
@@ -63,10 +68,39 @@ module JetstreamBridge
             'Unable to create subscription without verification: NATS client not available'
     end
 
+    def subscribe_push!
+      # Push consumers deliver messages directly to a subscription subject
+      # No JetStream API calls needed - just subscribe to the delivery subject
+      nc = resolve_nc
+      delivery_subject = @cfg.push_delivery_subject
+
+      if nc.respond_to?(:subscribe)
+        sub = nc.subscribe(delivery_subject)
+        Logging.info(
+          "Created push subscription for consumer #{@durable} " \
+          "(stream=#{stream_name}, delivery=#{delivery_subject})",
+          tag: 'JetstreamBridge::Consumer'
+        )
+        return sub
+      end
+
+      # Fallback for test environments
+      if @jts.respond_to?(:subscribe)
+        Logging.info(
+          "Using JetStream subscribe fallback for push consumer #{@durable} (stream=#{stream_name})",
+          tag: 'JetstreamBridge::Consumer'
+        )
+        return @jts.subscribe(delivery_subject)
+      end
+
+      raise JetstreamBridge::ConnectionError,
+            'Unable to create push subscription: NATS client not available'
+    end
+
     private
 
     def build_consumer_config(durable, filter_subject)
-      {
+      config = {
         durable_name: durable,
         filter_subject: filter_subject,
         ack_policy: 'explicit',
@@ -76,6 +110,11 @@ module JetstreamBridge
         ack_wait: duration_to_seconds(JetstreamBridge.config.ack_wait),
         backoff: Array(JetstreamBridge.config.backoff).map { |d| duration_to_seconds(d) }
       }
+
+      # Add deliver_subject for push consumers
+      config[:deliver_subject] = @cfg.push_delivery_subject if @cfg.push_consumer?
+
+      config
     end
 
     def create_consumer!
@@ -171,80 +210,8 @@ module JetstreamBridge
     end
 
     def build_pull_subscription(nats_client)
-      prefix = @jts.instance_variable_get(:@prefix) || '$JS.API'
-      deliver = nats_client.new_inbox
-      sub = nats_client.subscribe(deliver)
-      sub.instance_variable_set(:@_jsb_nc, nats_client)
-      sub.instance_variable_set(:@_jsb_deliver, deliver)
-      sub.instance_variable_set(:@_jsb_next_subject, "#{prefix}.CONSUMER.MSG.NEXT.#{stream_name}.#{@durable}")
-
-      extend_pull_subscription(sub)
-      attach_jsi(sub)
-
-      Logging.info(
-        "Created pull subscription without verification for consumer #{@durable} " \
-        "(stream=#{stream_name}, filter=#{filter_subject})",
-        tag: 'JetstreamBridge::Consumer'
-      )
-
-      sub
-    end
-
-    def extend_pull_subscription(sub)
-      pull_mod = begin
-        NATS::JetStream.const_get(:PullSubscription)
-      rescue NameError
-        nil
-      end
-
-      sub.extend(pull_mod) if pull_mod
-      shim_fetch(sub) unless pull_mod
-    end
-
-    def shim_fetch(sub)
-      Logging.warn(
-        'PullSubscription mixin unavailable; using shim fetch implementation',
-        tag: 'JetstreamBridge::Consumer'
-      )
-
-      sub.define_singleton_method(:fetch) do |batch_size, timeout: nil|
-        nc_handle = instance_variable_get(:@_jsb_nc)
-        deliver_subject = instance_variable_get(:@_jsb_deliver)
-        next_subject = instance_variable_get(:@_jsb_next_subject)
-        unless nc_handle && deliver_subject && next_subject
-          raise JetstreamBridge::ConnectionError, 'Missing NATS handles for fetch'
-        end
-
-        expires_ns = ((timeout || 5).to_f * 1_000_000_000).to_i
-        payload = { batch: batch_size, expires: expires_ns }.to_json
-
-        nc_handle.publish(next_subject, payload, deliver_subject)
-        nc_handle.flush
-
-        messages = []
-        batch_size.times do
-          msg = next_msg(timeout || 5)
-          messages << msg if msg
-        rescue NATS::IO::Timeout, NATS::Timeout
-          break
-        end
-        messages
-      end
-    end
-
-    def attach_jsi(sub)
-      js_sub_class = begin
-        NATS::JetStream.const_get(:JS).const_get(:Sub)
-      rescue NameError
-        Struct.new(:js, :stream, :consumer, :nms, keyword_init: true)
-      end
-
-      sub.jsi = js_sub_class.new(
-        js: @jts,
-        stream: stream_name,
-        consumer: @durable,
-        nms: sub.instance_variable_get(:@_jsb_next_subject)
-      )
+      builder = PullSubscriptionBuilder.new(@jts, @durable, stream_name, filter_subject)
+      builder.build(nats_client)
     end
   end
 end

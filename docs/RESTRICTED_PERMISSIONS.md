@@ -19,7 +19,22 @@ This happens because:
 
 ## Solution Overview
 
-When you cannot modify NATS server permissions, you need to:
+When you cannot modify NATS server permissions, you have **two options**:
+
+### Option 1: Pull Consumers (Default)
+
+- **Requires** permission to publish to `$JS.API.CONSUMER.MSG.NEXT.*`
+- Provides backpressure control and batch fetching
+- Best for high-throughput scenarios
+
+### Option 2: Push Consumers (New)
+
+- **No JetStream API permissions required** at runtime
+- Messages delivered automatically to a subscription subject
+- Simpler permission model: only needs subscribe permission on delivery subject
+- Best for restricted permission environments
+
+For both options, you need to:
 
 0. **Turn off runtime provisioning** so the app never calls `$JS.API.*`:
    - Set `config.auto_provision = false`
@@ -31,13 +46,86 @@ When you cannot modify NATS server permissions, you need to:
 
 ---
 
+## Using Push Consumers (Recommended for Restricted Permissions)
+
+If your NATS user can only publish to specific subjects (e.g., `pwas.*`) and subscribe to specific subjects (e.g., `heavyworth.*`), use **push consumer mode**:
+
+```ruby
+# config/initializers/jetstream_bridge.rb
+JetstreamBridge.configure do |config|
+  config.nats_urls = ENV.fetch("NATS_URLS")
+  config.stream_name = "pwas-heavyworth-sync"
+  config.app_name = "pwas"
+  config.destination_app = "heavyworth"
+  config.auto_provision = false
+
+  # Enable push consumer mode
+  config.consumer_mode = :push
+  # Optional: customize delivery subject (defaults to {destination_subject}.worker)
+  # config.delivery_subject = "heavyworth.sync.pwas.worker"
+
+  config.use_outbox = true
+  config.use_inbox = true
+  config.use_dlq = true
+
+  config.max_deliver = 5
+  config.ack_wait = "30s"
+  config.backoff = %w[1s 5s 15s 30s 60s]
+end
+```
+
+### Required Permissions for Push Consumers
+
+```conf
+# NATS user permissions (e.g., pwas user)
+publish: {
+  allow: [
+    "pwas.>",  # Your business subjects only
+  ]
+}
+subscribe: {
+  allow: [
+    "heavyworth.>",  # Your business subjects (includes delivery subject)
+  ]
+}
+```
+
+**No `$JS.API.*` or `_INBOX.>` permissions needed!**
+
+### Provisioning Push Consumers
+
+When creating the consumer, add `--deliver` to specify the delivery subject:
+
+```bash
+# For pwas app (receives heavyworth -> pwas)
+nats consumer add pwas-heavyworth-sync pwas-workers \
+  --filter "heavyworth.sync.pwas" \
+  --deliver "heavyworth.sync.pwas.worker" \
+  --ack explicit \
+  --deliver all \
+  --max-deliver 5 \
+  --ack-wait 30s \
+  --backoff 1s,5s,15s,30s,60s \
+  --replay instant \
+  --max-pending 25000
+```
+
+**Important:** The delivery subject must match what the app can subscribe to based on its permissions.
+
+---
+
 ## Runtime requirements (least privilege)
 
 - Config: `config.auto_provision = false`, `config.stream_name` set explicitly.
 - Topology: **one shared stream per app pair**, with one durable consumer per app (each filters the opposite direction). Pre-provision via `bundle exec rake jetstream_bridge:provision` or NATS CLI.
 - NATS permissions for runtime creds:
-  - publish allow: `">"` (or narrowed to your business subjects) and `$JS.API.CONSUMER.MSG.NEXT.{stream_name}.{app_name}-workers`
-  - subscribe allow: `">"` (or narrowed) and `_INBOX.>` (responses for pull consumers)
+  - **Pull consumers** (default):
+    - publish allow: `">"` (or narrowed to your business subjects) and `$JS.API.CONSUMER.MSG.NEXT.{stream_name}.{app_name}-workers`
+    - subscribe allow: `">"` (or narrowed) and `_INBOX.>` (responses for pull consumers)
+  - **Push consumers** (recommended for restricted environments):
+    - publish allow: `">"` (or narrowed to your business subjects only - e.g., `pwas.>`)
+    - subscribe allow: `">"` (or narrowed to your business subjects only - e.g., `heavyworth.>`)
+    - No `$JS.API.*` or `_INBOX.>` permissions needed
 - Health check will only report connectivity (stream info skipped).
 
 ### Topology required
@@ -75,7 +163,7 @@ bundle exec rake jetstream_bridge:provision
 
 This is the easiest way to keep `auto_provision=false` in runtime while still reusing the bridge’s topology logic (subjects, DLQ, overlap guard).
 
-## Option B: Pre-create the Consumer using NATS CLI
+## Option B: Pre-create Consumers using NATS CLI
 
 ### Install NATS CLI
 
@@ -87,7 +175,7 @@ curl -sf https://binaries.nats.dev/nats-io/natscli/nats@latest | sh
 brew install nats-io/nats-tools/nats
 ```
 
-### Create the Consumer
+### Create Pull Consumer (Default Mode)
 
 You need to create a durable pull consumer with the exact configuration your app expects. Both apps share a single stream; create one consumer per app (each filters the opposite direction).
 
@@ -97,7 +185,7 @@ You need to create a durable pull consumer with the exact configuration your app
 - **Consumer name**: `{app_name}-workers` (e.g., `pwas-workers`)
 - **Filter subject**: `{destination_app}.sync.{app_name}` (e.g., `heavyworth.sync.pwas`)
 
-**Create consumer command:**
+**Create pull consumer command:**
 
 ```bash
 # Connect using a privileged NATS account
@@ -134,6 +222,35 @@ nats consumer add pwas-heavyworth-sync pwas-workers \
   --replay instant \
   --max-pending 25000
 ```
+
+### Create Push Consumer (For Restricted Permissions)
+
+Push consumers don't require JetStream API permissions at runtime. Messages are delivered to a subscription subject that the app can subscribe to based on its existing permissions.
+
+**Required values:**
+
+- **Stream name**: `JETSTREAM_STREAM_NAME` (e.g., `pwas-heavyworth-sync`)
+- **Consumer name**: `{app_name}-workers` (e.g., `pwas-workers`)
+- **Filter subject**: `{destination_app}.sync.{app_name}` (e.g., `heavyworth.sync.pwas`)
+- **Delivery subject**: Subject the app can subscribe to (e.g., `heavyworth.sync.pwas.worker`)
+
+**Create push consumer command:**
+
+```bash
+# For pwas app (receives heavyworth -> pwas messages)
+nats consumer add pwas-heavyworth-sync pwas-workers \
+  --filter "heavyworth.sync.pwas" \
+  --deliver "heavyworth.sync.pwas.worker" \
+  --ack explicit \
+  --deliver all \
+  --max-deliver 5 \
+  --ack-wait 30s \
+  --backoff 1s,5s,15s,30s,60s \
+  --replay instant \
+  --max-pending 25000
+```
+
+**Key difference:** The `--deliver` flag specifies where messages are pushed. The app subscribes to this subject directly, without calling `$JS.API.CONSUMER.MSG.NEXT.*`.
 
 **Example using your observed stream (`pwas-heavyworth-sync`) and defaults (shared stream, two consumers):**
 
@@ -451,20 +568,21 @@ Check if the issue is:
 
 ## Example: Production Setup for pwas-api
 
-Based on your logs, here's the exact setup:
+Based on your logs and permission requirements, here's the recommended setup using **push consumers** (no JetStream API permissions needed):
 
 ```bash
-# 1. Provision stream and both consumers (as admin)
+# 1. Provision stream and both push consumers (as admin)
 nats stream add pwas-heavyworth-sync \
   --subjects "pwas.sync.heavyworth" "heavyworth.sync.pwas" "pwas.sync.dlq" "heavyworth.sync.dlq" \
   --retention workqueue \
   --storage file
 
-# Consumer for pwas (receives heavyworth -> pwas)
+# Push consumer for pwas (receives heavyworth -> pwas)
+# Delivers to heavyworth.sync.pwas.worker (pwas can subscribe to heavyworth.*)
 nats consumer add pwas-heavyworth-sync pwas-workers \
   --filter "heavyworth.sync.pwas" \
+  --deliver "heavyworth.sync.pwas.worker" \
   --ack explicit \
-  --pull \
   --deliver all \
   --max-deliver 5 \
   --ack-wait 30s \
@@ -472,11 +590,12 @@ nats consumer add pwas-heavyworth-sync pwas-workers \
   --replay instant \
   --max-pending 25000
 
-# Consumer for heavyworth (receives pwas -> heavyworth)
+# Push consumer for heavyworth (receives pwas -> heavyworth)
+# Delivers to pwas.sync.heavyworth.worker (heavyworth can subscribe to pwas.*)
 nats consumer add pwas-heavyworth-sync heavyworth-workers \
   --filter "pwas.sync.heavyworth" \
+  --deliver "pwas.sync.heavyworth.worker" \
   --ack explicit \
-  --pull \
   --deliver all \
   --max-deliver 5 \
   --ack-wait 30s \
@@ -486,28 +605,69 @@ nats consumer add pwas-heavyworth-sync heavyworth-workers \
 ```
 
 ```ruby
-# 2. Update config/initializers/jetstream_bridge.rb
+# 2. Update config/initializers/jetstream_bridge.rb (pwas app)
 JetstreamBridge.configure do |config|
   config.nats_urls = ENV.fetch("NATS_URLS") # e.g., nats://pwas:***@10.199.12.34:4222
   config.stream_name = "pwas-heavyworth-sync"
   config.app_name = "pwas"
   config.destination_app = "heavyworth"
+  config.auto_provision = false
+
+  # Enable push consumer mode (no JetStream API permissions needed)
+  config.consumer_mode = :push
+  config.delivery_subject = "heavyworth.sync.pwas.worker"
+
   config.max_deliver = 5
   config.ack_wait = "30s"
   config.backoff = %w[1s 5s 15s 30s 60s]
 end
 ```
 
-**Note:** Verify your exact stream name and consumer durable (`app_name-workers`) match what was provisioned.
+```ruby
+# 3. Update config/initializers/jetstream_bridge.rb (heavyworth app)
+JetstreamBridge.configure do |config|
+  config.nats_urls = ENV.fetch("NATS_URLS") # e.g., nats://heavyworth:***@10.199.12.34:4222
+  config.stream_name = "pwas-heavyworth-sync"
+  config.app_name = "heavyworth"
+  config.destination_app = "pwas"
+  config.auto_provision = false
+
+  # Enable push consumer mode
+  config.consumer_mode = :push
+  config.delivery_subject = "pwas.sync.heavyworth.worker"
+
+  config.max_deliver = 5
+  config.ack_wait = "30s"
+  config.backoff = %w[1s 5s 15s 30s 60s]
+end
+```
+
+**NATS Permissions:**
+
+```conf
+# pwas user
+publish: { allow: ["pwas.>"] }
+subscribe: { allow: ["heavyworth.>"] }
+
+# heavyworth user
+publish: { allow: ["heavyworth.>"] }
+subscribe: { allow: ["pwas.>"] }
+```
+
+**Note:** With push consumers, no `$JS.API.*` or `_INBOX.>` permissions are required.
 
 ---
 
-## Alternative: Request Minimal Permissions
+## Summary: Permission Requirements by Consumer Mode
 
-If you have any influence over NATS permissions, request only these minimal subjects:
+If you have any influence over NATS permissions, you have two options:
+
+### Option 1: Pull Consumers (Default)
+
+Request minimal JetStream API permissions:
 
 ```conf
-# Minimal permissions needed for JetStream Bridge consumer
+# Minimal permissions needed for pull consumer
 publish: {
   allow: [
     ">",                                   # Your app subjects (narrow if desired)
@@ -523,3 +683,19 @@ subscribe: {
 ```
 
 These are read-only operations and don't allow creating/modifying streams or consumers.
+
+### Option 2: Push Consumers (Recommended)
+
+Use push consumers with business subject permissions only:
+
+```conf
+# For pwas app
+publish: { allow: ["pwas.>"] }
+subscribe: { allow: ["heavyworth.>"] }
+
+# For heavyworth app
+publish: { allow: ["heavyworth.>"] }
+subscribe: { allow: ["pwas.>"] }
+```
+
+**No `$JS.API.*` or `_INBOX.>` permissions required!** This is the simplest and most restrictive permission model.

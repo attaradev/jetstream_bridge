@@ -100,6 +100,15 @@ module JetstreamBridge
     # Disable for locked-down environments and handle provisioning separately.
     # @return [Boolean]
     attr_accessor :auto_provision
+    # Consumer mode: :pull (default) or :push
+    # Pull consumers require publishing to JetStream API subjects ($JS.API.CONSUMER.MSG.NEXT.*)
+    # Push consumers receive messages automatically on a delivery subject
+    # @return [Symbol]
+    attr_accessor :consumer_mode
+    # Delivery subject for push consumers (optional, defaults to {destination_subject}.worker)
+    # Only used when consumer_mode is :push
+    # @return [String, nil]
+    attr_accessor :delivery_subject
 
     def initialize
       @nats_urls       = ENV['NATS_URLS'] || ENV['NATS_URL'] || 'nats://localhost:4222'
@@ -124,6 +133,10 @@ module JetstreamBridge
       @connect_retry_delay = 2
       @lazy_connect = false
       @auto_provision = true
+
+      # Consumer mode
+      @consumer_mode = :pull
+      @delivery_subject = nil
     end
 
     # Apply a configuration preset
@@ -184,6 +197,32 @@ module JetstreamBridge
       "#{app_name}-workers"
     end
 
+    # Get the delivery subject for push consumers.
+    #
+    # @return [String] Delivery subject for push consumers
+    # @raise [InvalidSubjectError] If components contain NATS wildcards
+    # @raise [MissingConfigurationError] If required components are empty
+    def push_delivery_subject
+      return delivery_subject if delivery_subject && !delivery_subject.empty?
+
+      # Default: {destination_subject}.worker
+      "#{destination_subject}.worker"
+    end
+
+    # Check if using pull consumer mode.
+    #
+    # @return [Boolean]
+    def pull_consumer?
+      consumer_mode.to_sym == :pull
+    end
+
+    # Check if using push consumer mode.
+    #
+    # @return [Boolean]
+    def push_consumer?
+      consumer_mode.to_sym == :push
+    end
+
     # Validate all configuration settings.
     #
     # Checks that required settings are present and valid. Raises errors
@@ -195,13 +234,10 @@ module JetstreamBridge
     #   config.validate!  # Raises if destination_app is missing
     def validate!
       errors = []
-      errors << 'destination_app is required' if destination_app.to_s.strip.empty?
-      errors << 'nats_urls is required' if nats_urls.to_s.strip.empty?
-      errors << 'stream_name is required' if stream_name.to_s.strip.empty?
-      errors << 'app_name is required' if app_name.to_s.strip.empty?
-      errors << 'max_deliver must be >= 1' if max_deliver.to_i < 1
-      errors << 'backoff must be an array' unless backoff.is_a?(Array)
-      errors << 'backoff must not be empty' if backoff.is_a?(Array) && backoff.empty?
+      validate_required_fields!(errors)
+      validate_numeric_constraints!(errors)
+      validate_backoff!(errors)
+      validate_consumer_mode!(errors)
 
       raise ConfigurationError, "Configuration errors: #{errors.join(', ')}" if errors.any?
 
@@ -225,6 +261,26 @@ module JetstreamBridge
       return unless str.length > 255
 
       raise InvalidSubjectError, "#{name} exceeds maximum length (255 characters): #{str.length}"
+    end
+
+    def validate_required_fields!(errors)
+      errors << 'destination_app is required' if destination_app.to_s.strip.empty?
+      errors << 'nats_urls is required' if nats_urls.to_s.strip.empty?
+      errors << 'stream_name is required' if stream_name.to_s.strip.empty?
+      errors << 'app_name is required' if app_name.to_s.strip.empty?
+    end
+
+    def validate_numeric_constraints!(errors)
+      errors << 'max_deliver must be >= 1' if max_deliver.to_i < 1
+    end
+
+    def validate_backoff!(errors)
+      errors << 'backoff must be an array' unless backoff.is_a?(Array)
+      errors << 'backoff must not be empty' if backoff.is_a?(Array) && backoff.empty?
+    end
+
+    def validate_consumer_mode!(errors)
+      errors << 'consumer_mode must be :pull or :push' unless [:pull, :push].include?(consumer_mode.to_sym)
     end
   end
 end
