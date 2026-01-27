@@ -162,7 +162,7 @@ RSpec.describe JetstreamBridge::Consumer do
       msg2 = double('msg2')
 
       call_count = 0
-      allow(subscription).to receive(:next_msg) do |timeout|
+      allow(subscription).to receive(:next_msg) do |timeout:|
         expect(timeout).to eq(5)
         call_count += 1
         case call_count
@@ -179,7 +179,8 @@ RSpec.describe JetstreamBridge::Consumer do
     it 'stops collecting on NATS::Timeout' do
       msg1 = double('msg1')
       call_count = 0
-      allow(subscription).to receive(:next_msg) do
+      allow(subscription).to receive(:next_msg) do |timeout:|
+        expect(timeout).to eq(5)
         call_count += 1
         call_count == 1 ? msg1 : raise(NATS::Timeout)
       end
@@ -191,7 +192,8 @@ RSpec.describe JetstreamBridge::Consumer do
     it 'stops collecting on NATS::IO::Timeout' do
       msg1 = double('msg1')
       call_count = 0
-      allow(subscription).to receive(:next_msg) do
+      allow(subscription).to receive(:next_msg) do |timeout:|
+        expect(timeout).to eq(5)
         call_count += 1
         call_count == 1 ? msg1 : raise(NATS::IO::Timeout)
       end
@@ -201,7 +203,7 @@ RSpec.describe JetstreamBridge::Consumer do
     end
 
     it 'returns empty array when first message times out' do
-      allow(subscription).to receive(:next_msg).and_raise(NATS::Timeout)
+      allow(subscription).to receive(:next_msg).with(timeout: 5).and_raise(NATS::Timeout)
 
       result = consumer.send(:fetch_messages_push)
       expect(result).to eq([])
@@ -210,7 +212,8 @@ RSpec.describe JetstreamBridge::Consumer do
     it 'collects up to batch_size messages' do
       messages = Array.new(25) { |i| double("msg#{i}") }
       call_count = 0
-      allow(subscription).to receive(:next_msg) do
+      allow(subscription).to receive(:next_msg) do |timeout:|
+        expect(timeout).to eq(5)
         msg = messages[call_count]
         call_count += 1
         msg
@@ -225,7 +228,8 @@ RSpec.describe JetstreamBridge::Consumer do
       msg2 = double('msg2')
 
       call_count = 0
-      allow(subscription).to receive(:next_msg) do
+      allow(subscription).to receive(:next_msg) do |timeout:|
+        expect(timeout).to eq(5)
         call_count += 1
         case call_count
         when 1 then msg1

@@ -288,7 +288,7 @@ module JetstreamBridge
       # Push subscriptions don't have a fetch method, so we use next_msg
       messages = []
       @batch_size.times do
-        msg = @psub.next_msg(FETCH_TIMEOUT_SECS)
+        msg = @psub.next_msg(timeout: FETCH_TIMEOUT_SECS)
         messages << msg if msg
       rescue NATS::Timeout, NATS::IO::Timeout
         break
