@@ -62,10 +62,11 @@ consumer.run!
 
 ## Documentation
 
-- [Getting Started](docs/GETTING_STARTED.md)
-- [Production Guide](docs/PRODUCTION.md)
-- [Restricted Permissions & Provisioning](docs/RESTRICTED_PERMISSIONS.md)
-- [Testing with Mock NATS](docs/TESTING.md)
+- [Getting Started](docs/GETTING_STARTED.md) - Setup, configuration, and basic usage
+- [Architecture & Topology](docs/ARCHITECTURE.md) - Internal architecture, message flow, and patterns
+- [Production Guide](docs/PRODUCTION.md) - Production deployment and monitoring
+- [Restricted Permissions & Provisioning](docs/RESTRICTED_PERMISSIONS.md) - Manual provisioning and security
+- [Testing with Mock NATS](docs/TESTING.md) - Fast, no-infra testing
 
 ## License
 
