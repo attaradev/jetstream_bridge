@@ -6,7 +6,7 @@ This guide covers installation, Rails setup, configuration, and basic publish/co
 
 ```ruby
 # Gemfile
-gem "jetstream_bridge", "~> 4.5"
+gem "jetstream_bridge", "~> 5.0"
 ```
 
 ```bash

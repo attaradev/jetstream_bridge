@@ -34,7 +34,7 @@ Production-ready NATS JetStream bridge for Ruby/Rails with outbox, inbox, DLQ, a
 
 ```ruby
 # Gemfile
-gem "jetstream_bridge", "~> 4.5"
+gem "jetstream_bridge", "~> 5.0"
 ```
 
 ```bash

@@ -110,7 +110,7 @@ RSpec.describe JetstreamBridge::Config do
   end
 
   describe '#durable_name' do
-    it 'uses app_name' do
+    it 'uses app_name as-is with -workers suffix' do
       config.app_name = 'notifications'
 
       expect(config.durable_name).to eq('notifications-workers')

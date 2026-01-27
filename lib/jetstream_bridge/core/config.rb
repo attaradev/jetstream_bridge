@@ -8,6 +8,10 @@ module JetstreamBridge
   # Holds all configuration settings including NATS connection details,
   # application identifiers, reliability features, and consumer tuning.
   #
+  # IMPORTANT: app_name should not include environment identifiers
+  # (e.g., use "api" not "api-production") as consumer names are
+  # shared across environments for the same application.
+  #
   # @example Basic configuration
   #   JetstreamBridge.configure do |config|
   #     config.nats_urls = "nats://localhost:4222"
@@ -54,7 +58,8 @@ module JetstreamBridge
     # JetStream stream name (required)
     # @return [String]
     attr_accessor :stream_name
-    # Application name for subject routing
+    # Application name for subject routing and consumer naming.
+    # Should not include environment identifiers (e.g., use "api" not "api-production").
     # @return [String]
     attr_accessor :app_name
     # Maximum delivery attempts before moving to DLQ
@@ -192,6 +197,15 @@ module JetstreamBridge
     end
 
     # Get the durable consumer name for this application.
+    #
+    # Returns the app_name with "-workers" suffix. Consumer names are
+    # shared across environments, so app_name should not include
+    # environment identifiers (e.g., use "myapp" not "myapp-production").
+    #
+    # @return [String] Durable consumer name
+    # @example
+    #   config.app_name = "notifications"
+    #   config.durable_name  # => "notifications-workers"
     #
     def durable_name
       "#{app_name}-workers"

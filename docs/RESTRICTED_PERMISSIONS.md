@@ -662,7 +662,7 @@ subscribe: { allow: ["pwas.>"] }
 
 If you have any influence over NATS permissions, you have two options:
 
-### Option 1: Pull Consumers (Default)
+### Option 1: Pull Consumers (Default) - Summary
 
 Request minimal JetStream API permissions:
 

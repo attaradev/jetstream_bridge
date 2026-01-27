@@ -16,7 +16,9 @@ JetstreamBridge.configure do |config|
   # Stream name (required) - managed separately from runtime credentials
   config.stream_name = ENV.fetch('JETSTREAM_STREAM_NAME', 'jetstream-bridge-stream')
 
-  # Application name (used in subject routing)
+  # Application name (used in subject routing and consumer naming)
+  # IMPORTANT: Do not include environment identifiers (e.g., use "myapp" not "myapp-production")
+  # Consumer names are shared across environments for the same application
   config.app_name = ENV.fetch('APP_NAME', Rails.application.class.module_parent_name.underscore)
 
   # Destination app for cross-app sync (REQUIRED for publishing/consuming)
