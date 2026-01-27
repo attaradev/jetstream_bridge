@@ -361,4 +361,5 @@ RSpec.describe JetstreamBridge::OverlapGuard do
       expect(message).to include('other.subject × other.>')
     end
   end
+
 end

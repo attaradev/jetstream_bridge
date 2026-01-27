@@ -25,8 +25,8 @@ module JetstreamBridge
     def ensure!(jts: nil, ensure_consumer: true)
       js = jts || Connection.connect!(verify_js: true)
 
-      ensure_stream!(js)
-      ensure_consumer!(js) if ensure_consumer
+      ensure_stream!(jts: js)
+      ensure_consumer!(jts: js) if ensure_consumer
 
       Logging.info(
         "Provisioned stream=#{@config.stream_name} consumer=#{@config.durable_name if ensure_consumer}",

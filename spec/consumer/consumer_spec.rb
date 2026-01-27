@@ -112,6 +112,134 @@ RSpec.describe JetstreamBridge::Consumer do
     end
   end
 
+  describe '#fetch_messages' do
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    context 'with pull consumer (default)' do
+      before do
+        allow(JetstreamBridge.config).to receive(:push_consumer?).and_return(false)
+      end
+
+      it 'delegates to fetch_messages_pull' do
+        expect(subscription).to receive(:fetch).with(25, timeout: 5).and_return([])
+        consumer.send(:fetch_messages)
+      end
+    end
+
+    context 'with push consumer' do
+      before do
+        allow(JetstreamBridge.config).to receive(:push_consumer?).and_return(true)
+      end
+
+      it 'delegates to fetch_messages_push' do
+        expect(consumer).to receive(:fetch_messages_push).and_return([])
+        consumer.send(:fetch_messages)
+      end
+    end
+  end
+
+  describe '#fetch_messages_pull' do
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    it 'calls fetch on subscription with batch size and timeout' do
+      expect(subscription).to receive(:fetch).with(25, timeout: 5).and_return([])
+      consumer.send(:fetch_messages_pull)
+    end
+
+    it 'returns messages from fetch' do
+      msg = double('message')
+      allow(subscription).to receive(:fetch).and_return([msg])
+      result = consumer.send(:fetch_messages_pull)
+      expect(result).to eq([msg])
+    end
+  end
+
+  describe '#fetch_messages_push' do
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    it 'collects messages using next_msg' do
+      msg1 = double('msg1')
+      msg2 = double('msg2')
+
+      call_count = 0
+      allow(subscription).to receive(:next_msg) do |timeout|
+        expect(timeout).to eq(5)
+        call_count += 1
+        case call_count
+        when 1 then msg1
+        when 2 then msg2
+        else raise NATS::Timeout
+        end
+      end
+
+      result = consumer.send(:fetch_messages_push)
+      expect(result).to eq([msg1, msg2])
+    end
+
+    it 'stops collecting on NATS::Timeout' do
+      msg1 = double('msg1')
+      call_count = 0
+      allow(subscription).to receive(:next_msg) do
+        call_count += 1
+        call_count == 1 ? msg1 : raise(NATS::Timeout)
+      end
+
+      result = consumer.send(:fetch_messages_push)
+      expect(result).to eq([msg1])
+    end
+
+    it 'stops collecting on NATS::IO::Timeout' do
+      msg1 = double('msg1')
+      call_count = 0
+      allow(subscription).to receive(:next_msg) do
+        call_count += 1
+        call_count == 1 ? msg1 : raise(NATS::IO::Timeout)
+      end
+
+      result = consumer.send(:fetch_messages_push)
+      expect(result).to eq([msg1])
+    end
+
+    it 'returns empty array when first message times out' do
+      allow(subscription).to receive(:next_msg).and_raise(NATS::Timeout)
+
+      result = consumer.send(:fetch_messages_push)
+      expect(result).to eq([])
+    end
+
+    it 'collects up to batch_size messages' do
+      messages = Array.new(25) { |i| double("msg#{i}") }
+      call_count = 0
+      allow(subscription).to receive(:next_msg) do
+        msg = messages[call_count]
+        call_count += 1
+        msg
+      end
+
+      result = consumer.send(:fetch_messages_push)
+      expect(result.size).to eq(25)
+    end
+
+    it 'skips nil messages' do
+      msg1 = double('msg1')
+      msg2 = double('msg2')
+
+      call_count = 0
+      allow(subscription).to receive(:next_msg) do
+        call_count += 1
+        case call_count
+        when 1 then msg1
+        when 2 then nil
+        when 3 then msg2
+        else raise NATS::Timeout
+        end
+      end
+
+      result = consumer.send(:fetch_messages_push)
+      expect(result).to eq([msg1, msg2])
+    end
+  end
+
   describe '#process_one' do
     subject(:consumer) { described_class.new { |*| nil } }
 
@@ -614,6 +742,137 @@ RSpec.describe JetstreamBridge::Consumer do
 
     it 'initializes with empty middleware chain' do
       expect(consumer.middleware_chain).to be_a(JetstreamBridge::Consumer::MiddlewareChain)
+    end
+  end
+
+  describe '#safe_nak_message' do
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    it 'calls nak when message responds to it' do
+      msg = double('Message')
+      allow(msg).to receive(:respond_to?).with(:nak).and_return(true)
+      expect(msg).to receive(:nak)
+
+      consumer.send(:safe_nak_message, msg)
+    end
+
+    it 'handles messages that do not respond to nak' do
+      msg = double('Message')
+      allow(msg).to receive(:respond_to?).with(:nak).and_return(false)
+
+      expect { consumer.send(:safe_nak_message, msg) }.not_to raise_error
+    end
+
+    it 'catches and logs exceptions from nak' do
+      msg = double('Message')
+      allow(msg).to receive(:respond_to?).with(:nak).and_return(true)
+      allow(msg).to receive(:nak).and_raise(StandardError, 'NAK failed')
+
+      expect(JetstreamBridge::Logging).to receive(:error)
+        .with(/Failed to NAK message after crash.*NAK failed/, tag: 'JetstreamBridge::Consumer')
+
+      expect { consumer.send(:safe_nak_message, msg) }.not_to raise_error
+    end
+  end
+
+  describe '#suggest_gc_if_needed' do
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    it 'suggests GC when heap_live_slots exceeds threshold' do
+      allow(GC).to receive(:respond_to?).with(:stat).and_return(true)
+      allow(GC).to receive(:stat).and_return({ heap_live_slots: 150_000 })
+      expect(GC).to receive(:start)
+
+      consumer.send(:suggest_gc_if_needed)
+    end
+
+    it 'does not suggest GC when below threshold' do
+      allow(GC).to receive(:respond_to?).with(:stat).and_return(true)
+      allow(GC).to receive(:stat).and_return({ heap_live_slots: 50_000 })
+      expect(GC).not_to receive(:start)
+
+      consumer.send(:suggest_gc_if_needed)
+    end
+
+    it 'handles GC not being defined' do
+      # Hide GC constant temporarily
+      gc_backup = Object.const_get(:GC) if Object.const_defined?(:GC)
+      Object.send(:remove_const, :GC) if Object.const_defined?(:GC)
+
+      expect { consumer.send(:suggest_gc_if_needed) }.not_to raise_error
+    ensure
+      Object.const_set(:GC, gc_backup) if gc_backup
+    end
+
+    it 'handles GC.stat exceptions' do
+      allow(GC).to receive(:respond_to?).with(:stat).and_return(true)
+      allow(GC).to receive(:stat).and_raise(StandardError, 'GC.stat failed')
+
+      expect(JetstreamBridge::Logging).to receive(:debug)
+        .with(/GC check failed.*GC.stat failed/, tag: 'JetstreamBridge::Consumer')
+
+      expect { consumer.send(:suggest_gc_if_needed) }.not_to raise_error
+    end
+
+    it 'handles symbol vs string keys in GC.stat' do
+      allow(GC).to receive(:respond_to?).with(:stat).and_return(true)
+      # Test with string keys (some Ruby versions use strings)
+      allow(GC).to receive(:stat).and_return({ 'heap_live_slots' => 150_000 })
+      expect(GC).to receive(:start)
+
+      consumer.send(:suggest_gc_if_needed)
+    end
+  end
+
+  describe '#memory_usage_mb' do
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    it 'returns 0.0 when ps command fails' do
+      allow(consumer).to receive(:`).and_raise(StandardError, 'ps command failed')
+
+      result = consumer.send(:memory_usage_mb)
+      expect(result).to eq(0.0)
+    end
+
+    it 'calculates memory from RSS in KB' do
+      # Simulate ps command returning 102400 KB (100 MB)
+      allow(consumer).to receive(:`).with(/ps -o rss/).and_return("102400\n")
+
+      result = consumer.send(:memory_usage_mb)
+      expect(result).to eq(100.0)
+    end
+  end
+
+  describe '#drain_inflight_messages additional edge cases' do
+    let(:subscription) { double('Subscription') }
+    let(:processor) { instance_double(JetstreamBridge::MessageProcessor) }
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    before do
+      consumer.instance_variable_set(:@psub, subscription)
+      consumer.instance_variable_set(:@processor, processor)
+    end
+
+    it 'breaks on empty batch' do
+      fetch_count = 0
+      allow(subscription).to receive(:fetch) do
+        fetch_count += 1
+        fetch_count == 1 ? [double('Message')] : []
+      end
+      allow(processor).to receive(:handle_message)
+
+      consumer.send(:drain_inflight_messages)
+
+      expect(fetch_count).to eq(2) # 1 with messages, 1 empty = stop
+    end
+
+    it 'logs warning when fetch raises StandardError' do
+      allow(subscription).to receive(:fetch).and_raise(StandardError, 'fetch failed')
+
+      expect(JetstreamBridge::Logging).to receive(:warn)
+        .with(/Error draining messages.*fetch failed/, tag: 'JetstreamBridge::Consumer')
+
+      expect { consumer.send(:drain_inflight_messages) }.not_to raise_error
     end
   end
 end

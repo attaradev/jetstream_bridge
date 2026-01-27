@@ -280,6 +280,8 @@ module JetstreamBridge
     end
 
     def validate_consumer_mode!(errors)
+      return errors << 'consumer_mode must be :pull or :push' if consumer_mode.nil?
+
       errors << 'consumer_mode must be :pull or :push' unless [:pull, :push].include?(consumer_mode.to_sym)
     end
   end

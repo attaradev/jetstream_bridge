@@ -353,4 +353,121 @@ RSpec.describe JetstreamBridge::Config do
       expect(config.inbox_model).to eq('CustomInbox')
     end
   end
+
+  describe 'consumer mode configuration' do
+    describe '#initialize' do
+      it 'defaults to pull consumer mode' do
+        expect(config.consumer_mode).to eq(:pull)
+      end
+
+      it 'defaults delivery_subject to nil' do
+        expect(config.delivery_subject).to be_nil
+      end
+    end
+
+    describe '#pull_consumer?' do
+      it 'returns true when consumer_mode is :pull' do
+        config.consumer_mode = :pull
+        expect(config.pull_consumer?).to be true
+      end
+
+      it 'returns false when consumer_mode is :push' do
+        config.consumer_mode = :push
+        expect(config.pull_consumer?).to be false
+      end
+
+      it 'handles string consumer_mode' do
+        config.consumer_mode = 'pull'
+        expect(config.pull_consumer?).to be true
+      end
+    end
+
+    describe '#push_consumer?' do
+      it 'returns false when consumer_mode is :pull' do
+        config.consumer_mode = :pull
+        expect(config.push_consumer?).to be false
+      end
+
+      it 'returns true when consumer_mode is :push' do
+        config.consumer_mode = :push
+        expect(config.push_consumer?).to be true
+      end
+
+      it 'handles string consumer_mode' do
+        config.consumer_mode = 'push'
+        expect(config.push_consumer?).to be true
+      end
+    end
+
+    describe '#push_delivery_subject' do
+      before do
+        config.app_name = 'api'
+        config.destination_app = 'worker'
+      end
+
+      it 'returns custom delivery_subject if set' do
+        config.delivery_subject = 'custom.delivery.subject'
+        expect(config.push_delivery_subject).to eq('custom.delivery.subject')
+      end
+
+      it 'returns default delivery subject when not set' do
+        config.delivery_subject = nil
+        expect(config.push_delivery_subject).to eq('worker.sync.api.worker')
+      end
+
+      it 'ignores empty string delivery_subject' do
+        config.delivery_subject = ''
+        expect(config.push_delivery_subject).to eq('worker.sync.api.worker')
+      end
+
+      it 'appends .worker to destination_subject' do
+        expect(config.push_delivery_subject).to end_with('.worker')
+      end
+    end
+
+    describe '#validate! with consumer_mode' do
+      before do
+        config.destination_app = 'other_app'
+        config.nats_urls = 'nats://localhost:4222'
+        config.stream_name = 'jetstream-bridge-stream'
+        config.app_name = 'my_app'
+      end
+
+      it 'accepts :pull consumer_mode' do
+        config.consumer_mode = :pull
+        expect { config.validate! }.not_to raise_error
+      end
+
+      it 'accepts :push consumer_mode' do
+        config.consumer_mode = :push
+        expect { config.validate! }.not_to raise_error
+      end
+
+      it 'accepts string "pull" consumer_mode' do
+        config.consumer_mode = 'pull'
+        expect { config.validate! }.not_to raise_error
+      end
+
+      it 'accepts string "push" consumer_mode' do
+        config.consumer_mode = 'push'
+        expect { config.validate! }.not_to raise_error
+      end
+
+      it 'rejects invalid consumer_mode' do
+        config.consumer_mode = :invalid
+
+        expect do
+          config.validate!
+        end.to raise_error(JetstreamBridge::ConfigurationError, /consumer_mode must be :pull or :push/)
+      end
+
+      it 'rejects nil consumer_mode' do
+        config.consumer_mode = nil
+
+        expect do
+          config.validate!
+        end.to raise_error(JetstreamBridge::ConfigurationError, /consumer_mode must be :pull or :push/)
+      end
+    end
+  end
 end

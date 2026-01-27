@@ -326,4 +326,45 @@ RSpec.describe JetstreamBridge::Models::Subject do
       expect(subject1.hash).not_to eq(subject2.hash)
     end
   end
+
+  describe '.parse' do
+    it 'parses subject string into Subject object' do
+      subject = described_class.parse('app1.sync.app2')
+
+      expect(subject).to be_a(described_class)
+      expect(subject.to_s).to eq('app1.sync.app2')
+    end
+  end
+
+  describe '#overlaps?' do
+    it 'checks if this subject overlaps with another' do
+      subject1 = described_class.new('app.*.sync')
+      subject2 = described_class.new('app.test.sync')
+
+      expect(subject1.overlaps?(subject2)).to be true
+    end
+
+    it 'returns false when subjects do not overlap' do
+      subject1 = described_class.new('app1.sync.dest')
+      subject2 = described_class.new('app2.sync.dest')
+
+      expect(subject1.overlaps?(subject2)).to be false
+    end
+  end
+
+  describe '#covered_by?' do
+    it 'checks if subject is covered by any pattern in list' do
+      subject = described_class.new('app.test.sync')
+      patterns = ['app.*.sync', 'app.test.*']
+
+      expect(subject.covered_by?(patterns)).to be true
+    end
+
+    it 'returns false when not covered by any pattern' do
+      subject = described_class.new('app.test.sync')
+      patterns = ['other.*.sync', 'different.test.*']
+
+      expect(subject.covered_by?(patterns)).to be false
+    end
+  end
 end

@@ -603,4 +603,46 @@ RSpec.describe JetstreamBridge::OutboxEvent do
       end
     end
   end
+
+  describe 'without ActiveRecord (shim class)' do
+    # Test the shim class behavior by creating a standalone test class
+    before(:all) do
+      @shim_class = Class.new do
+        class << self
+          def method_missing(method_name, *_args, &)
+            raise(
+              "Outbox requires ActiveRecord (tried to call ##{method_name}). " \
+              'Enable `use_outbox` only in apps with ActiveRecord, or add ' \
+              '`gem "activerecord"` to your Gemfile.'
+            )
+          end
+
+          def respond_to_missing?(_method_name, _include_private = false)
+            false
+          end
+        end
+      end
+    end
+
+    it 'raises helpful error when calling class methods without ActiveRecord' do
+      expect do
+        @shim_class.create
+      end.to raise_error(/Outbox requires ActiveRecord.*tried to call #create/)
+
+      expect do
+        @shim_class.find(1)
+      end.to raise_error(/Outbox requires ActiveRecord.*tried to call #find/)
+    end
+
+    it 'mentions gem installation in error message' do
+      expect do
+        @shim_class.all
+      end.to raise_error(/gem "activerecord"/)
+    end
+
+    it 'returns false for respond_to_missing?' do
+      expect(@shim_class.respond_to?(:create, true)).to be false
+      expect(@shim_class.respond_to?(:find, true)).to be false
+    end
+  end
 end

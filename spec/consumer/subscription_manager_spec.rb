@@ -123,9 +123,86 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
   end
 
   describe '#subscribe!' do
-    it 'uses verification-free subscription path' do
-      expect(manager).to receive(:subscribe_without_verification!)
-      manager.subscribe!
+    context 'with pull consumer (default)' do
+      it 'uses verification-free subscription path' do
+        expect(manager).to receive(:subscribe_without_verification!)
+        manager.subscribe!
+      end
+    end
+
+    context 'with push consumer' do
+      before do
+        allow(config).to receive(:push_consumer?).and_return(true)
+        allow(config).to receive(:push_delivery_subject).and_return('dest_app.sync.test_app.worker')
+      end
+
+      it 'uses push subscription path' do
+        expect(manager).to receive(:subscribe_push!)
+        manager.subscribe!
+      end
+    end
+  end
+
+  describe '#subscribe_push!' do
+    let(:mock_nc) { double('NATS::Client') }
+    let(:mock_subscription) { double('Subscription') }
+
+    before do
+      allow(config).to receive(:push_consumer?).and_return(true)
+      allow(config).to receive(:push_delivery_subject).and_return('dest_app.sync.test_app.worker')
+      allow(manager).to receive(:resolve_nc).and_return(mock_nc)
+    end
+
+    context 'when NATS client is available' do
+      it 'subscribes to the delivery subject' do
+        allow(mock_nc).to receive(:respond_to?).with(:subscribe).and_return(true)
+        expect(mock_nc).to receive(:subscribe).with('dest_app.sync.test_app.worker').and_return(mock_subscription)
+        manager.send(:subscribe_push!)
+      end
+
+      it 'returns the subscription' do
+        allow(mock_nc).to receive(:respond_to?).with(:subscribe).and_return(true)
+        allow(mock_nc).to receive(:subscribe).and_return(mock_subscription)
+        result = manager.send(:subscribe_push!)
+        expect(result).to eq(mock_subscription)
+      end
+    end
+
+    context 'when NATS client is not available but JetStream has subscribe' do
+      before do
+        allow(manager).to receive(:resolve_nc).and_return(nil)
+        allow(mock_jts).to receive(:respond_to?).with(:subscribe).and_return(true)
+      end
+
+      it 'uses JetStream subscribe fallback' do
+        expect(mock_jts).to receive(:subscribe).with('dest_app.sync.test_app.worker').and_return(mock_subscription)
+        manager.send(:subscribe_push!)
+      end
+    end
+
+    context 'when no client is available' do
+      before do
+        allow(manager).to receive(:resolve_nc).and_return(nil)
+        allow(mock_jts).to receive(:respond_to?).with(:subscribe).and_return(false)
+      end
+
+      it 'raises ConnectionError' do
+        expect do
+          manager.send(:subscribe_push!)
+        end.to raise_error(JetstreamBridge::ConnectionError, /Unable to create push subscription/)
+      end
+    end
+  end
+
+  describe 'push consumer config' do
+    before do
+      allow(config).to receive(:push_consumer?).and_return(true)
+      allow(config).to receive(:push_delivery_subject).and_return('dest_app.sync.test_app.worker')
+    end
+
+    it 'includes deliver_subject in consumer config' do
+      manager_with_push = described_class.new(mock_jts, durable, config)
+      expect(manager_with_push.desired_consumer_cfg[:deliver_subject]).to eq('dest_app.sync.test_app.worker')
     end
   end
 
@@ -164,9 +241,107 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
           manager_instance.send(:duration_to_seconds, Object.new)
         end.to raise_error(ArgumentError, /invalid duration/)
       end
+
+      it 'converts Float using auto heuristic' do
+        result = manager_instance.send(:duration_to_seconds, 30.5)
+        expect(result).to eq(31) # rounds up from 30.5
+      end
+
+      it 'converts object with to_f method' do
+        obj_with_to_f = Struct.new(:value) do
+          def to_f
+            15.0
+          end
+        end.new(15)
+
+        result = manager_instance.send(:duration_to_seconds, obj_with_to_f)
+        expect(result).to eq(15)
+      end
     end
 
     # config normalization no longer used (verification removed)
+  end
+
+  describe '#resolve_nc' do
+    let(:manager_instance) { described_class.new(mock_jts, durable, config) }
+    let(:mock_nc) { double('NATS::Client') }
+
+    it 'returns @jts.nc when available' do
+      allow(mock_jts).to receive(:respond_to?).with(:nc).and_return(true)
+      allow(mock_jts).to receive(:nc).and_return(mock_nc)
+      result = manager_instance.send(:resolve_nc)
+      expect(result).to eq(mock_nc)
+    end
+
+    it 'uses instance_variable_get fallback when nc method not available' do
+      allow(mock_jts).to receive(:respond_to?).with(:nc).and_return(false)
+      allow(mock_jts).to receive(:instance_variable_defined?).with(:@nc).and_return(true)
+      allow(mock_jts).to receive(:instance_variable_get).with(:@nc).and_return(mock_nc)
+      result = manager_instance.send(:resolve_nc)
+      expect(result).to eq(mock_nc)
+    end
+
+    it 'returns mock_nats_client from config when available' do
+      allow(mock_jts).to receive(:respond_to?).with(:nc).and_return(false)
+      allow(mock_jts).to receive(:instance_variable_defined?).with(:@nc).and_return(false)
+      allow(config).to receive(:respond_to?).with(:mock_nats_client).and_return(true)
+      allow(config).to receive(:mock_nats_client).and_return(mock_nc)
+      result = manager_instance.send(:resolve_nc)
+      expect(result).to eq(mock_nc)
+    end
+
+    it 'returns nil when no client available' do
+      allow(mock_jts).to receive(:respond_to?).with(:nc).and_return(false)
+      allow(mock_jts).to receive(:instance_variable_defined?).with(:@nc).and_return(false)
+      allow(config).to receive(:respond_to?).with(:mock_nats_client).and_return(false)
+      result = manager_instance.send(:resolve_nc)
+      expect(result).to be_nil
+    end
+  end
+
+  describe '#build_pull_subscription' do
+    let(:manager_instance) { described_class.new(mock_jts, durable, config) }
+    let(:mock_nc) { double('NATS::Client') }
+    let(:mock_builder) { instance_double(JetstreamBridge::PullSubscriptionBuilder) }
+    let(:mock_subscription) { double('Subscription') }
+
+    it 'creates subscription using PullSubscriptionBuilder' do
+      expect(JetstreamBridge::PullSubscriptionBuilder).to receive(:new)
+        .with(mock_jts, durable, config.stream_name, 'dest_app.sync.test_app')
+        .and_return(mock_builder)
+      expect(mock_builder).to receive(:build).with(mock_nc).and_return(mock_subscription)
+
+      result = manager_instance.send(:build_pull_subscription, mock_nc)
+      expect(result).to eq(mock_subscription)
+    end
+  end
+
+  describe '#subscribe_without_verification! edge cases' do
+    let(:manager_instance) { described_class.new(mock_jts, durable, config) }
+    let(:mock_nc) { double('NATS::Client') }
+
+    context 'when nc lacks required methods but jts has pull_subscribe' do
+      it 'uses pull_subscribe fallback' do
+        allow(manager_instance).to receive(:resolve_nc).and_return(mock_nc)
+        allow(mock_nc).to receive(:respond_to?).with(:new_inbox).and_return(false)
+        allow(mock_jts).to receive(:respond_to?).with(:pull_subscribe).and_return(true)
+        expect(mock_jts).to receive(:pull_subscribe)
+          .with('dest_app.sync.test_app', durable, stream: config.stream_name)
+
+        manager_instance.send(:subscribe_without_verification!)
+      end
+    end
+
+    context 'when no path available' do
+      it 'raises ConnectionError' do
+        allow(manager_instance).to receive(:resolve_nc).and_return(nil)
+        allow(mock_jts).to receive(:respond_to?).with(:pull_subscribe).and_return(false)
+
+        expect do
+          manager_instance.send(:subscribe_without_verification!)
+        end.to raise_error(JetstreamBridge::ConnectionError, /Unable to create subscription/)
+      end
+    end
   end
 
   describe 'struct and hash access' do
