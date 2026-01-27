@@ -413,5 +413,4 @@ RSpec.describe JetstreamBridge::Publisher do
       expect(result.success?).to be(true)
     end
   end
-
 end

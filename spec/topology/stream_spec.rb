@@ -291,5 +291,4 @@ RSpec.describe JetstreamBridge::Stream do
       expect(described_class::STORAGE).to eq('file')
     end
   end
-
 end
