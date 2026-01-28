@@ -440,7 +440,11 @@ module JetstreamBridge
       Logging.info('Draining in-flight messages...', tag: 'JetstreamBridge::Consumer')
       # Process any pending messages with a short timeout
       5.times do
-        msgs = @psub.fetch(@batch_size, timeout: 1)
+        msgs = if JetstreamBridge.config.push_consumer?
+                 drain_messages_push
+               else
+                 @psub.fetch(@batch_size, timeout: 1)
+               end
         break if msgs.nil? || msgs.empty?
 
         msgs.each { |m| process_one(m) }
@@ -453,6 +457,18 @@ module JetstreamBridge
       Logging.info('Drain complete', tag: 'JetstreamBridge::Consumer')
     rescue StandardError => e
       Logging.error("Drain failed: #{e.class} #{e.message}", tag: 'JetstreamBridge::Consumer')
+    end
+
+    def drain_messages_push
+      # For push consumers during drain, collect messages with a shorter timeout
+      messages = []
+      @batch_size.times do
+        msg = @psub.next_msg(timeout: 1)
+        messages << msg if msg
+      rescue NATS::Timeout, NATS::IO::Timeout
+        break
+      end
+      messages
     end
 
     def safe_nak_message(msg)

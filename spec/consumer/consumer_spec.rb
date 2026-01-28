@@ -723,6 +723,74 @@ RSpec.describe JetstreamBridge::Consumer do
     end
   end
 
+  describe 'drain with push consumer' do
+    before do
+      JetstreamBridge.configure do |c|
+        c.consumer_mode = :push
+        c.delivery_subject = 'test.delivery'
+      end
+    end
+
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    it 'processes pending messages during drain using next_msg' do
+      msg = double('msg')
+      call_count = 0
+      allow(subscription).to receive(:next_msg) do |timeout:|
+        expect(timeout).to eq(1) # Drain uses timeout of 1
+        call_count += 1
+        call_count == 1 ? msg : raise(NATS::Timeout)
+      end
+      allow(processor).to receive(:handle_message)
+
+      consumer.send(:drain_inflight_messages)
+      expect(processor).to have_received(:handle_message).with(msg)
+    end
+
+    it 'stops on timeout during drain' do
+      allow(subscription).to receive(:next_msg).with(timeout: 1).and_raise(NATS::Timeout)
+      expect { consumer.send(:drain_inflight_messages) }.not_to raise_error
+    end
+
+    it 'stops on NATS::IO::Timeout during drain' do
+      allow(subscription).to receive(:next_msg).with(timeout: 1).and_raise(NATS::IO::Timeout)
+      expect { consumer.send(:drain_inflight_messages) }.not_to raise_error
+    end
+
+    it 'collects multiple messages before timeout' do
+      messages = Array.new(3) { |i| double("msg#{i}") }
+      call_count = 0
+      allow(subscription).to receive(:next_msg) do |timeout:|
+        expect(timeout).to eq(1)
+        call_count += 1
+        call_count <= 3 ? messages[call_count - 1] : raise(NATS::Timeout)
+      end
+      allow(processor).to receive(:handle_message)
+
+      consumer.send(:drain_inflight_messages)
+      messages.each do |msg|
+        expect(processor).to have_received(:handle_message).with(msg)
+      end
+    end
+
+    it 'drains up to 5 batches of messages using push mode' do
+      msg = double('msg')
+      batch_count = 0
+
+      allow(subscription).to receive(:next_msg) do |timeout:|
+        expect(timeout).to eq(1)
+        # Simulate one message per batch for 5 batches, then timeout
+        batch_count += 1
+        batch_count <= 5 ? msg : raise(NATS::Timeout)
+      end
+      allow(processor).to receive(:handle_message)
+
+      consumer.send(:drain_inflight_messages)
+      # Should have processed messages from the batches before final timeout
+      expect(processor).to have_received(:handle_message).at_least(1).times
+    end
+  end
+
   describe 'batch_size parameter handling' do
     it 'converts string batch_size to integer' do
       consumer = described_class.new(batch_size: '50') { |*| nil }
