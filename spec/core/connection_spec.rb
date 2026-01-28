@@ -403,6 +403,7 @@ RSpec.describe JetstreamBridge::Connection, :allow_real_connection do
     context 'when refresh fails' do
       it 'logs error without crashing' do
         allow(JetstreamBridge::Logging).to receive(:error)
+        allow(JetstreamBridge::Logging).to receive(:warn)
 
         # First call to jetstream succeeds (during connect!)
         # Subsequent calls fail (during reconnect)
@@ -417,10 +418,14 @@ RSpec.describe JetstreamBridge::Connection, :allow_real_connection do
         instance.connect!
 
         expect { @reconnect_callback.call }.not_to raise_error
+        # With retry logic (3 attempts), we expect:
+        # - 3 errors from refresh_jetstream_context (one per attempt)
+        # - 1 final error from on_reconnect handler after all retries fail
+        # - 2 warnings from on_reconnect handler for attempts 1 and 2
         expect(JetstreamBridge::Logging).to have_received(:error).with(
           /Failed to refresh JetStream context/,
           tag: 'JetstreamBridge::Connection'
-        )
+        ).at_least(:once)
       end
     end
   end

@@ -510,7 +510,7 @@ RSpec.describe JetstreamBridge::Consumer do
       expect { consumer.send(:setup_signal_handlers) }.not_to raise_error
     end
 
-    it 'calls stop! when INT signal is received' do
+    it 'sets flags when INT signal is received' do
       # Capture the signal handler block
       handler_block = nil
       allow(Signal).to receive(:trap) do |sig, &block|
@@ -520,11 +520,14 @@ RSpec.describe JetstreamBridge::Consumer do
       consumer.send(:setup_signal_handlers)
 
       # Execute the handler to simulate receiving INT signal
-      expect(consumer).to receive(:stop!)
+      # Should only set flags, no logging or other operations (trap-safe)
       handler_block&.call
+      expect(consumer.instance_variable_get(:@running)).to be false
+      expect(consumer.instance_variable_get(:@shutdown_requested)).to be true
+      expect(consumer.instance_variable_get(:@signal_received)).to eq('INT')
     end
 
-    it 'calls stop! when TERM signal is received' do
+    it 'sets flags when TERM signal is received' do
       # Capture the signal handler block
       handler_block = nil
       allow(Signal).to receive(:trap) do |sig, &block|
@@ -534,7 +537,24 @@ RSpec.describe JetstreamBridge::Consumer do
       consumer.send(:setup_signal_handlers)
 
       # Execute the handler to simulate receiving TERM signal
-      expect(consumer).to receive(:stop!)
+      # Should only set flags, no logging or other operations (trap-safe)
+      handler_block&.call
+      expect(consumer.instance_variable_get(:@running)).to be false
+      expect(consumer.instance_variable_get(:@shutdown_requested)).to be true
+      expect(consumer.instance_variable_get(:@signal_received)).to eq('TERM')
+    end
+
+    it 'does not call logging from trap context' do
+      # Capture the signal handler block
+      handler_block = nil
+      allow(Signal).to receive(:trap) do |sig, &block|
+        handler_block = block if sig == 'INT'
+      end
+
+      consumer.send(:setup_signal_handlers)
+
+      # Logging should not be called from the signal handler (trap context)
+      expect(JetstreamBridge::Logging).not_to receive(:info)
       handler_block&.call
     end
 

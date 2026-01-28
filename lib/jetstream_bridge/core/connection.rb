@@ -237,7 +237,36 @@ module JetstreamBridge
           'NATS reconnected, refreshing JetStream context',
           tag: 'JetstreamBridge::Connection'
         )
-        refresh_jetstream_context
+
+        # Retry JetStream context refresh with exponential backoff
+        max_attempts = 3
+        attempts = 0
+        success = false
+
+        while attempts < max_attempts && !success
+          attempts += 1
+          begin
+            refresh_jetstream_context
+            success = true
+          rescue StandardError => e
+            if attempts < max_attempts
+              delay = 0.5 * (2**(attempts - 1)) # 0.5s, 1s, 2s
+              Logging.warn(
+                "JetStream context refresh attempt #{attempts}/#{max_attempts} failed: #{e.message}. " \
+                "Retrying in #{delay}s...",
+                tag: 'JetstreamBridge::Connection'
+              )
+              sleep(delay)
+            else
+              Logging.error(
+                "Failed to refresh JetStream context after #{attempts} attempts. " \
+                'Will retry on next reconnect.',
+                tag: 'JetstreamBridge::Connection'
+              )
+            end
+          end
+        end
+
         @reconnecting = false
       end
 
@@ -458,15 +487,21 @@ module JetstreamBridge
       @last_reconnect_error = e
       @last_reconnect_error_at = Time.now
       @state = State::FAILED
-      cleanup_connection!(close_nc: false)
+
+      # Clear JetStream context but keep NATS connection alive for retry
+      @jts = nil
+
+      # Invalidate health check cache to force re-check
+      @cached_health_status = false
+      @last_health_check = Time.now.to_i
+
       Logging.error(
         "Failed to refresh JetStream context: #{e.class} #{e.message}",
         tag: 'JetstreamBridge::Connection'
       )
 
-      # Invalidate health check cache to force re-check
-      @cached_health_status = false
-      @last_health_check = Time.now.to_i
+      # Re-raise so caller (on_reconnect handler) can retry
+      raise
     end
 
     # Expose for class-level helpers (not part of public API)
@@ -491,11 +526,22 @@ module JetstreamBridge
       rescue StandardError
         # ignore cleanup errors
       end
-      @nc = nil
-      @jts = nil
+
+      # Only clear connection references if we're closing the connection
+      # When close_nc is false (e.g., during reconnect failures), keep @nc
+      # so the connection can recover when NATS auto-reconnects
+      if close_nc
+        @nc = nil
+        @jts = nil
+        @connected_at = nil
+      else
+        # Clear JetStream context but keep NATS connection reference
+        @jts = nil
+      end
+
+      # Always invalidate health check cache
       @cached_health_status = nil
       @last_health_check = nil
-      @connected_at = nil
     end
 
     def config_auto_provision

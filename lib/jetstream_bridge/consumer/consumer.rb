@@ -104,6 +104,8 @@ module JetstreamBridge
       @reconnect_attempts = 0
       @running = true
       @shutdown_requested = false
+      @signal_received = nil
+      @signal_logged = false
       @start_time    = Time.now
       @iterations    = 0
       @last_health_check = Time.now
@@ -197,6 +199,12 @@ module JetstreamBridge
         tag: 'JetstreamBridge::Consumer'
       )
       while @running
+        # Check if signal was received and log it (safe from main loop)
+        if @signal_received && !@signal_logged
+          Logging.info("Received #{@signal_received}, stopping consumer...", tag: 'JetstreamBridge::Consumer')
+          @signal_logged = true
+        end
+
         processed = process_batch
         idle_sleep(processed)
 
@@ -368,8 +376,11 @@ module JetstreamBridge
     def setup_signal_handlers
       %w[INT TERM].each do |sig|
         Signal.trap(sig) do
-          Logging.info("Received #{sig}, stopping consumer...", tag: 'JetstreamBridge::Consumer')
-          stop!
+          # CRITICAL: Only set flags in trap context, no I/O or mutex operations
+          # Logging and other operations are unsafe from signal handlers
+          @signal_received = sig
+          @running = false
+          @shutdown_requested = true
         end
       end
     rescue ArgumentError => e
