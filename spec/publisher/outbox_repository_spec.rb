@@ -136,7 +136,7 @@ RSpec.describe JetstreamBridge::OutboxRepository do
     end
   end
 
-  describe '#persist_pre' do
+  describe '#record_publish_attempt' do
     let(:subject) { 'test.subject' }
     let(:envelope) do
       {
@@ -161,7 +161,7 @@ RSpec.describe JetstreamBridge::OutboxRepository do
 
     it 'wraps in transaction' do
       expect(ActiveRecord::Base).to receive(:transaction).and_yield
-      repository.persist_pre(mock_record, subject, envelope)
+      repository.record_publish_attempt(mock_record, subject, envelope)
     end
 
     it 'assigns envelope attributes to record' do
@@ -174,18 +174,18 @@ RSpec.describe JetstreamBridge::OutboxRepository do
           last_error: nil
         )
       )
-      repository.persist_pre(mock_record, subject, envelope)
+      repository.record_publish_attempt(mock_record, subject, envelope)
     end
 
     it 'serializes payload' do
       expect(JetstreamBridge::ModelUtils).to receive(:json_dump).with(envelope)
-      repository.persist_pre(mock_record, subject, envelope)
+      repository.record_publish_attempt(mock_record, subject, envelope)
     end
 
     it 'creates headers with nats-msg-id' do
       expect(JetstreamBridge::ModelUtils).to receive(:json_dump)
         .with({ 'nats-msg-id' => event_id })
-      repository.persist_pre(mock_record, subject, envelope)
+      repository.record_publish_attempt(mock_record, subject, envelope)
     end
 
     it 'increments attempts' do
@@ -193,12 +193,12 @@ RSpec.describe JetstreamBridge::OutboxRepository do
         mock_record,
         hash_including(attempts: 1)
       )
-      repository.persist_pre(mock_record, subject, envelope)
+      repository.record_publish_attempt(mock_record, subject, envelope)
     end
 
     it 'saves the record' do
       expect(mock_record).to receive(:save!)
-      repository.persist_pre(mock_record, subject, envelope)
+      repository.record_publish_attempt(mock_record, subject, envelope)
     end
 
     context 'when record already has attempts' do
@@ -211,7 +211,7 @@ RSpec.describe JetstreamBridge::OutboxRepository do
           mock_record,
           hash_including(attempts: 3)
         )
-        repository.persist_pre(mock_record, subject, envelope)
+        repository.record_publish_attempt(mock_record, subject, envelope)
       end
     end
 
@@ -227,7 +227,7 @@ RSpec.describe JetstreamBridge::OutboxRepository do
           mock_record,
           hash_including(enqueued_at: existing_time)
         )
-        repository.persist_pre(mock_record, subject, envelope)
+        repository.record_publish_attempt(mock_record, subject, envelope)
       end
     end
 
@@ -241,7 +241,7 @@ RSpec.describe JetstreamBridge::OutboxRepository do
           mock_record,
           hash_not_including(:attempts)
         )
-        repository.persist_pre(mock_record, subject, envelope)
+        repository.record_publish_attempt(mock_record, subject, envelope)
       end
     end
 
@@ -255,7 +255,7 @@ RSpec.describe JetstreamBridge::OutboxRepository do
           mock_record,
           hash_not_including(:enqueued_at)
         )
-        repository.persist_pre(mock_record, subject, envelope)
+        repository.record_publish_attempt(mock_record, subject, envelope)
       end
     end
 
@@ -269,12 +269,12 @@ RSpec.describe JetstreamBridge::OutboxRepository do
           mock_record,
           hash_not_including(:updated_at)
         )
-        repository.persist_pre(mock_record, subject, envelope)
+        repository.record_publish_attempt(mock_record, subject, envelope)
       end
     end
   end
 
-  describe '#persist_success' do
+  describe '#record_publish_success' do
     before do
       allow(ActiveRecord::Base).to receive(:transaction).and_yield
       allow(Time).to receive(:now).and_return(Time.utc(2024, 1, 1, 12, 0, 0))
@@ -285,7 +285,7 @@ RSpec.describe JetstreamBridge::OutboxRepository do
 
     it 'wraps in transaction' do
       expect(ActiveRecord::Base).to receive(:transaction).and_yield
-      repository.persist_success(mock_record)
+      repository.record_publish_success(mock_record)
     end
 
     it 'marks status as sent' do
@@ -293,7 +293,7 @@ RSpec.describe JetstreamBridge::OutboxRepository do
         mock_record,
         hash_including(status: 'sent')
       )
-      repository.persist_success(mock_record)
+      repository.record_publish_success(mock_record)
     end
 
     it 'sets sent_at timestamp' do
@@ -301,12 +301,12 @@ RSpec.describe JetstreamBridge::OutboxRepository do
         mock_record,
         hash_including(sent_at: Time.utc(2024, 1, 1, 12, 0, 0))
       )
-      repository.persist_success(mock_record)
+      repository.record_publish_success(mock_record)
     end
 
     it 'saves the record' do
       expect(mock_record).to receive(:save!)
-      repository.persist_success(mock_record)
+      repository.record_publish_success(mock_record)
     end
 
     context 'when record does not have sent_at' do
@@ -319,7 +319,7 @@ RSpec.describe JetstreamBridge::OutboxRepository do
           mock_record,
           hash_not_including(:sent_at)
         )
-        repository.persist_success(mock_record)
+        repository.record_publish_success(mock_record)
       end
     end
 
@@ -333,12 +333,12 @@ RSpec.describe JetstreamBridge::OutboxRepository do
           mock_record,
           hash_not_including(:updated_at)
         )
-        repository.persist_success(mock_record)
+        repository.record_publish_success(mock_record)
       end
     end
   end
 
-  describe '#persist_failure' do
+  describe '#record_publish_failure' do
     let(:error_message) { 'Connection timeout' }
 
     before do
@@ -350,7 +350,7 @@ RSpec.describe JetstreamBridge::OutboxRepository do
 
     it 'wraps in transaction' do
       expect(ActiveRecord::Base).to receive(:transaction).and_yield
-      repository.persist_failure(mock_record, error_message)
+      repository.record_publish_failure(mock_record, error_message)
     end
 
     it 'marks status as failed' do
@@ -358,7 +358,7 @@ RSpec.describe JetstreamBridge::OutboxRepository do
         mock_record,
         hash_including(status: 'failed')
       )
-      repository.persist_failure(mock_record, error_message)
+      repository.record_publish_failure(mock_record, error_message)
     end
 
     it 'stores error message' do
@@ -366,12 +366,12 @@ RSpec.describe JetstreamBridge::OutboxRepository do
         mock_record,
         hash_including(last_error: error_message)
       )
-      repository.persist_failure(mock_record, error_message)
+      repository.record_publish_failure(mock_record, error_message)
     end
 
     it 'saves the record' do
       expect(mock_record).to receive(:save!)
-      repository.persist_failure(mock_record, error_message)
+      repository.record_publish_failure(mock_record, error_message)
     end
 
     context 'when record does not have updated_at' do
@@ -384,44 +384,44 @@ RSpec.describe JetstreamBridge::OutboxRepository do
           mock_record,
           hash_not_including(:updated_at)
         )
-        repository.persist_failure(mock_record, error_message)
+        repository.record_publish_failure(mock_record, error_message)
       end
     end
   end
 
-  describe '#persist_exception' do
+  describe '#record_publish_exception' do
     let(:error) { StandardError.new('Something went wrong') }
 
     before do
-      allow(repository).to receive(:persist_failure)
+      allow(repository).to receive(:record_publish_failure)
     end
 
-    it 'calls persist_failure with formatted error' do
-      expect(repository).to receive(:persist_failure).with(
+    it 'calls record_publish_failure with formatted error' do
+      expect(repository).to receive(:record_publish_failure).with(
         mock_record,
         'StandardError: Something went wrong'
       )
-      repository.persist_exception(mock_record, error)
+      repository.record_publish_exception(mock_record, error)
     end
 
     context 'when record is nil' do
       it 'does not raise error' do
-        expect { repository.persist_exception(nil, error) }.not_to raise_error
+        expect { repository.record_publish_exception(nil, error) }.not_to raise_error
       end
 
-      it 'does not call persist_failure' do
-        expect(repository).not_to receive(:persist_failure)
-        repository.persist_exception(nil, error)
+      it 'does not call record_publish_failure' do
+        expect(repository).not_to receive(:record_publish_failure)
+        repository.record_publish_exception(nil, error)
       end
     end
 
-    context 'when persist_failure raises error' do
+    context 'when record_publish_failure raises error' do
       before do
-        allow(repository).to receive(:persist_failure).and_raise(ActiveRecord::RecordInvalid)
+        allow(repository).to receive(:record_publish_failure).and_raise(ActiveRecord::RecordInvalid)
       end
 
       it 'rescues and does not re-raise' do
-        expect { repository.persist_exception(mock_record, error) }.not_to raise_error
+        expect { repository.record_publish_exception(mock_record, error) }.not_to raise_error
       end
     end
   end

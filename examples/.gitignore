@@ -1,0 +1,15 @@
+# Local development files
+*.pem
+!zscaler.pem.example
+
+# Docker volumes
+.data/
+
+# OS files
+.DS_Store
+*.swp
+*~
+
+# IDE files
+.vscode/
+.idea/

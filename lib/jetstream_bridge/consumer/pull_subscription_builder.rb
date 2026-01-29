@@ -22,8 +22,8 @@ module JetstreamBridge
       sub.instance_variable_set(:@_jsb_deliver, deliver)
       sub.instance_variable_set(:@_jsb_next_subject, "#{prefix}.CONSUMER.MSG.NEXT.#{@stream_name}.#{@durable}")
 
-      extend_pull_subscription(sub)
-      attach_jsi(sub)
+      apply_pull_subscription_extensions(sub)
+      attach_js_subscription_metadata(sub)
 
       Logging.info(
         "Created pull subscription without verification for consumer #{@durable} " \
@@ -36,7 +36,7 @@ module JetstreamBridge
 
     private
 
-    def extend_pull_subscription(sub)
+    def apply_pull_subscription_extensions(sub)
       pull_mod = begin
         NATS::JetStream.const_get(:PullSubscription)
       rescue NameError
@@ -44,10 +44,10 @@ module JetstreamBridge
       end
 
       sub.extend(pull_mod) if pull_mod
-      shim_fetch(sub) unless pull_mod
+      define_fetch_fallback(sub) unless pull_mod
     end
 
-    def shim_fetch(sub)
+    def define_fetch_fallback(sub)
       Logging.warn(
         'PullSubscription mixin unavailable; using shim fetch implementation',
         tag: 'JetstreamBridge::Consumer'
@@ -78,7 +78,7 @@ module JetstreamBridge
       end
     end
 
-    def attach_jsi(sub)
+    def attach_js_subscription_metadata(sub)
       js_sub_class = begin
         NATS::JetStream.const_get(:JS).const_get(:Sub)
       rescue NameError

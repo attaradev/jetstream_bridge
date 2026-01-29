@@ -51,50 +51,37 @@ module JetstreamBridge
     def subscribe_without_verification!
       # Manually create a pull subscription without calling consumer_info
       # This bypasses the permission check in nats-pure's pull_subscribe
-      nc = resolve_nc
-
-      return build_pull_subscription(nc) if nc.respond_to?(:new_inbox) && nc.respond_to?(:subscribe)
-
-      # Fallback for environments (mocks/tests) where low-level NATS client is unavailable.
-      if @jts.respond_to?(:pull_subscribe)
-        Logging.info(
-          "Using pull_subscribe fallback for consumer #{@durable} (stream=#{stream_name})",
-          tag: 'JetstreamBridge::Consumer'
-        )
-        return @jts.pull_subscribe(filter_subject, @durable, stream: stream_name)
-      end
-
-      raise JetstreamBridge::ConnectionError,
-            'Unable to create subscription without verification: NATS client not available'
+      create_subscription_with_fallback(
+        description: "pull subscription for consumer #{@durable} (stream=#{stream_name})",
+        primary_check: ->(nc) { nc.respond_to?(:new_inbox) && nc.respond_to?(:subscribe) },
+        primary_action: ->(nc) { build_pull_subscription(nc) },
+        fallback_name: :pull_subscribe,
+        fallback_available: -> { @jts.respond_to?(:pull_subscribe) },
+        fallback_action: -> { @jts.pull_subscribe(filter_subject, @durable, stream: stream_name) }
+      )
     end
 
     def subscribe_push!
       # Push consumers deliver messages directly to a subscription subject
       # No JetStream API calls needed - just subscribe to the delivery subject
-      nc = resolve_nc
       delivery_subject = @cfg.push_delivery_subject
 
-      if nc.respond_to?(:subscribe)
-        sub = nc.subscribe(delivery_subject)
-        Logging.info(
-          "Created push subscription for consumer #{@durable} " \
-          "(stream=#{stream_name}, delivery=#{delivery_subject})",
-          tag: 'JetstreamBridge::Consumer'
-        )
-        return sub
-      end
-
-      # Fallback for test environments
-      if @jts.respond_to?(:subscribe)
-        Logging.info(
-          "Using JetStream subscribe fallback for push consumer #{@durable} (stream=#{stream_name})",
-          tag: 'JetstreamBridge::Consumer'
-        )
-        return @jts.subscribe(delivery_subject)
-      end
-
-      raise JetstreamBridge::ConnectionError,
-            'Unable to create push subscription: NATS client not available'
+      create_subscription_with_fallback(
+        description: "push subscription for consumer #{@durable} (stream=#{stream_name}, delivery=#{delivery_subject})",
+        primary_check: ->(nc) { nc.respond_to?(:subscribe) },
+        primary_action: lambda do |nc|
+          sub = nc.subscribe(delivery_subject)
+          Logging.info(
+            "Created push subscription for consumer #{@durable} " \
+            "(stream=#{stream_name}, delivery=#{delivery_subject})",
+            tag: 'JetstreamBridge::Consumer'
+          )
+          sub
+        end,
+        fallback_name: :subscribe,
+        fallback_available: -> { @jts.respond_to?(:subscribe) },
+        fallback_action: -> { @jts.subscribe(delivery_subject) }
+      )
     end
 
     private
@@ -107,8 +94,8 @@ module JetstreamBridge
         deliver_policy: 'all',
         max_deliver: JetstreamBridge.config.max_deliver,
         # JetStream expects seconds (the client multiplies by nanoseconds).
-        ack_wait: duration_to_seconds(JetstreamBridge.config.ack_wait),
-        backoff: Array(JetstreamBridge.config.backoff).map { |d| duration_to_seconds(d) }
+        ack_wait: Duration.to_seconds(JetstreamBridge.config.ack_wait),
+        backoff: Duration.normalize_list_to_seconds(JetstreamBridge.config.backoff)
       }
 
       # Add deliver_subject for push consumers
@@ -123,73 +110,6 @@ module JetstreamBridge
         "Created consumer #{@durable} (filter=#{filter_subject})",
         tag: 'JetstreamBridge::Consumer'
       )
-    end
-
-    # ---- cfg access/normalization (struct-like or hash-like) ----
-
-    def get(cfg, key)
-      cfg.respond_to?(key) ? cfg.public_send(key) : cfg[key]
-    end
-
-    def sval(cfg, key)
-      v = get(cfg, key)
-      v = v.to_s if v.is_a?(Symbol)
-      v&.to_s&.downcase
-    end
-
-    def ival(cfg, key)
-      v = get(cfg, key)
-      v.to_i
-    end
-
-    # Normalize duration-like field to **milliseconds** (Integer).
-    # Accepts:
-    # - Strings:"500ms""30s" "2m", "1h", "250us", "100ns"
-    # - Integers/Floats:
-    #     * Server may return large integers in **nanoseconds** → detect and convert.
-    #     * Otherwise, we delegate to Duration.to_millis (heuristic/explicit).
-    def d_secs(cfg, key)
-      raw = get(cfg, key)
-      duration_to_seconds(raw)
-    end
-
-    # Normalize array of durations to integer milliseconds.
-    def darr_secs(cfg, key)
-      raw = get(cfg, key)
-      Array(raw).map { |d| duration_to_seconds(d) }
-    end
-
-    # ---- duration coercion ----
-
-    def duration_to_seconds(val)
-      return nil if val.nil?
-
-      case val
-      when Integer
-        # Heuristic: extremely large integers are likely **nanoseconds** from server
-        # (e.g., 30s => 30_000_000_000 ns). Convert ns → seconds.
-        return (val / 1_000_000_000.0).round if val >= 1_000_000_000
-
-        # otherwise rely on Duration’s :auto heuristic (int <1000 => seconds, >=1000 => ms)
-        millis = Duration.to_millis(val, default_unit: :auto)
-        seconds_from_millis(millis)
-      when Float
-        millis = Duration.to_millis(val, default_unit: :auto)
-        seconds_from_millis(millis)
-      when String
-        # Strings include unit (ns/us/ms/s/m/h/d) handled by Duration
-        millis = Duration.to_millis(val) # default_unit ignored when unit given
-        seconds_from_millis(millis)
-      else
-        return duration_to_seconds(val.to_f) if val.respond_to?(:to_f)
-
-        raise ArgumentError, "invalid duration: #{val.inspect}"
-      end
-    end
-
-    def seconds_from_millis(millis)
-      # Always round up to avoid zero-second waits when sub-second durations are provided.
-      [(millis / 1000.0).ceil, 1].max
     end
 
     def log_runtime_skip
@@ -212,6 +132,24 @@ module JetstreamBridge
     def build_pull_subscription(nats_client)
       builder = PullSubscriptionBuilder.new(@jts, @durable, stream_name, filter_subject)
       builder.build(nats_client)
+    end
+
+    def create_subscription_with_fallback(description:, primary_check:, primary_action:, fallback_name:,
+                                          fallback_available:, fallback_action:)
+      nc = resolve_nc
+
+      return primary_action.call(nc) if nc && primary_check.call(nc)
+
+      if fallback_available.call
+        Logging.info(
+          "Using #{fallback_name} fallback for #{description}",
+          tag: 'JetstreamBridge::Consumer'
+        )
+        return fallback_action.call
+      end
+
+      raise JetstreamBridge::ConnectionError,
+            "Unable to create #{description}: NATS client not available"
     end
   end
 end

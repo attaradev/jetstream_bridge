@@ -9,6 +9,7 @@ require_relative '../core/config'
 require_relative '../core/model_utils'
 require_relative 'message_processor'
 require_relative 'subscription_manager'
+require_relative 'consumer_state'
 require_relative 'inbox/inbox_processor'
 
 module JetstreamBridge
@@ -63,6 +64,8 @@ module JetstreamBridge
     attr_reader :batch_size
     # @return [MiddlewareChain] Middleware chain for processing
     attr_reader :middleware_chain
+    # Expose grouped state objects for observability/testing
+    attr_reader :processing_state, :lifecycle_state, :connection_state
 
     # Initialize a new Consumer instance.
     #
@@ -100,15 +103,9 @@ module JetstreamBridge
 
       @batch_size    = Integer(batch_size || DEFAULT_BATCH_SIZE)
       @durable       = durable_name || JetstreamBridge.config.durable_name
-      @idle_backoff  = IDLE_SLEEP_SECS
-      @reconnect_attempts = 0
-      @running = true
-      @shutdown_requested = false
-      @signal_received = nil
-      @signal_logged = false
-      @start_time    = Time.now
-      @iterations    = 0
-      @last_health_check = Time.now
+      @processing_state = ProcessingState.new(idle_backoff: IDLE_SLEEP_SECS)
+      @lifecycle_state = LifecycleState.new
+      @connection_state = ConnectionState.new
       # Use existing connection (should already be established)
       @jts = Connection.jetstream
       raise ConnectionError, 'JetStream connection not available. Call JetstreamBridge.startup! first.' unless @jts
@@ -198,24 +195,33 @@ module JetstreamBridge
         "Consumer #{@durable} started (batch=#{@batch_size}, dest=#{JetstreamBridge.config.destination_subject})…",
         tag: 'JetstreamBridge::Consumer'
       )
-      while @running
+      while @lifecycle_state.running
         # Check if signal was received and log it (safe from main loop)
-        if @signal_received && !@signal_logged
-          Logging.info("Received #{@signal_received}, stopping consumer...", tag: 'JetstreamBridge::Consumer')
-          @signal_logged = true
+        if @lifecycle_state.signal_received && !@lifecycle_state.signal_logged
+          Logging.info("Received #{@lifecycle_state.signal_received}, stopping consumer...",
+                       tag: 'JetstreamBridge::Consumer')
+          @lifecycle_state.signal_logged = true
         end
 
+        Logging.debug(
+          "Fetching messages (iteration=#{@processing_state.iterations}, batch_size=#{@batch_size})...",
+          tag: 'JetstreamBridge::Consumer'
+        )
         processed = process_batch
+        Logging.debug(
+          "Processed #{processed} messages",
+          tag: 'JetstreamBridge::Consumer'
+        )
         idle_sleep(processed)
 
-        @iterations += 1
+        @processing_state.iterations += 1
 
         # Periodic health checks every 10 minutes (600 seconds)
         perform_health_check_if_due
       end
 
       # Drain in-flight messages before exiting
-      drain_inflight_messages if @shutdown_requested
+      drain_inflight_messages if @lifecycle_state.shutdown_requested
       Logging.info("Consumer #{@durable} stopped gracefully", tag: 'JetstreamBridge::Consumer')
     end
 
@@ -245,8 +251,7 @@ module JetstreamBridge
     #   consumer.stop!  # Stop after 10 seconds
     #
     def stop!
-      @shutdown_requested = true
-      @running = false
+      @lifecycle_state.stop!
       Logging.info("Consumer #{@durable} shutdown requested", tag: 'JetstreamBridge::Consumer')
     end
 
@@ -264,16 +269,21 @@ module JetstreamBridge
 
     # Returns number of messages processed; 0 on timeout/idle or after recovery.
     def process_batch
+      Logging.debug('Calling fetch_messages...', tag: 'JetstreamBridge::Consumer')
       msgs = fetch_messages
+      Logging.debug("Fetched #{msgs&.size || 0} messages", tag: 'JetstreamBridge::Consumer')
       return 0 if msgs.nil? || msgs.empty?
 
       msgs.sum { |m| process_one(m) }
-    rescue NATS::Timeout, NATS::IO::Timeout
+    rescue NATS::Timeout, NATS::IO::Timeout => e
+      Logging.debug("Fetch timeout: #{e.class}", tag: 'JetstreamBridge::Consumer')
       0
     rescue NATS::JetStream::Error => e
+      Logging.error("JetStream error: #{e.class} #{e.message}", tag: 'JetstreamBridge::Consumer')
       handle_js_error(e)
     rescue StandardError => e
       Logging.error("Unexpected process_batch error: #{e.class} #{e.message}", tag: 'JetstreamBridge::Consumer')
+      Logging.error("Backtrace: #{e.backtrace.first(5).join("\n")}", tag: 'JetstreamBridge::Consumer')
       0
     end
 
@@ -288,7 +298,17 @@ module JetstreamBridge
     end
 
     def fetch_messages_pull
-      @psub.fetch(@batch_size, timeout: FETCH_TIMEOUT_SECS)
+      Logging.debug(
+        "fetch_messages_pull called (@psub=#{@psub.class}, batch=#{@batch_size}, timeout=#{FETCH_TIMEOUT_SECS})",
+        tag: 'JetstreamBridge::Consumer'
+      )
+      result = @psub.fetch(@batch_size, timeout: FETCH_TIMEOUT_SECS)
+      Logging.debug("fetch returned #{result&.size || 0} messages", tag: 'JetstreamBridge::Consumer')
+      result
+    rescue StandardError => e
+      Logging.error("fetch_messages_pull error: #{e.class} #{e.message}", tag: 'JetstreamBridge::Consumer')
+      Logging.error("Backtrace: #{e.backtrace.first(5).join("\n")}", tag: 'JetstreamBridge::Consumer')
+      raise
     end
 
     def fetch_messages_push
@@ -321,11 +341,11 @@ module JetstreamBridge
     def handle_js_error(error)
       if recoverable_consumer_error?(error)
         # Increment reconnect attempts and calculate exponential backoff
-        @reconnect_attempts += 1
-        backoff_secs = calculate_reconnect_backoff(@reconnect_attempts)
+        @connection_state.reconnect_attempts += 1
+        backoff_secs = calculate_reconnect_backoff(@connection_state.reconnect_attempts)
 
         Logging.warn(
-          "Recovering subscription after error (attempt #{@reconnect_attempts}): " \
+          "Recovering subscription after error (attempt #{@connection_state.reconnect_attempts}): " \
           "#{error.class} #{error.message}, waiting #{backoff_secs}s",
           tag: 'JetstreamBridge::Consumer'
         )
@@ -334,7 +354,7 @@ module JetstreamBridge
         ensure_subscription!
 
         # Reset counter on successful reconnection
-        @reconnect_attempts = 0
+        @connection_state.reconnect_attempts = 0
       else
         Logging.error("Fetch failed (non-recoverable): #{error.class} #{error.message}", tag: 'JetstreamBridge::Consumer')
       end
@@ -366,10 +386,10 @@ module JetstreamBridge
     def idle_sleep(processed)
       if processed.zero?
         # exponential-ish backoff with a tiny jitter to avoid sync across workers
-        @idle_backoff = [@idle_backoff * 1.5, MAX_IDLE_BACKOFF_SECS].min
-        sleep(@idle_backoff + (rand * 0.01))
+        @processing_state.idle_backoff = [@processing_state.idle_backoff * 1.5, MAX_IDLE_BACKOFF_SECS].min
+        sleep(@processing_state.idle_backoff + (rand * 0.01))
       else
-        @idle_backoff = IDLE_SLEEP_SECS
+        @processing_state.idle_backoff = IDLE_SLEEP_SECS
       end
     end
 
@@ -378,9 +398,7 @@ module JetstreamBridge
         Signal.trap(sig) do
           # CRITICAL: Only set flags in trap context, no I/O or mutex operations
           # Logging and other operations are unsafe from signal handlers
-          @signal_received = sig
-          @running = false
-          @shutdown_requested = true
+          @lifecycle_state.signal!(sig)
         end
       end
     rescue ArgumentError => e
@@ -390,16 +408,16 @@ module JetstreamBridge
 
     def perform_health_check_if_due
       now = Time.now
-      time_since_check = now - @last_health_check
+      time_since_check = now - @connection_state.last_health_check
 
       return unless time_since_check >= 600 # 10 minutes
 
-      @last_health_check = now
-      uptime = now - @start_time
+      @connection_state.mark_health_check(now)
+      uptime = @lifecycle_state.uptime(now)
       memory_mb = memory_usage_mb
 
       Logging.info(
-        "Consumer health: iterations=#{@iterations}, " \
+        "Consumer health: iterations=#{@processing_state.iterations}, " \
         "memory=#{memory_mb}MB, uptime=#{uptime.round}s",
         tag: 'JetstreamBridge::Consumer'
       )

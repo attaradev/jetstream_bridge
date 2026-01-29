@@ -304,7 +304,7 @@ module JetstreamBridge
       if verify_js
         verify_jetstream!
         if config_auto_provision
-          Topology.ensure!(@jts)
+          Topology.provision!(@jts)
           Logging.info(
             'Topology ensured after connection (auto_provision=true).',
             tag: 'JetstreamBridge::Connection'
@@ -461,7 +461,7 @@ module JetstreamBridge
 
       # Re-ensure topology after reconnect when allowed
       if config_auto_provision
-        Topology.ensure!(@jts)
+        Topology.provision!(@jts)
       else
         Logging.info(
           'Skipping topology provisioning after reconnect (auto_provision=false).',

@@ -38,7 +38,7 @@ RSpec.describe JetstreamBridge::Connection, :allow_real_connection do
       double(messages: 0, streams: 1, consumers: 2, memory: 1024, storage: 2048)
     )
     allow(mock_jts).to receive(:nc).and_return(mock_nc)
-    allow(JetstreamBridge::Topology).to receive(:ensure!).and_return(true)
+    allow(JetstreamBridge::Topology).to receive(:provision!).and_return(true)
     allow(JetstreamBridge::Logging).to receive(:debug)
     allow(JetstreamBridge::Logging).to receive(:info)
     allow(JetstreamBridge::Logging).to receive(:warn)
@@ -150,7 +150,7 @@ RSpec.describe JetstreamBridge::Connection, :allow_real_connection do
 
       it 'ensures topology after connection' do
         instance.connect!
-        expect(JetstreamBridge::Topology).to have_received(:ensure!).with(mock_jts).at_least(:once)
+        expect(JetstreamBridge::Topology).to have_received(:provision!).with(mock_jts).at_least(:once)
       end
 
       it 'sets connected_at timestamp' do
@@ -392,7 +392,7 @@ RSpec.describe JetstreamBridge::Connection, :allow_real_connection do
 
       # Track calls after connect
       calls = []
-      allow(JetstreamBridge::Topology).to receive(:ensure!) { |arg| calls << arg }
+      allow(JetstreamBridge::Topology).to receive(:provision!) { |arg| calls << arg }
 
       # Simulate reconnect
       @reconnect_callback.call

@@ -8,15 +8,24 @@ RSpec.describe JetstreamBridge::InboxEvent do
   before(:all) do
     ActiveRecord::Base.establish_connection(adapter: 'sqlite3', database: ':memory:')
     ActiveRecord::Schema.define do
-      create_table :jetstream_inbox_events, force: true do |t|
+      create_table :jetstream_bridge_inbox_events, force: true do |t|
         t.string :event_id
-        t.integer :stream_seq
-        t.string :stream
-        t.string :subject
+        t.string :event_type
+        t.string :resource_type
+        t.string :resource_id
         t.text :payload
+        t.string :subject
+        t.text :headers
+        t.string :stream
+        t.bigint :stream_seq
+        t.integer :deliveries
         t.string :status, default: 'received'
+        t.text :error_message
+        t.text :last_error
+        t.integer :processing_attempts, default: 0
         t.datetime :received_at
         t.datetime :processed_at
+        t.datetime :failed_at
         t.timestamps
       end
     end
@@ -541,29 +550,10 @@ RSpec.describe JetstreamBridge::InboxEvent do
       expect(event.reload.status).to eq('failed')
     end
 
-    context 'when last_error column exists' do
-      before do
-        # Add last_error column dynamically
-        unless ActiveRecord::Base.connection.column_exists?(:jetstream_inbox_events, :last_error)
-          ActiveRecord::Base.connection.add_column(:jetstream_inbox_events, :last_error, :text)
-          described_class.reset_column_information
-        end
-      end
-
-      after do
-        # Clean up
-        if ActiveRecord::Base.connection.column_exists?(:jetstream_inbox_events, :last_error)
-          ActiveRecord::Base.connection.remove_column(:jetstream_inbox_events, :last_error)
-          described_class.reset_column_information
-        end
-      end
-
-      it 'sets last_error message' do
-        # Create a fresh event after column is added
-        event = described_class.create!(event_id: 'fail-with-error', subject: 'test', status: 'pending')
-        event.mark_failed!('Something went wrong')
-        expect(event.reload.last_error).to eq('Something went wrong')
-      end
+    it 'sets last_error message' do
+      event = described_class.create!(event_id: 'fail-with-error', subject: 'test', status: 'pending')
+      event.mark_failed!('Something went wrong')
+      expect(event.reload.last_error).to eq('Something went wrong')
     end
 
     it 'persists changes' do

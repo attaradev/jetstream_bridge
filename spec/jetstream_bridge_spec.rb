@@ -3,11 +3,22 @@
 require 'jetstream_bridge'
 
 RSpec.describe JetstreamBridge do
-  let(:jts) { double('jetstream', publish: double(duplicate?: false, error: nil)) }
+  let(:mock_stream_info) do
+    double('stream_info',
+           config: double('config',
+                          subjects: ['source.sync.dest', 'dest.sync.source'],
+                          retention: 'workqueue',
+                          storage: 'file'))
+  end
+  let(:jts) do
+    double('jetstream',
+           publish: double(duplicate?: false, error: nil),
+           stream_info: mock_stream_info)
+  end
 
   before do
     described_class.reset!
-    allow(JetstreamBridge::Topology).to receive(:ensure!)
+    allow(JetstreamBridge::Topology).to receive(:provision!)
 
     # Ensure no mock NATS client is set from other tests
     if JetstreamBridge.instance_variable_defined?(:@mock_nats_client)
@@ -34,19 +45,12 @@ RSpec.describe JetstreamBridge do
     end
   end
 
-  describe '.connect_and_ensure_stream!' do
-    it 'connects, ensures topology, and returns the jetstream context' do
+  describe '.connect_and_provision!' do
+    it 'connects, provisions topology, and returns the jetstream context' do
       expect(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
       expect(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
-      expect(JetstreamBridge::Topology).to receive(:ensure!).with(jts)
-      expect(described_class.connect_and_ensure_stream!).to eq(jts)
-    end
-
-    it 'is available via the legacy ensure_topology! alias' do
-      expect(JetstreamBridge::Connection).to receive(:connect!).and_return(jts)
-      expect(JetstreamBridge::Connection).to receive(:jetstream).and_return(jts)
-      expect(JetstreamBridge::Topology).to receive(:ensure!).with(jts)
-      expect(described_class.ensure_topology!).to eq(jts)
+      expect(JetstreamBridge::Topology).to receive(:provision!).with(jts)
+      expect(described_class.connect_and_provision!).to eq(jts)
     end
   end
 
@@ -519,7 +523,7 @@ RSpec.describe JetstreamBridge do
       allow(JetstreamBridge::Logging).to receive(:info)
 
       described_class.startup!
-      expect(JetstreamBridge::Topology).to have_received(:ensure!).with(jts)
+      expect(JetstreamBridge::Topology).to have_received(:provision!).with(jts)
     end
 
     it 'sets connection_initialized flag' do

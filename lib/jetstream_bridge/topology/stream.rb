@@ -174,7 +174,12 @@ module JetstreamBridge
 
       # Only include mutable fields on update (subjects, storage). Never retention.
       def apply_update(jts, name, subjects, storage: nil)
-        params = { name: name, subjects: subjects }
+        # Fetch existing stream config to preserve retention
+        info = jts.stream_info(name)
+        config_data = info.config
+        existing_retention = config_data.respond_to?(:retention) ? config_data.retention : config_data[:retention]
+
+        params = { name: name, subjects: subjects, retention: existing_retention }
         params[:storage] = storage if storage
         jts.update_stream(**params)
       end

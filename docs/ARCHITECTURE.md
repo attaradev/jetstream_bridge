@@ -331,7 +331,7 @@ Overlap detection ensures messages route to exactly one stream.
                        ▼
 ┌──────────────────────────────────────────────────────────────┐
 │ 3. [OPTIONAL] Outbox pattern                                 │
-│    - OutboxRepository.persist_pre()                          │
+│    - OutboxRepository.record_publish_attempt()               │
 │    - State: "publishing"                                     │
 │    - Database transaction commits                            │
 └──────────────────────┬───────────────────────────────────────┘
@@ -347,8 +347,8 @@ Overlap detection ensures messages route to exactly one stream.
                        ▼
 ┌──────────────────────────────────────────────────────────────┐
 │ 5. [OPTIONAL] Outbox update                                  │
-│    - Success: OutboxRepository.persist_success()             │
-│    - Failure: OutboxRepository.persist_failure()             │
+│    - Success: OutboxRepository.record_publish_success()      │
+│    - Failure: OutboxRepository.record_publish_failure()      │
 └──────────────────────┬───────────────────────────────────────┘
                        │
                        ▼
@@ -437,7 +437,7 @@ Overlap detection ensures messages route to exactly one stream.
 
 ### Outbox Pattern (Publisher Side)
 
-**Purpose:** Guarantee at-least-once delivery by persisting events to database before publishing.
+**Purpose:** Guarantee at-most-once delivery by persisting events to database before publishing.
 
 **Configuration:**
 
@@ -486,6 +486,50 @@ config.inbox_model = 'JetstreamBridge::InboxEvent'
 - `processed` - Successfully processed
 - `failed` - Failed processing
 
+**Schema Requirements:**
+
+Generate the inbox events table migration:
+
+```bash
+rails generate jetstream_bridge:migration
+rails db:migrate
+```
+
+**Required Fields:**
+
+| Field | Type | Nullable | Description |
+| ----- | ---- | -------- | ----------- |
+| `event_id` | string | NO | Unique event identifier for deduplication |
+| `event_type` | string | NO | Type of event (e.g., 'created', 'updated') |
+| `payload` | text | NO | Full event payload as JSON |
+| `status` | string | NO | Processing status (received/processing/processed/failed) |
+| `processing_attempts` | integer | NO | Number of processing attempts (default: 0) |
+| `created_at` | timestamp | NO | When the record was created |
+| `updated_at` | timestamp | NO | When the record was last updated |
+
+**Optional Fields (useful for debugging and querying):**
+
+| Field | Type | Nullable | Description |
+| ----- | ---- | -------- | ----------- |
+| `resource_type` | string | YES | Type of resource (e.g., 'organization', 'user') |
+| `resource_id` | string | YES | ID of the resource being synced |
+| `subject` | string | YES | NATS subject the message was received on |
+| `headers` | jsonb | YES | NATS message headers |
+| `stream` | string | YES | JetStream stream name |
+| `stream_seq` | bigint | YES | Stream sequence number (fallback deduplication key) |
+| `deliveries` | integer | YES | Number of delivery attempts from NATS |
+| `error_message` | text | YES | Error message if processing failed |
+| `received_at` | timestamp | YES | When the event was first received |
+| `processed_at` | timestamp | YES | When the event was successfully processed |
+| `failed_at` | timestamp | YES | When the event failed processing |
+
+**Indexes:**
+
+- `event_id` - Unique index for fast deduplication
+- `status` - Index for querying by processing status
+- `created_at` - Index for time-based queries
+- `(stream, stream_seq)` - Unique composite index for fallback deduplication
+
 **Deduplication:**
 
 - Uses `event_id` for primary deduplication
@@ -506,6 +550,24 @@ inbox = InboxRepository.find_or_build(event_id: "abc123")
 inbox.new_record? # => false
 inbox.processed_at # => 2024-01-01 00:00:00
 # Skip processing, already done
+```
+
+**Field Population:**
+
+The InboxRepository automatically extracts and sets fields from the message payload:
+
+```ruby
+# Extracted from message body
+event_type: msg.body['type'] || msg.body['event_type']
+resource_type: msg.body['resource_type']
+resource_id: msg.body['resource_id']
+
+# NATS metadata
+subject: msg.subject
+headers: msg.headers
+stream: msg.stream
+stream_seq: msg.seq
+deliveries: msg.deliveries
 ```
 
 ### Dead Letter Queue (DLQ)

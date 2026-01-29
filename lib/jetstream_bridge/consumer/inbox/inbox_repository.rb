@@ -30,6 +30,9 @@ module JetstreamBridge
       ActiveRecord::Base.transaction do
         attrs = {
           event_id: msg.event_id,
+          event_type: msg.body['type'] || msg.body['event_type'],
+          resource_type: msg.body['resource_type'],
+          resource_id: msg.body['resource_id'],
           subject: msg.subject,
           payload: ModelUtils.json_dump(msg.body_for_store),
           headers: ModelUtils.json_dump(msg.headers),
@@ -37,10 +40,14 @@ module JetstreamBridge
           stream_seq: msg.seq,
           deliveries: msg.deliveries,
           status: 'processing',
-          last_error: nil,
+          error_message: nil,          # Clear any previous error
+          last_error: nil,             # Legacy field (for backwards compatibility)
+          processing_attempts: (record.respond_to?(:processing_attempts) ? (record.processing_attempts || 0) + 1 : nil),
           received_at: record.respond_to?(:received_at) ? (record.received_at || msg.now) : nil,
           updated_at: record.respond_to?(:updated_at) ? msg.now : nil
         }
+        # Some schemas capture the producing app
+        attrs[:source_app] = msg.body['producer'] || msg.headers['producer'] if record.respond_to?(:source_app=)
         ModelUtils.assign_known_attrs(record, attrs)
         record.save!
       end
@@ -64,9 +71,12 @@ module JetstreamBridge
 
       ActiveRecord::Base.transaction do
         now = Time.now.utc
+        error_msg = "#{error.class}: #{error.message}"
         attrs = {
           status: 'failed',
-          last_error: "#{error.class}: #{error.message}",
+          error_message: error_msg,   # Standard field name
+          last_error: error_msg,      # Legacy field (for backwards compatibility)
+          failed_at: record.respond_to?(:failed_at) ? now : nil,
           updated_at: record.respond_to?(:updated_at) ? now : nil
         }
         ModelUtils.assign_known_attrs(record, attrs)

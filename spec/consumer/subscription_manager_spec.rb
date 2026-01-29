@@ -206,62 +206,6 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
     end
   end
 
-  describe 'duration normalization' do
-    let(:manager_instance) { described_class.new(mock_jts, durable, config) }
-
-    describe '#duration_to_seconds' do
-      it 'converts large integers as nanoseconds to seconds' do
-        # 30 seconds in nanoseconds
-        result = manager_instance.send(:duration_to_seconds, 30_000_000_000)
-        expect(result).to eq(30)
-      end
-
-      it 'converts small integers using auto heuristic' do
-        result = manager_instance.send(:duration_to_seconds, 30)
-        expect(result).to eq(30)
-      end
-
-      it 'converts string durations' do
-        result = manager_instance.send(:duration_to_seconds, '30s')
-        expect(result).to eq(30)
-      end
-
-      it 'handles millisecond strings by rounding up' do
-        result = manager_instance.send(:duration_to_seconds, '500ms')
-        expect(result).to eq(1)
-      end
-
-      it 'returns nil for nil input' do
-        result = manager_instance.send(:duration_to_seconds, nil)
-        expect(result).to be_nil
-      end
-
-      it 'raises error for invalid input' do
-        expect do
-          manager_instance.send(:duration_to_seconds, Object.new)
-        end.to raise_error(ArgumentError, /invalid duration/)
-      end
-
-      it 'converts Float using auto heuristic' do
-        result = manager_instance.send(:duration_to_seconds, 30.5)
-        expect(result).to eq(31) # rounds up from 30.5
-      end
-
-      it 'converts object with to_f method' do
-        obj_with_to_f = Struct.new(:value) do
-          def to_f
-            15.0
-          end
-        end.new(15)
-
-        result = manager_instance.send(:duration_to_seconds, obj_with_to_f)
-        expect(result).to eq(15)
-      end
-    end
-
-    # config normalization no longer used (verification removed)
-  end
-
   describe '#resolve_nc' do
     let(:manager_instance) { described_class.new(mock_jts, durable, config) }
     let(:mock_nc) { double('NATS::Client') }
@@ -339,22 +283,8 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
 
         expect do
           manager_instance.send(:subscribe_without_verification!)
-        end.to raise_error(JetstreamBridge::ConnectionError, /Unable to create subscription/)
+        end.to raise_error(JetstreamBridge::ConnectionError, /Unable to create .*subscription/)
       end
-    end
-  end
-
-  describe 'struct and hash access' do
-    it 'retrieves value from hash' do
-      hash = { filter_subject: 'test.value' }
-      result = manager.send(:get, hash, :filter_subject)
-      expect(result).to eq('test.value')
-    end
-
-    it 'retrieves value from struct-like object' do
-      obj = double('Struct', filter_subject: 'test.value')
-      result = manager.send(:get, obj, :filter_subject)
-      expect(result).to eq('test.value')
     end
   end
 end

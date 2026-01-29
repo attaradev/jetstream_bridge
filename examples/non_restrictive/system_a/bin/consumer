@@ -1,0 +1,51 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# JetStream Bridge Consumer for System A
+# This script runs the event consumer that syncs data from System B
+
+# Force unbuffered output
+$stdout.sync = true
+$stderr.sync = true
+
+require_relative '../config/environment'
+
+puts '=' * 60
+puts 'JetStream Bridge Consumer - System A'
+puts '=' * 60
+puts "Connecting to: #{JetstreamBridge.config.nats_urls}"
+puts 'Listening for events from: system_b'
+puts "Consumer mode: #{JetstreamBridge.config.consumer_mode}"
+puts "Using inbox pattern: #{JetstreamBridge.config.use_inbox}"
+puts '=' * 60
+puts
+
+# Handle graceful shutdown
+Signal.trap('INT') do
+  puts "\nShutting down consumer..."
+  JetstreamBridge.shutdown!
+  exit 0
+end
+
+Signal.trap('TERM') do
+  puts "\nShutting down consumer..."
+  JetstreamBridge.shutdown!
+  exit 0
+end
+
+# Start the consumer
+begin
+  puts 'About to call EventConsumer.start!...'
+  $stdout.flush
+  EventConsumer.start!
+  puts 'EventConsumer.start! returned'
+  $stdout.flush
+rescue StandardError => e
+  puts "Fatal error: #{e.message}"
+  puts e.backtrace.join("\n")
+  $stdout.flush
+  exit 1
+end
+
+puts 'Consumer script finished'
+$stdout.flush

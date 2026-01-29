@@ -140,7 +140,7 @@ module JetstreamBridge
       return if @connection_initialized
 
       config.validate!
-      connect_and_ensure_stream!
+      connect_and_provision!
       @connection_initialized = true
       Logging.info('JetStream Bridge started successfully', tag: 'JetstreamBridge')
     end
@@ -197,10 +197,10 @@ module JetstreamBridge
       config.use_dlq
     end
 
-    # Establishes a connection and ensures stream topology.
+    # Establishes a connection and provisions stream topology.
     #
     # @return [Object] JetStream context
-    def connect_and_ensure_stream!
+    def connect_and_provision!
       config.validate!
       provision = config.auto_provision
       Connection.connect!(verify_js: provision)
@@ -208,7 +208,7 @@ module JetstreamBridge
       raise ConnectionNotEstablishedError, 'JetStream connection not available' unless jts
 
       if provision
-        Provisioner.new(config: config).ensure_stream!(jts: jts)
+        Provisioner.new(config: config).provision_stream!(jts: jts)
       else
         Logging.info(
           'auto_provision=false: skipping stream provisioning and JetStream account_info. ' \
@@ -222,16 +222,11 @@ module JetstreamBridge
 
     # Provision stream/consumer using management credentials (out of band from runtime).
     #
-    # @param ensure_consumer [Boolean] Whether to create/align the consumer along with the stream.
+    # @param provision_consumer [Boolean] Whether to create/align the consumer along with the stream.
     # @return [Object] JetStream context
-    def provision!(ensure_consumer: true)
+    def provision!(provision_consumer: true)
       config.validate!
-      Provisioner.new(config: config).ensure!(ensure_consumer: ensure_consumer)
-    end
-
-    # Backwards-compatible alias for the previous method name
-    def ensure_topology!
-      connect_and_ensure_stream!
+      Provisioner.new(config: config).provision!(provision_consumer: provision_consumer)
     end
 
     # Active health check for monitoring and readiness probes

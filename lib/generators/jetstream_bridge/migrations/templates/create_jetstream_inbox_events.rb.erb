@@ -3,22 +3,38 @@
 class CreateJetstreamInboxEvents < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
   def change
     create_table :jetstream_inbox_events do |t|
-      t.string   :event_id                              # preferred dedupe key
-      t.string   :subject,     null: false
-      t.jsonb    :payload,     null: false, default: {}
-      t.jsonb    :headers,     null: false, default: {}
-      t.string   :stream
-      t.bigint   :stream_seq
-      t.integer  :deliveries
-      t.string   :status,      null: false, default: 'received' # received|processing|processed|failed
-      t.text     :last_error
-      t.datetime :received_at
-      t.datetime :processed_at
+      # Event identification and deduplication
+      t.string   :event_id,        null: false           # unique event identifier for deduplication
+      t.string   :event_type,      null: false           # type of event (e.g., 'created', 'updated')
+      t.string   :resource_type                          # type of resource (e.g., 'organization', 'user')
+      t.string   :resource_id                            # ID of the resource
+
+      # Event payload and metadata
+      t.text     :payload,         null: false           # full event payload as JSON
+      t.string   :subject                                # NATS subject (optional)
+      t.jsonb    :headers,         default: {}           # NATS message headers (optional)
+
+      # NATS JetStream metadata (optional - useful for debugging)
+      t.string   :stream                                 # JetStream stream name
+      t.bigint   :stream_seq                             # stream sequence number
+      t.integer  :deliveries                             # number of delivery attempts
+
+      # Processing status and error tracking
+      t.string   :status,          null: false, default: 'received' # received|processing|processed|failed
+      t.text     :error_message                          # error message if processing failed
+      t.integer  :processing_attempts, null: false, default: 0 # number of processing attempts
+
+      # Timestamps
+      t.datetime :received_at                            # when the event was first received
+      t.datetime :processed_at                           # when the event was successfully processed
+      t.datetime :failed_at                              # when the event failed processing
       t.timestamps
     end
 
-    add_index :jetstream_inbox_events, :event_id, unique: true, where: 'event_id IS NOT NULL'
-    add_index :jetstream_inbox_events, [:stream, :stream_seq], unique: true, where: 'stream IS NOT NULL AND stream_seq IS NOT NULL'
+    # Indexes for efficient querying and deduplication
+    add_index :jetstream_inbox_events, :event_id, unique: true
     add_index :jetstream_inbox_events, :status
+    add_index :jetstream_inbox_events, :created_at
+    add_index :jetstream_inbox_events, [:stream, :stream_seq], unique: true, where: 'stream IS NOT NULL AND stream_seq IS NOT NULL'
   end
 end

@@ -17,12 +17,12 @@ RSpec.describe JetstreamBridge::Topology do
     allow(JetstreamBridge).to receive(:config).and_return(config)
   end
 
-  describe '.ensure!' do
+  describe '.provision!' do
     before do
       allow(JetstreamBridge::Stream).to receive(:ensure!)
     end
 
-    it 'ensures stream with source and destination subjects' do
+    it 'provisions stream with source and destination subjects' do
       expect(JetstreamBridge::Stream).to receive(:ensure!).with(
         mock_jts,
         'jetstream-bridge-stream',
@@ -31,7 +31,7 @@ RSpec.describe JetstreamBridge::Topology do
           'dest_app.sync.test_app'
         )
       )
-      described_class.ensure!(mock_jts)
+      described_class.provision!(mock_jts)
     end
 
     context 'when DLQ is enabled' do
@@ -49,7 +49,7 @@ RSpec.describe JetstreamBridge::Topology do
             'test_app.sync.dlq'
           )
         )
-        described_class.ensure!(mock_jts)
+        described_class.provision!(mock_jts)
       end
     end
 
@@ -64,7 +64,7 @@ RSpec.describe JetstreamBridge::Topology do
           anything,
           array_excluding('test_app.sync.dlq')
         )
-        described_class.ensure!(mock_jts)
+        described_class.provision!(mock_jts)
       end
     end
 
@@ -74,7 +74,7 @@ RSpec.describe JetstreamBridge::Topology do
         'jetstream-bridge-stream',
         anything
       )
-      described_class.ensure!(mock_jts)
+      described_class.provision!(mock_jts)
     end
 
     it 'uses source subject from config' do
@@ -83,7 +83,7 @@ RSpec.describe JetstreamBridge::Topology do
         anything,
         array_including('test_app.sync.dest_app')
       )
-      described_class.ensure!(mock_jts)
+      described_class.provision!(mock_jts)
     end
 
     it 'uses destination subject from config' do
@@ -92,7 +92,7 @@ RSpec.describe JetstreamBridge::Topology do
         anything,
         array_including('dest_app.sync.test_app')
       )
-      described_class.ensure!(mock_jts)
+      described_class.provision!(mock_jts)
     end
   end
 end

@@ -199,4 +199,38 @@ RSpec.describe JetstreamBridge::Duration do
       expect(described_class.normalize_list_to_millis(list)).to eq([3_600_000, 1_500, 30_000, 1_500])
     end
   end
+
+  describe '.to_seconds' do
+    it 'treats large integers as nanoseconds when using :auto' do
+      expect(described_class.to_seconds(30_000_000_000)).to eq(30)
+    end
+
+    it 'converts millisecond strings rounding up' do
+      expect(described_class.to_seconds('500ms')).to eq(1)
+    end
+
+    it 'converts float durations rounding up' do
+      expect(described_class.to_seconds(30.5)).to eq(31)
+    end
+
+    it 'returns nil for nil input' do
+      expect(described_class.to_seconds(nil)).to be_nil
+    end
+  end
+
+  describe '.normalize_list_to_seconds' do
+    it 'converts mixed durations into seconds' do
+      list = ['1s', '500ms', 2]
+      expect(described_class.normalize_list_to_seconds(list)).to eq([1, 1, 2])
+    end
+
+    it 'returns empty array for nil input' do
+      expect(described_class.normalize_list_to_seconds(nil)).to eq([])
+    end
+
+    it 'respects default_unit parameter' do
+      list = [100, 200]
+      expect(described_class.normalize_list_to_seconds(list, default_unit: :ms)).to eq([1, 1])
+    end
+  end
 end

@@ -64,6 +64,31 @@ module JetstreamBridge
       vals.map { |v| to_millis(v, default_unit: default_unit) }
     end
 
+    # Convert duration-like value to seconds (rounding up, min 1s).
+    #
+    # Retains the nanosecond heuristic used in SubscriptionManager:
+    # extremely large integers (>= 1_000_000_000) are treated as nanoseconds
+    # when default_unit is :auto.
+    def to_seconds(val, default_unit: :auto)
+      return nil if val.nil?
+
+      millis = if val.is_a?(Integer) && default_unit == :auto && val >= 1_000_000_000
+                 to_millis(val, default_unit: :ns)
+               else
+                 to_millis(val, default_unit: default_unit)
+               end
+
+      seconds_from_millis(millis)
+    end
+
+    # Normalize an array of durations into integer seconds.
+    def normalize_list_to_seconds(values, default_unit: :auto)
+      vals = Array(values)
+      return [] if vals.empty?
+
+      vals.map { |v| to_seconds(v, default_unit: default_unit) }
+    end
+
     # --- internal helpers ---
 
     def int_to_ms(num, default_unit:)
@@ -99,6 +124,11 @@ module JetstreamBridge
       raise ArgumentError, "invalid unit for default_unit: #{unit.inspect}" unless mult
 
       (num * mult).round
+    end
+
+    def seconds_from_millis(millis)
+      # Always round up to avoid zero-second waits when sub-second durations are provided.
+      [(millis / 1000.0).ceil, 1].max
     end
   end
 end

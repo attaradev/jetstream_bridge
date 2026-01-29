@@ -8,7 +8,7 @@ RSpec.describe JetstreamBridge::OutboxEvent do
   before(:all) do
     ActiveRecord::Base.establish_connection(adapter: 'sqlite3', database: ':memory:')
     ActiveRecord::Schema.define do
-      create_table :jetstream_outbox_events, force: true do |t|
+      create_table :jetstream_bridge_outbox_events, force: true do |t|
         t.string :event_id, null: false
         t.string :resource_type
         t.string :resource_id

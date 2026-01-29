@@ -63,6 +63,7 @@ consumer.run!
 ## Documentation
 
 - [Getting Started](docs/GETTING_STARTED.md) - Setup, configuration, and basic usage
+- [API Reference](docs/API.md) - Complete API documentation for all public methods
 - [Architecture & Topology](docs/ARCHITECTURE.md) - Internal architecture, message flow, and patterns
 - [Production Guide](docs/PRODUCTION.md) - Production deployment and monitoring
 - [Restricted Permissions & Provisioning](docs/RESTRICTED_PERMISSIONS.md) - Manual provisioning and security

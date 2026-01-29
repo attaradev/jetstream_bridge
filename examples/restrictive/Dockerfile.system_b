@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1.7
+FROM ruby:3.2-slim
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    postgresql-client \
+    curl \
+    netcat-openbsd \
+    tzdata \
+    ca-certificates \
+    libyaml-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy entire context (includes zscaler.pem if present)
+COPY . /tmp/build_context
+
+# Conditionally copy and trust Zscaler certificate if it exists
+RUN if [ -f /tmp/build_context/examples/restrictive/zscaler.pem ]; then \
+        cp /tmp/build_context/examples/restrictive/zscaler.pem /usr/local/share/ca-certificates/zscaler.crt && \
+        update-ca-certificates; \
+    fi && \
+    rm -rf /tmp/build_context
+
+# Copy the library code
+COPY . /jetstream_bridge
+
+# Copy System B application (base from non_restrictive)
+COPY examples/non_restrictive/system_b /app
+
+# Overlay restrictive configuration
+COPY examples/restrictive/system_b/config /app/config
+
+# Copy wait-for-db script
+COPY examples/restrictive/wait-for-db.sh /usr/local/bin/wait-for-db.sh
+RUN chmod +x /usr/local/bin/wait-for-db.sh
+
+ENV BUNDLE_JOBS=4 BUNDLE_RETRY=3
+RUN bundle config set path /usr/local/bundle
+
+# Install dependencies with isolated, locked caches to avoid bundle cache corruption
+RUN --mount=type=cache,target=/usr/local/bundle/cache,id=restrictive-system_b-bundle,sharing=locked \
+    --mount=type=cache,target=/root/.bundle/cache,id=restrictive-system_b-bundle-root,sharing=locked \
+    bundle install
+
+# Create tmp/pids directory for Puma
+RUN mkdir -p tmp/pids
+
+# Make consumer executable
+RUN chmod +x bin/consumer
+
+# Expose port
+EXPOSE 3001
+
+CMD ["bundle", "exec", "puma", "-C", "config/puma.rb"]

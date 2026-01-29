@@ -33,6 +33,64 @@ Generators create:
 - `db/migrate/*_create_jetstream_inbox_events.rb`
 - `app/controllers/jetstream_health_controller.rb` (health check)
 
+### Database Migrations
+
+The generated migrations create tables for inbox and outbox patterns:
+
+**Outbox Events** (`jetstream_bridge_outbox_events`):
+
+```ruby
+create_table :jetstream_bridge_outbox_events do |t|
+  t.string :event_id, null: false, index: { unique: true }
+  t.string :event_type, null: false
+  t.string :resource_type, null: false
+  t.string :resource_id
+  t.jsonb :payload, default: {}, null: false
+  t.string :subject, null: false
+  t.jsonb :headers, default: {}
+  t.string :status, default: "pending", null: false, index: true
+  t.text :error_message
+  t.integer :publish_attempts, default: 0
+  t.datetime :published_at, index: true
+  t.datetime :failed_at
+  t.timestamps
+end
+```
+
+**Inbox Events** (`jetstream_bridge_inbox_events`):
+
+```ruby
+create_table :jetstream_bridge_inbox_events do |t|
+  t.string :event_id, null: false, index: { unique: true }
+  t.string :event_type
+  t.string :resource_type
+  t.string :resource_id
+  t.jsonb :payload, default: {}, null: false
+  t.string :subject, null: false
+  t.jsonb :headers, default: {}
+  t.string :stream
+  t.bigint :stream_seq, index: true
+  t.integer :deliveries, default: 0
+  t.string :status, default: "received", null: false, index: true
+  t.text :error_message
+  t.integer :processing_attempts, default: 0
+  t.datetime :received_at, index: true
+  t.datetime :processed_at, index: true
+  t.datetime :failed_at
+  t.timestamps
+end
+```
+
+**Key Fields:**
+
+- `event_id`: Unique identifier for deduplication
+- `event_type`: Type of event (e.g., "user.created")
+- `resource_type`/`resource_id`: Entity being synchronized
+- `payload`: Event data (JSON)
+- `status`: Event lifecycle state (pending/processing/processed/failed)
+- `stream_seq`: NATS JetStream sequence number (inbox only)
+- `deliveries`: Delivery attempt count (inbox only)
+
 ## Configuration
 
 ```ruby

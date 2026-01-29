@@ -4,13 +4,14 @@ require 'spec_helper'
 
 RSpec.describe JetstreamBridge::InboxRepository do
   let(:mock_model_class) { class_double('InboxEvent') }
-  let(:mock_record) { instance_double('InboxEvent', save!: true, respond_to?: true, persisted?: false) }
+  let(:mock_record) { instance_double('InboxEvent', save!: true, respond_to?: true, persisted?: false, processing_attempts: 0) }
   let(:repository) { described_class.new(mock_model_class) }
 
   let(:mock_message) do
     double('Message',
            event_id: 'evt_123',
            subject: 'test.subject',
+           body: { 'type' => 'test_event', 'resource_type' => 'TestResource', 'resource_id' => '123', 'data' => 'value' },
            body_for_store: { 'data' => 'value' },
            headers: { 'key' => 'value' },
            stream: 'test_stream',
@@ -123,6 +124,7 @@ RSpec.describe JetstreamBridge::InboxRepository do
       double('Message',
              event_id: 'evt_123',
              subject: 'test.subject',
+             body: { 'type' => 'test_event', 'resource_type' => 'TestResource', 'resource_id' => '123', 'data' => 'value' },
              body_for_store: { 'data' => 'value' },
              headers: { 'key' => 'value' },
              stream: 'test_stream',
@@ -137,7 +139,9 @@ RSpec.describe JetstreamBridge::InboxRepository do
       allow(JetstreamBridge::ModelUtils).to receive(:assign_known_attrs)
       allow(mock_record).to receive(:respond_to?).with(:received_at).and_return(true)
       allow(mock_record).to receive(:respond_to?).with(:updated_at).and_return(true)
+      allow(mock_record).to receive(:respond_to?).with(:processing_attempts).and_return(true)
       allow(mock_record).to receive(:received_at).and_return(nil)
+      allow(mock_record).to receive(:processing_attempts).and_return(0)
     end
 
     it 'wraps in transaction' do
@@ -150,11 +154,15 @@ RSpec.describe JetstreamBridge::InboxRepository do
         mock_record,
         hash_including(
           event_id: 'evt_123',
+          event_type: 'test_event',
+          resource_type: 'TestResource',
+          resource_id: '123',
           subject: 'test.subject',
           stream: 'test_stream',
           stream_seq: 42,
           deliveries: 1,
           status: 'processing',
+          error_message: nil,
           last_error: nil
         )
       )
@@ -260,6 +268,7 @@ RSpec.describe JetstreamBridge::InboxRepository do
       allow(Time).to receive(:now).and_return(Time.utc(2024, 1, 1, 12, 0, 0))
       allow(JetstreamBridge::ModelUtils).to receive(:assign_known_attrs)
       allow(mock_record).to receive(:respond_to?).with(:updated_at).and_return(true)
+      allow(mock_record).to receive(:respond_to?).with(:failed_at).and_return(true)
     end
 
     it 'wraps in transaction' do
@@ -278,7 +287,10 @@ RSpec.describe JetstreamBridge::InboxRepository do
     it 'stores error message' do
       expect(JetstreamBridge::ModelUtils).to receive(:assign_known_attrs).with(
         mock_record,
-        hash_including(last_error: 'StandardError: Something went wrong')
+        hash_including(
+          error_message: 'StandardError: Something went wrong',
+          last_error: 'StandardError: Something went wrong'
+        )
       )
       repository.persist_failure(mock_record, error)
     end

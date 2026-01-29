@@ -131,9 +131,9 @@ RSpec.describe JetstreamBridge::Stream do
           described_class.ensure!(mock_jts, stream_name, ['existing.subject', 'new.subject'])
         end
 
-        it 'does not pass retention on update' do
+        it 'preserves existing retention on update' do
           expect(mock_jts).to receive(:update_stream).with(
-            hash_not_including(:retention)
+            hash_including(retention: 'workqueue')
           )
           described_class.ensure!(mock_jts, stream_name, ['existing.subject', 'new.subject'])
         end

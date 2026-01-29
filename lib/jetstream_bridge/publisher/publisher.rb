@@ -252,17 +252,17 @@ module JetstreamBridge
         )
       end
 
-      repo.persist_pre(record, subject, envelope)
+      repo.record_publish_attempt(record, subject, envelope)
 
       result = with_retries { publish_to_nats(subject, envelope) }
       if result.success?
-        repo.persist_success(record)
+        repo.record_publish_success(record)
       else
-        repo.persist_failure(record, result.error&.message || 'Publish failed')
+        repo.record_publish_failure(record, result.error&.message || 'Publish failed')
       end
       result
     rescue StandardError => e
-      repo.persist_exception(record, e) if defined?(repo) && defined?(record)
+      repo.record_publish_exception(record, e) if defined?(repo) && defined?(record)
       Models::PublishResult.new(
         success: false,
         event_id: envelope['event_id'],

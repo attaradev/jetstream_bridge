@@ -6,7 +6,7 @@ require_relative 'stream'
 
 module JetstreamBridge
   class Topology
-    def self.ensure!(jts)
+    def self.provision!(jts)
       cfg = JetstreamBridge.config
       subjects = [cfg.source_subject, cfg.destination_subject]
       subjects << cfg.dlq_subject if cfg.use_dlq

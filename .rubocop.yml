@@ -72,6 +72,7 @@ Metrics/AbcSize:
     - "lib/jetstream_bridge/core/connection.rb" # Connection validation with logging
     - "lib/jetstream_bridge.rb" # Health check with performance metrics
     - "lib/jetstream_bridge/topology/stream.rb" # Stream update with compatibility checks
+    - "examples/**/app/models/**/*.rb" # Example app models favor clarity over metrics
 
 Metrics/CyclomaticComplexity:
   Max: 10
@@ -113,6 +114,7 @@ Metrics/ParameterLists:
   CountKeywordArgs: false # allow more keyword args for clarity
   Exclude:
     - "lib/jetstream_bridge/consumer/inbox/inbox_message.rb" # Internal message object with many fields
+    - "lib/jetstream_bridge/config_helpers.rb" # helper accepts many knobs
 
 # ---------- Naming ----------
 Naming/PredicateMethod:

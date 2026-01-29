@@ -237,16 +237,16 @@ RSpec.describe JetstreamBridge::Publisher do
       allow(JetstreamBridge::OutboxRepository).to receive(:new).and_return(outbox_repo)
       allow(outbox_repo).to receive(:find_or_build).and_return(record)
       allow(outbox_repo).to receive(:already_sent?).and_return(false)
-      allow(outbox_repo).to receive(:persist_pre)
-      allow(outbox_repo).to receive(:persist_success)
-      allow(outbox_repo).to receive(:persist_failure)
-      allow(outbox_repo).to receive(:persist_exception)
+      allow(outbox_repo).to receive(:record_publish_attempt)
+      allow(outbox_repo).to receive(:record_publish_success)
+      allow(outbox_repo).to receive(:record_publish_failure)
+      allow(outbox_repo).to receive(:record_publish_exception)
     end
 
     it 'publishes via outbox when enabled' do
-      expect(outbox_repo).to receive(:persist_pre).with(record, anything, anything)
+      expect(outbox_repo).to receive(:record_publish_attempt).with(record, anything, anything)
       expect(jts).to receive(:publish).and_return(ack)
-      expect(outbox_repo).to receive(:persist_success).with(record)
+      expect(outbox_repo).to receive(:record_publish_success).with(record)
 
       result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
       expect(result).to be_a(JetstreamBridge::Models::PublishResult)
@@ -265,7 +265,7 @@ RSpec.describe JetstreamBridge::Publisher do
     it 'persists failure when publish returns false' do
       error_ack = double('ack', duplicate?: false, error: 'publish error')
       allow(jts).to receive(:publish).and_return(error_ack)
-      expect(outbox_repo).to receive(:persist_failure).with(record, 'publish error')
+      expect(outbox_repo).to receive(:record_publish_failure).with(record, 'publish error')
 
       result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
       expect(result).to be_a(JetstreamBridge::Models::PublishResult)
@@ -274,7 +274,7 @@ RSpec.describe JetstreamBridge::Publisher do
 
     it 'persists exception when publish raises error' do
       allow(jts).to receive(:publish) { raise StandardError, 'NATS error' }
-      expect(outbox_repo).to receive(:persist_exception).with(record, kind_of(StandardError))
+      expect(outbox_repo).to receive(:record_publish_exception).with(record, kind_of(StandardError))
 
       result = publisher.publish(resource_type: 'user', event_type: 'created', payload: payload)
       expect(result).to be_a(JetstreamBridge::Models::PublishResult)

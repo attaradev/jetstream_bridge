@@ -11,7 +11,7 @@ end
 module JetstreamBridge
   if defined?(ActiveRecord::Base)
     class OutboxEvent < ActiveRecord::Base
-      self.table_name = 'jetstream_outbox_events'
+      self.table_name = 'jetstream_bridge_outbox_events'
 
       class << self
         # Safe column presence check that never boots a connection during class load.

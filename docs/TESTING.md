@@ -47,7 +47,7 @@ RSpec.describe MyService do
       name: 'test-jetstream-bridge-stream',
       subjects: ['test.>']
     )
-    allow(JetstreamBridge::Topology).to receive(:ensure!)
+    allow(JetstreamBridge::Topology).to receive(:provision!)
   end
 
   after do
@@ -280,7 +280,7 @@ before do
   )
 
   # Allow topology check to succeed
-  allow(JetstreamBridge::Topology).to receive(:ensure!)
+  allow(JetstreamBridge::Topology).to receive(:provision!)
 
   JetstreamBridge.configure do |config|
     config.stream_name = 'jetstream-bridge-stream'
@@ -391,7 +391,7 @@ storage.reset!
 3. **Test both success and failure paths**: Use the mock to simulate errors
 4. **Verify message content**: Check that envelopes are correctly formatted
 5. **Test idempotency**: Verify duplicate detection and redelivery behavior
-6. **Mock topology setup**: Remember to stub `JetstreamBridge::Topology.ensure!`
+6. **Mock topology setup**: Remember to stub `JetstreamBridge::Topology.provision!`
 
 ## Examples
 

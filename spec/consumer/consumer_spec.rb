@@ -265,8 +265,8 @@ RSpec.describe JetstreamBridge::Consumer do
 
     it 'sets shutdown_requested and running flags' do
       consumer.stop!
-      expect(consumer.instance_variable_get(:@shutdown_requested)).to be true
-      expect(consumer.instance_variable_get(:@running)).to be false
+      expect(consumer.lifecycle_state.shutdown_requested).to be true
+      expect(consumer.lifecycle_state.running).to be false
     end
   end
 
@@ -344,31 +344,31 @@ RSpec.describe JetstreamBridge::Consumer do
     subject(:consumer) { described_class.new { |*| nil } }
 
     it 'increases backoff when no messages processed' do
-      initial_backoff = consumer.instance_variable_get(:@idle_backoff)
+      initial_backoff = consumer.processing_state.idle_backoff
       allow(consumer).to receive(:sleep)
 
       consumer.send(:idle_sleep, 0)
-      new_backoff = consumer.instance_variable_get(:@idle_backoff)
+      new_backoff = consumer.processing_state.idle_backoff
 
       expect(new_backoff).to be > initial_backoff
     end
 
     it 'resets backoff when messages are processed' do
-      consumer.instance_variable_set(:@idle_backoff, 0.5)
+      consumer.processing_state.idle_backoff = 0.5
       allow(consumer).to receive(:sleep)
 
       consumer.send(:idle_sleep, 5)
-      new_backoff = consumer.instance_variable_get(:@idle_backoff)
+      new_backoff = consumer.processing_state.idle_backoff
 
       expect(new_backoff).to eq(described_class::IDLE_SLEEP_SECS)
     end
 
     it 'caps backoff at MAX_IDLE_BACKOFF_SECS' do
-      consumer.instance_variable_set(:@idle_backoff, 2.0)
+      consumer.processing_state.idle_backoff = 2.0
       allow(consumer).to receive(:sleep)
 
       consumer.send(:idle_sleep, 0)
-      new_backoff = consumer.instance_variable_get(:@idle_backoff)
+      new_backoff = consumer.processing_state.idle_backoff
 
       expect(new_backoff).to be <= described_class::MAX_IDLE_BACKOFF_SECS
     end
@@ -468,8 +468,8 @@ RSpec.describe JetstreamBridge::Consumer do
       allow(consumer).to receive(:sleep)
 
       # Stop immediately
-      consumer.instance_variable_set(:@running, false)
-      consumer.instance_variable_set(:@shutdown_requested, true)
+      consumer.lifecycle_state.running = false
+      consumer.lifecycle_state.shutdown_requested = true
 
       expect(consumer).to receive(:drain_inflight_messages)
       consumer.run!
@@ -480,8 +480,8 @@ RSpec.describe JetstreamBridge::Consumer do
       allow(consumer).to receive(:sleep)
 
       # Stop without shutdown request
-      consumer.instance_variable_set(:@running, false)
-      consumer.instance_variable_set(:@shutdown_requested, false)
+      consumer.lifecycle_state.running = false
+      consumer.lifecycle_state.shutdown_requested = false
 
       expect(consumer).not_to receive(:drain_inflight_messages)
       consumer.run!
@@ -522,9 +522,9 @@ RSpec.describe JetstreamBridge::Consumer do
       # Execute the handler to simulate receiving INT signal
       # Should only set flags, no logging or other operations (trap-safe)
       handler_block&.call
-      expect(consumer.instance_variable_get(:@running)).to be false
-      expect(consumer.instance_variable_get(:@shutdown_requested)).to be true
-      expect(consumer.instance_variable_get(:@signal_received)).to eq('INT')
+      expect(consumer.lifecycle_state.running).to be false
+      expect(consumer.lifecycle_state.shutdown_requested).to be true
+      expect(consumer.lifecycle_state.signal_received).to eq('INT')
     end
 
     it 'sets flags when TERM signal is received' do
@@ -539,9 +539,9 @@ RSpec.describe JetstreamBridge::Consumer do
       # Execute the handler to simulate receiving TERM signal
       # Should only set flags, no logging or other operations (trap-safe)
       handler_block&.call
-      expect(consumer.instance_variable_get(:@running)).to be false
-      expect(consumer.instance_variable_get(:@shutdown_requested)).to be true
-      expect(consumer.instance_variable_get(:@signal_received)).to eq('TERM')
+      expect(consumer.lifecycle_state.running).to be false
+      expect(consumer.lifecycle_state.shutdown_requested).to be true
+      expect(consumer.lifecycle_state.signal_received).to eq('TERM')
     end
 
     it 'does not call logging from trap context' do

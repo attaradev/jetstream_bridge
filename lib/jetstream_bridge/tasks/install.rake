@@ -113,12 +113,12 @@ namespace :jetstream_bridge do
 
     begin
       provision_enabled = JetstreamBridge.config.auto_provision
-      jts = JetstreamBridge.connect_and_ensure_stream!
+      jts = JetstreamBridge.connect_and_provision!
 
       if provision_enabled
         puts '✓ Successfully connected to NATS'
         puts '✓ JetStream is available'
-        puts '✓ Stream topology ensured'
+        puts '✓ Stream topology provisioned'
 
         # Check if we can get account info
         info = jts.account_info

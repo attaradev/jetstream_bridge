@@ -1,0 +1,196 @@
+name: non-restrictive
+
+services:
+  # NATS JetStream Server
+  nats:
+    image: nats:2.10-alpine
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: [
+      "--jetstream",
+      "--store_dir=/data",
+      "--http_port=8222"
+    ]
+    volumes:
+      - nats_data_non_restrictive:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - non_restrictive_network
+
+  # PostgreSQL for System A
+  postgres_a:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: system_a_development
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "55432:5432" # avoid host port clash with local Postgres
+    volumes:
+      - postgres_a_data_non_restrictive:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - non_restrictive_network
+
+  # PostgreSQL for System B
+  postgres_b:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: system_b_development
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "55433:5432" # avoid host port clash with local Postgres
+    volumes:
+      - postgres_b_data_non_restrictive:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - non_restrictive_network
+
+  # System A - Web (Rails API)
+  system_a:
+    build:
+      context: ../../
+      dockerfile: examples/non_restrictive/Dockerfile.system_a
+    ports:
+      - "3000:3000"
+    environment:
+      RAILS_ENV: development
+      DB_HOST: postgres_a
+      DB_PORT: 5432
+      DB_NAME: system_a_development
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      NATS_URL: nats://nats:4222
+      PORT: 3000
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgres_a:
+        condition: service_healthy
+    networks:
+      - non_restrictive_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+    command: >
+      sh -c "
+        wait-for-db.sh bundle exec rake db:create db:migrate &&
+        bundle exec puma -C config/puma.rb
+      "
+
+  # System A - Consumer Process (bidirectional sync)
+  system_a_consumer:
+    build:
+      context: ../../
+      dockerfile: examples/non_restrictive/Dockerfile.system_a
+    environment:
+      RAILS_ENV: development
+      DB_HOST: postgres_a
+      DB_PORT: 5432
+      DB_NAME: system_a_development
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      NATS_URL: nats://nats:4222
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgres_a:
+        condition: service_healthy
+      system_a:
+        condition: service_healthy
+    networks:
+      - non_restrictive_network
+    command: >
+      sh -c "
+        wait-for-db.sh bundle exec ruby bin/consumer
+      "
+
+  # System B - Consumer (Rails API + Consumer Process)
+  system_b_web:
+    build:
+      context: ../../
+      dockerfile: examples/non_restrictive/Dockerfile.system_b
+    ports:
+      - "3001:3001"
+    environment:
+      RAILS_ENV: development
+      DB_HOST: postgres_b
+      DB_PORT: 5432
+      DB_NAME: system_b_development
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      NATS_URL: nats://nats:4222
+      PORT: 3001
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgres_b:
+        condition: service_healthy
+      system_a:
+        condition: service_healthy
+    networks:
+      - non_restrictive_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+    command: >
+      sh -c "
+        wait-for-db.sh bundle exec rake db:create db:migrate &&
+        bundle exec puma -C config/puma.rb
+      "
+
+  # System B - Consumer Process (separate container for the event consumer)
+  system_b_consumer:
+    build:
+      context: ../../
+      dockerfile: examples/non_restrictive/Dockerfile.system_b
+    environment:
+      RAILS_ENV: development
+      DB_HOST: postgres_b
+      DB_PORT: 5432
+      DB_NAME: system_b_development
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      NATS_URL: nats://nats:4222
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgres_b:
+        condition: service_healthy
+      system_b_web:
+        condition: service_healthy
+    networks:
+      - non_restrictive_network
+    command: >
+      sh -c "
+        wait-for-db.sh bundle exec ruby bin/consumer
+      "
+
+networks:
+  non_restrictive_network:
+    driver: bridge
+
+volumes:
+  nats_data_non_restrictive:
+  postgres_a_data_non_restrictive:
+  postgres_b_data_non_restrictive:
