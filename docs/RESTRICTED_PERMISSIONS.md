@@ -410,24 +410,17 @@ end
 
 ### Deploy the Updated Gem
 
-If you're working on the jetstream_bridge gem itself:
-
-```bash
-# Build the gem
-gem build jetstream_bridge.gemspec
-
-# Install locally for testing
-gem install ./jetstream_bridge-7.0.0.gem
-
-# Or update in your application's Gemfile.lock
-bundle update jetstream_bridge
-```
-
-If this is a local modification, you can point your Gemfile to the local path:
+Use the published gem in your application (no local path):
 
 ```ruby
-# Gemfile (temporary for testing)
-gem 'jetstream_bridge', path: '/path/to/local/jetstream_bridge'
+# Gemfile
+gem "jetstream_bridge", "~> 7.0"
+```
+
+Then update:
+
+```bash
+bundle update jetstream_bridge
 ```
 
 ### Restart the Service

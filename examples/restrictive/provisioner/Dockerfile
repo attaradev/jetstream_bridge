@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 FROM ruby:3.2-alpine
 
 RUN apk add --no-cache build-base ca-certificates

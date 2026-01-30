@@ -70,6 +70,13 @@ Applications run with **limited credentials** and:
 - Docker and Docker Compose
 - curl (for testing)
 
+### Host Ports (so you can run alongside the non-restrictive example)
+
+- NATS client / HTTP monitoring: `localhost:5222` / `localhost:8822`
+- System A API: `localhost:3100`
+- System B API: `localhost:3101`
+- Postgres A/B: `localhost:65432` / `localhost:65433`
+
 ## Quick Start
 
 ### 1. Start Services (Provisioner Runs First)
@@ -128,7 +135,7 @@ This creates organizations and users in System A, then verifies they sync to Sys
 ### Create Organization
 
 ```bash
-curl -X POST http://localhost:3000/organizations \
+curl -X POST http://localhost:3100/organizations \
   -H "Content-Type: application/json" \
   -d '{
     "organization": {
@@ -143,16 +150,16 @@ curl -X POST http://localhost:3000/organizations \
 
 ```bash
 # Wait a few seconds, then check System B
-curl http://localhost:3001/organizations
+curl http://localhost:3101/organizations
 
 # Check sync status
-curl http://localhost:3001/sync_status
+curl http://localhost:3101/sync_status
 ```
 
 ### Create User
 
 ```bash
-curl -X POST http://localhost:3000/users \
+curl -X POST http://localhost:3100/users \
   -H "Content-Type: application/json" \
   -d '{
     "user": {
@@ -168,7 +175,7 @@ curl -X POST http://localhost:3000/users \
 ### Verify User Synced
 
 ```bash
-curl http://localhost:3001/users
+curl http://localhost:3101/users
 ```
 
 ## Provisioner Details
@@ -230,7 +237,7 @@ cd examples/restrictive/provisioner
 bundle install
 
 # Set environment
-export NATS_URL=nats://localhost:4222
+export NATS_URL=nats://localhost:5222
 export STREAM_NAME=sync-stream
 
 # Run provisioner

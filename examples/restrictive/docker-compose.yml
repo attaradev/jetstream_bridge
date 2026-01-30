@@ -5,8 +5,8 @@ services:
   nats:
     image: nats:2.10-alpine
     ports:
-      - "4222:4222"
-      - "8222:8222"
+      - "5222:4222" # shifted to avoid clashing with non-restrictive example
+      - "8822:8222"
     command: [
       "--jetstream",
       "--store_dir=/data",
@@ -30,7 +30,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "55432:5432" # avoid host port clash with local Postgres
+      - "65432:5432" # avoid host port clash with local Postgres and other example
     volumes:
       - postgres_a_data_restrictive:/var/lib/postgresql/data
     healthcheck:
@@ -49,7 +49,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "55433:5432" # avoid host port clash with local Postgres
+      - "65433:5432" # avoid host port clash with local Postgres and other example
     volumes:
       - postgres_b_data_restrictive:/var/lib/postgresql/data
     healthcheck:
@@ -84,7 +84,7 @@ services:
       context: ../../
       dockerfile: examples/restrictive/Dockerfile.system_a
     ports:
-      - "3000:3000"
+      - "3100:3000" # shifted to avoid clashing with non-restrictive example
     environment:
       RAILS_ENV: development
       DB_HOST: postgres_a
@@ -154,7 +154,7 @@ services:
       context: ../../
       dockerfile: examples/restrictive/Dockerfile.system_b
     ports:
-      - "3001:3001"
+      - "3101:3001" # shifted to avoid clashing with non-restrictive example
     environment:
       RAILS_ENV: development
       DB_HOST: postgres_b

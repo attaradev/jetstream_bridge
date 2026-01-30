@@ -19,8 +19,8 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-SYSTEM_A_URL="http://localhost:3000"
-SYSTEM_B_URL="http://localhost:3001"
+SYSTEM_A_URL="http://localhost:3100"
+SYSTEM_B_URL="http://localhost:3101"
 
 echo -e "${BLUE}Checking provisioner status...${NC}"
 # Compose v2 only lists running containers by default; include exited ones.
