@@ -22,6 +22,17 @@ NC='\033[0m' # No Color
 SYSTEM_A_URL="http://localhost:3100"
 SYSTEM_B_URL="http://localhost:3101"
 
+# Add per-run uniqueness to avoid collisions when re-running the script
+RUN_SUFFIX=$(date +%s)
+ORG_NAME="Test Corp ${RUN_SUFFIX}"
+ORG_DOMAIN="testcorp-${RUN_SUFFIX}.com"
+ORG_UPDATED_NAME="Test Corporation ${RUN_SUFFIX}"
+USER_EMAIL="test@${ORG_DOMAIN}"
+
+ORG_B_NAME="Beta Corp ${RUN_SUFFIX}"
+ORG_B_DOMAIN="betacorp-${RUN_SUFFIX}.com"
+USER_B_EMAIL="bob@${ORG_B_DOMAIN}"
+
 echo -e "${BLUE}Checking provisioner status...${NC}"
 # Compose v2 only lists running containers by default; include exited ones.
 PROVISIONER_STATUS=$(docker compose ps -a provisioner 2>/dev/null | grep -E "Exit 0|Exited \\(0\\)" || true)
@@ -64,16 +75,20 @@ echo
 echo -e "${BLUE}Step 4: Creating organization in System A...${NC}"
 ORG_RESPONSE=$(curl -s -X POST $SYSTEM_A_URL/organizations \
   -H "Content-Type: application/json" \
-  -d '{
-    "organization": {
-      "name": "Test Corp",
-      "domain": "testcorp.com",
-      "active": true
+  -d "{
+    \"organization\": {
+      \"name\": \"${ORG_NAME}\",
+      \"domain\": \"${ORG_DOMAIN}\",
+      \"active\": true
     }
-  }')
+  }")
 
 echo "$ORG_RESPONSE" | jq '.'
-ORG_ID=$(echo "$ORG_RESPONSE" | jq -r '.id')
+ORG_ID=$(echo "$ORG_RESPONSE" | jq -r '.id // empty')
+if [ -z "$ORG_ID" ]; then
+  echo -e "${RED}✗ Failed to create organization in System A${NC}"
+  exit 1
+fi
 echo -e "${GREEN}✓ Created organization with ID: $ORG_ID${NC}"
 echo
 
@@ -86,7 +101,7 @@ SYNCED_ORG=$(curl -s $SYSTEM_B_URL/organizations/$ORG_ID)
 echo "$SYNCED_ORG" | jq '.'
 
 SYNCED_NAME=$(echo "$SYNCED_ORG" | jq -r '.name')
-if [ "$SYNCED_NAME" == "Test Corp" ]; then
+if [ "$SYNCED_NAME" == "$ORG_NAME" ]; then
   echo -e "${GREEN}✓ Organization successfully synced!${NC}"
 else
   echo -e "${YELLOW}✗ Organization not synced yet${NC}"
@@ -101,14 +116,18 @@ USER_RESPONSE=$(curl -s -X POST $SYSTEM_A_URL/users \
     \"user\": {
       \"organization_id\": $ORG_ID,
       \"name\": \"Test User\",
-      \"email\": \"test@testcorp.com\",
+      \"email\": \"${USER_EMAIL}\",
       \"role\": \"admin\",
       \"active\": true
     }
   }")
 
 echo "$USER_RESPONSE" | jq '.'
-USER_ID=$(echo "$USER_RESPONSE" | jq -r '.id')
+USER_ID=$(echo "$USER_RESPONSE" | jq -r '.id // empty')
+if [ -z "$USER_ID" ]; then
+  echo -e "${RED}✗ Failed to create user in System A${NC}"
+  exit 1
+fi
 echo -e "${GREEN}✓ Created user with ID: $USER_ID${NC}"
 echo
 
@@ -121,7 +140,7 @@ SYNCED_USER=$(curl -s $SYSTEM_B_URL/users/$USER_ID)
 echo "$SYNCED_USER" | jq '.'
 
 SYNCED_EMAIL=$(echo "$SYNCED_USER" | jq -r '.email')
-if [ "$SYNCED_EMAIL" == "test@testcorp.com" ]; then
+if [ "$SYNCED_EMAIL" == "$USER_EMAIL" ]; then
   echo -e "${GREEN}✓ User successfully synced!${NC}"
 else
   echo -e "${YELLOW}✗ User not synced yet${NC}"
@@ -132,11 +151,11 @@ echo
 echo -e "${BLUE}Step 10: Updating organization in System A...${NC}"
 UPDATE_RESPONSE=$(curl -s -X PATCH $SYSTEM_A_URL/organizations/$ORG_ID \
   -H "Content-Type: application/json" \
-  -d '{
-    "organization": {
-      "name": "Test Corporation"
+  -d "{
+    \"organization\": {
+      \"name\": \"${ORG_UPDATED_NAME}\"
     }
-  }')
+  }")
 
 echo "$UPDATE_RESPONSE" | jq '.'
 echo -e "${GREEN}✓ Updated organization${NC}"
@@ -151,7 +170,7 @@ UPDATED_ORG=$(curl -s $SYSTEM_B_URL/organizations/$ORG_ID)
 echo "$UPDATED_ORG" | jq '.'
 
 UPDATED_NAME=$(echo "$UPDATED_ORG" | jq -r '.name')
-if [ "$UPDATED_NAME" == "Test Corporation" ]; then
+if [ "$UPDATED_NAME" == "$ORG_UPDATED_NAME" ]; then
   echo -e "${GREEN}✓ Update successfully synced!${NC}"
 else
   echo -e "${YELLOW}✗ Update not synced yet${NC}"
@@ -167,16 +186,20 @@ echo
 echo -e "${BLUE}Step 14: Testing reverse direction - Creating organization in System B...${NC}"
 ORG_B_RESPONSE=$(curl -s -X POST $SYSTEM_B_URL/organizations \
   -H "Content-Type: application/json" \
-  -d '{
-    "organization": {
-      "name": "Beta Corp",
-      "domain": "betacorp.com",
-      "active": true
+  -d "{
+    \"organization\": {
+      \"name\": \"${ORG_B_NAME}\",
+      \"domain\": \"${ORG_B_DOMAIN}\",
+      \"active\": true
     }
-  }')
+  }")
 
 echo "$ORG_B_RESPONSE" | jq '.'
-ORG_B_ID=$(echo "$ORG_B_RESPONSE" | jq -r '.id')
+ORG_B_ID=$(echo "$ORG_B_RESPONSE" | jq -r '.id // empty')
+if [ -z "$ORG_B_ID" ]; then
+  echo -e "${RED}✗ Failed to create organization in System B${NC}"
+  exit 1
+fi
 echo -e "${GREEN}✓ Created organization in System B with ID: $ORG_B_ID${NC}"
 echo
 
@@ -189,7 +212,7 @@ SYNCED_ORG_B=$(curl -s $SYSTEM_A_URL/organizations/$ORG_B_ID)
 echo "$SYNCED_ORG_B" | jq '.'
 
 SYNCED_B_NAME=$(echo "$SYNCED_ORG_B" | jq -r '.name')
-if [ "$SYNCED_B_NAME" == "Beta Corp" ]; then
+if [ "$SYNCED_B_NAME" == "$ORG_B_NAME" ]; then
   echo -e "${GREEN}✓ Organization successfully synced from B to A!${NC}"
 else
   echo -e "${YELLOW}✗ Organization not synced from B to A yet${NC}"
@@ -204,14 +227,18 @@ USER_B_RESPONSE=$(curl -s -X POST $SYSTEM_B_URL/users \
     \"user\": {
       \"organization_id\": $ORG_B_ID,
       \"name\": \"Bob Johnson\",
-      \"email\": \"bob@betacorp.com\",
+      \"email\": \"${USER_B_EMAIL}\",
       \"role\": \"user\",
       \"active\": true
     }
   }")
 
 echo "$USER_B_RESPONSE" | jq '.'
-USER_B_ID=$(echo "$USER_B_RESPONSE" | jq -r '.id')
+USER_B_ID=$(echo "$USER_B_RESPONSE" | jq -r '.id // empty')
+if [ -z "$USER_B_ID" ]; then
+  echo -e "${RED}✗ Failed to create user in System B${NC}"
+  exit 1
+fi
 echo -e "${GREEN}✓ Created user in System B with ID: $USER_B_ID${NC}"
 echo
 
@@ -224,7 +251,7 @@ SYNCED_USER_B=$(curl -s $SYSTEM_A_URL/users/$USER_B_ID)
 echo "$SYNCED_USER_B" | jq '.'
 
 SYNCED_B_EMAIL=$(echo "$SYNCED_USER_B" | jq -r '.email')
-if [ "$SYNCED_B_EMAIL" == "bob@betacorp.com" ]; then
+if [ "$SYNCED_B_EMAIL" == "$USER_B_EMAIL" ]; then
   echo -e "${GREEN}✓ User successfully synced from B to A!${NC}"
 else
   echo -e "${YELLOW}✗ User not synced from B to A yet${NC}"
