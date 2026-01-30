@@ -204,7 +204,7 @@ end
     "use_inbox": true,
     "use_dlq": true
   },
-  "version": "4.0.3"
+  "version": "7.0.0"
 }
 ```
 

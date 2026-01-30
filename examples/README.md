@@ -190,7 +190,7 @@ Both examples require:
 - **Rails**: 7.0.8
 - **PostgreSQL**: 15
 - **NATS JetStream**: 2.10
-- **JetStream Bridge**: 5.0.0 (from this repository)
+- **JetStream Bridge**: 7.0.0 (from this repository)
 
 ## File Structure
 

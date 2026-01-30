@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.0.0] - 2026-01-30
+
+### Added
+
+- Full Rails reference examples (non-restrictive and restrictive) with Docker Compose, provisioner service, and end-to-end test scripts.
+- Architecture and API reference docs covering topology, consumer modes, and public surface.
+
+### Changed
+
+- Major refactor separating provisioning from runtime to support least-privilege deployments; `auto_provision=false` now avoids JetStream management APIs at runtime.
+- Config helpers simplified bidirectional setup (`configure_bidirectional`, `setup_rails_lifecycle`) replacing verbose initializer boilerplate.
+- Consumer pipeline hardened: push-consumer mode, safer signal handling, improved drain behavior, and pull subscription shim reliability.
+
+### Fixed
+
+- Provisioner keyword argument handling, generator load edge cases, and connection/consumer recovery during JetStream context refresh.
+
+## [5.0.0] - 2026-01-30
+
+### Added
+
+- **Push consumer mode** for restricted NATS credentials — `consumer_mode: :push` with optional `delivery_subject`, no `$JS.API.*` permissions required, documented in the restricted permissions guide.
+- **Reference examples**: full Rails apps for non-restrictive (auto-provisioning) and restrictive (least-privilege + provisioner) deployments with Docker Compose and end-to-end test scripts.
+- **ConfigHelpers & docs**: helper to configure bidirectional sync in one call, Rails lifecycle helper, new Architecture/API docs describing topology and public surface.
+
+### Changed
+
+- **Provisioning flow** separated from runtime: when `auto_provision=false` runtime skips JetStream management APIs; provisioning handled via rake task/CLI with admin creds. Health/test_connection honor restricted mode.
+- **Consumer reliability**: refactored subscription builder, trap-safe signal handling, push-consumer drain via `next_msg`, sturdier pull subscription shim, JetStream context refresh retries after reconnects.
+- **Quality & coverage**: generator template tweaks, provisioner keyword fixes, and test suite expanded (~96% coverage) across provisioning, consumer, and connection lifecycle paths.
+
+### Fixed
+
+- Fixed TypeError/timeout handling in push consumer drain and process loop.
+- Fixed Rails generator load edge case and provisioner keyword argument bugs.
+- Guarded JetStream API calls when constants are private, preserving connection state during JetStream context refresh failures.
+
 ## [4.4.1] - 2026-01-16
 
 ### Fixed

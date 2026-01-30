@@ -417,7 +417,7 @@ If you're working on the jetstream_bridge gem itself:
 gem build jetstream_bridge.gemspec
 
 # Install locally for testing
-gem install ./jetstream_bridge-4.5.0.gem
+gem install ./jetstream_bridge-7.0.0.gem
 
 # Or update in your application's Gemfile.lock
 bundle update jetstream_bridge

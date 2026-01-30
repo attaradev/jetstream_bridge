@@ -239,7 +239,7 @@ health[:stream_exists]    # => true/false
 health[:messages]         # => 123
 health[:consumers]        # => 2
 health[:nats_rtt_ms]      # => 1.2
-health[:version]          # => "5.0.0"
+health[:version]          # => "7.0.0"
 ```
 
 ### `JetstreamBridge.stream_info`

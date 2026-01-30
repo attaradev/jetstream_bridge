@@ -6,7 +6,7 @@ This guide covers installation, Rails setup, configuration, and basic publish/co
 
 ```ruby
 # Gemfile
-gem "jetstream_bridge", "~> 5.0"
+gem "jetstream_bridge", "~> 7.0"
 ```
 
 ```bash
@@ -118,6 +118,19 @@ end
 ```
 
 Rails autostart runs after initialization (including in console). You can opt out for rake tasks or other tooling with `config.lazy_connect = true` or `JETSTREAM_BRIDGE_DISABLE_AUTOSTART=1`; it will then connect on first publish/subscribe.
+
+### Push consumer mode (restricted credentials)
+
+If your NATS user cannot publish to `$JS.API.*`, switch to push consumers and pre-create the durable consumer:
+
+```ruby
+config.consumer_mode = :push
+# Optional: override delivery subject (defaults to "#{config.destination_subject}.worker")
+# config.delivery_subject = "worker.sync.my_app.worker"
+config.auto_provision = false # pre-create stream/consumer with admin creds
+```
+
+Provision the consumer with NATS CLI (`--deliver <subject>`) or `bundle exec rake jetstream_bridge:provision` using admin credentials. See [docs/RESTRICTED_PERMISSIONS.md](RESTRICTED_PERMISSIONS.md) for the full least-privilege guide.
 
 ## Publish
 

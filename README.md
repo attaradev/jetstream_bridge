@@ -20,21 +20,22 @@
   </a>
 </p>
 
-Production-ready NATS JetStream bridge for Ruby/Rails with outbox, inbox, DLQ, and overlap-safe stream provisioning.
+ Production-ready NATS JetStream bridge for Ruby/Rails with outbox, inbox, DLQ, and overlap-safe stream provisioning.
 
 ## Highlights
 
 - Transactional outbox and idempotent inbox (optional) for exactly-once pipelines.
-- Durable pull consumers with retries, backoff, and DLQ routing.
+- Durable pull (default) or push consumers with retries, backoff, and DLQ routing.
 - Auto stream/consumer provisioning with overlap protection.
 - Rails-native: generators, migrations, health check, and eager-loading safety.
+- Least-privilege friendly: run with `auto_provision=false` plus pre-created consumers.
 - Mock NATS for fast, no-infra testing.
 
 ## Quick Start
 
 ```ruby
 # Gemfile
-gem "jetstream_bridge", "~> 5.0"
+gem "jetstream_bridge", "~> 7.0"
 ```
 
 ```bash
@@ -68,6 +69,7 @@ consumer.run!
 - [Production Guide](docs/PRODUCTION.md) - Production deployment and monitoring
 - [Restricted Permissions & Provisioning](docs/RESTRICTED_PERMISSIONS.md) - Manual provisioning and security
 - [Testing with Mock NATS](docs/TESTING.md) - Fast, no-infra testing
+- [Reference Examples (Rails 7)](examples/README.md) - Non-restrictive and restrictive Dockerized examples with E2E tests
 
 ## License
 
