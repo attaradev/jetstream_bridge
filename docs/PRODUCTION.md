@@ -44,8 +44,15 @@ production:
 
 **Total Formula:**
 
-```markdown
-Total Connections = (Web Workers × Threads) + (Consumers × 3) + 10 buffer
+```mermaid
+flowchart LR
+  ww["Web workers × threads"]
+  cons["Consumers × 3"]
+  buffer["+ 10 buffer"]
+  ww --> sum
+  cons --> sum
+  buffer --> sum
+  sum["Total connections"]
 ```
 
 ### Example Calculation

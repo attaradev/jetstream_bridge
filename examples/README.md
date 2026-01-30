@@ -44,31 +44,21 @@ This replaces ~40 lines of duplicate setup while keeping the same defaults.
 
 Both examples implement a **Bidirectional Publisher-Consumer** pattern where each system can both publish and consume events:
 
-```markdown
-┌──────────────────────────────────────────────────────────┐
-│                    NATS JetStream                        │
-│              Stream: sync-stream                         │
-│   Subjects: system_a.sync.system_b (A→B)                 │
-│            system_b.sync.system_a (B→A)                 │
-└────────┬────────────────────────────────▲────────────────┘
-         │                                │
-         │ ┌──────────────────────────────┘
-         │ │    Bidirectional Sync (A ↔ B)
-         │ │
-         ▼ │                              │ ▲
-   ┌───────┴─────────┐            ┌───────┴─────────┐
-   │    System A     │            │    System B     │
-   │ Publisher + Consumer         │ Publisher + Consumer
-   │                 │            │                 │
-   │ - Organizations │            │ - Organizations │
-   │ - Users         │            │ - Users         │
-   │                 │            │                 │
-   │ Creates/Updates │            │ Creates/Updates │
-   │ Syncs from B    │            │ Syncs from A    │
-   │ Write API       │            │ Write API       │
-   └─────────────────┘            └─────────────────┘
-       PostgreSQL                     PostgreSQL
-      (system_a_db)                  (system_b_db)
+```mermaid
+flowchart LR
+  subgraph A["System A\nPublisher + Consumer\n- Organizations\n- Users\nSyncs from B\nWrite API\nDB: system_a_db"]
+  end
+
+  subgraph JS["NATS JetStream\nStream: sync-stream\nSubjects:\n- system_a.sync.system_b (A→B)\n- system_b.sync.system_a (B→A)"]
+  end
+
+  subgraph B["System B\nPublisher + Consumer\n- Organizations\n- Users\nSyncs from A\nWrite API\nDB: system_b_db"]
+  end
+
+  A -->|publish system_a.sync.system_b| JS
+  JS -->|deliver system_a.sync.system_b| B
+  B -->|publish system_b.sync.system_a| JS
+  JS -->|deliver system_b.sync.system_a| A
 ```
 
 ## Domain Model

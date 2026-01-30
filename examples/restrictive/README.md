@@ -4,37 +4,23 @@ This example demonstrates syncing between two Rails 7 systems using JetStream Br
 
 ## Architecture Overview
 
-```markdown
-┌──────────────────┐
-│   Provisioner    │ (Admin permissions)
-│  Runs ONCE at    │
-│  deploy time     │
-└────────┬─────────┘
-         │
-         │ Creates bidirectional streams/consumers
-         │ with admin credentials
-         ▼
-  ┌─────────────────────────────────┐
-  │  NATS JetStream                 │
-  │  Stream: sync-stream            │
-  │  Consumers: system_a-workers,   │
-  │             system_b-workers    │
-  │  Subjects: system_a.sync.system_b (A→B)
-  │            system_b.sync.system_a (B→A)
-  │  Pre-provisioned ✓              │
-  └──┬──────────────────▲───────────┘
-     │                  │
-     │ ┌────────────────┘
-     │ │  Bidirectional Sync (A ↔ B)
-     │ │  (no create permission)
-     ▼ │                │ ▲
-┌────┴──────┐      ┌────┴──────┐
-│ System A  │      │ System B  │
-│ Pub+Cons  │      │ Pub+Cons  │
-│           │      │           │
-│ Limited   │      │ Limited   │
-│ Perms ✗   │      │ Perms ✗   │
-└───────────┘      └───────────┘
+```mermaid
+flowchart TB
+  provisioner["Provisioner\nAdmin permissions\nRuns once at deploy"] --> JS
+
+  subgraph JS["NATS JetStream\nStream: sync-stream\nConsumers: system_a-workers, system_b-workers\nSubjects:\n- system_a.sync.system_b (A→B)\n- system_b.sync.system_a (B→A)\nPre-provisioned ✓"]
+  end
+
+  subgraph A["System A\nPublisher + Consumer\nLimited perms (no create)"]
+  end
+
+  subgraph B["System B\nPublisher + Consumer\nLimited perms (no create)"]
+  end
+
+  A -->|publish system_a.sync.system_b| JS
+  JS -->|deliver system_a.sync.system_b| B
+  B -->|publish system_b.sync.system_a| JS
+  JS -->|deliver system_b.sync.system_a| A
 ```
 
 ## Key Differences from Non-Restrictive Example

@@ -4,32 +4,21 @@ This example demonstrates syncing between two Rails 7 systems using JetStream Br
 
 ## Architecture Overview
 
-```markdown
-         ┌─────────────────────────┐
-         │  NATS JetStream         │
-         │  Stream: sync-stream    │
-         │  Auto-provisioned by    │
-         │  applications           │
-         │                         │
-         │  Subjects:              │
-         │  - system_a.sync.system_b (A→B)
-         │  - system_b.sync.system_a (B→A)
-         └──┬──────────────────▲───┘
-            │                  │
-            │ ┌────────────────┘
-            │ │  Bidirectional Sync (A ↔ B)
-            ▼ │                │ ▲
-┌─────────────┴──┐      ┌──────┴─▲─────────┐
-│  System A      │      │  System B        │
-│  Pub + Consumer│      │  Pub + Consumer  │
-│                │      │                  │
-│ - Creates      │      │ - Creates        │
-│ - Updates      │      │ - Updates        │
-│ - Syncs from B │      │ - Syncs from A   │
-│   Orgs/Users   │      │   Orgs/Users     │
-└────────────────┘      └──────────────────┘
-    PostgreSQL              PostgreSQL
-   (system_a_db)           (system_b_db)
+```mermaid
+flowchart LR
+  subgraph JS["NATS JetStream\nStream: sync-stream\nAuto-provisioned by applications\nSubjects:\n- system_a.sync.system_b (A→B)\n- system_b.sync.system_a (B→A)"]
+  end
+
+  subgraph A["System A\nPub + Consumer\n- Creates/Updates\n- Syncs from B (Orgs/Users)\nDB: system_a_db"]
+  end
+
+  subgraph B["System B\nPub + Consumer\n- Creates/Updates\n- Syncs from A (Orgs/Users)\nDB: system_b_db"]
+  end
+
+  A -->|publish system_a.sync.system_b| JS
+  JS -->|deliver system_a.sync.system_b| B
+  B -->|publish system_b.sync.system_a| JS
+  JS -->|deliver system_b.sync.system_a| A
 ```
 
 ## Key Features

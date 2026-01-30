@@ -29,51 +29,27 @@ JetStream Bridge provides reliable, production-ready message passing between Rub
 
 ### Architecture Diagram
 
-```markdown
-┌─────────────────┐                    ┌─────────────────┐
-│   Application   │                    │   Application   │
-│   "api"         │                    │   "worker"      │
-├─────────────────┤                    ├─────────────────┤
-│                 │                    │                 │
-│  Publisher      │                    │  Publisher      │
-│  (Optional      │                    │  (Optional      │
-│   Outbox)       │                    │   Outbox)       │
-│                 │                    │                 │
-└────────┬────────┘                    └────────┬────────┘
-         │                                      │
-         │ Publish to:                          │ Publish to:
-         │ api.sync.worker                      │ worker.sync.api
-         │                                      │
-         └──────────────┐          ┌────────────┘
-                        │          │
-                        ▼          ▼
-                 ┌──────────────────────┐
-                 │   NATS JetStream     │
-                 │                      │
-                 │  Stream: "my-stream" │
-                 │  Subjects:           │
-                 │   - api.sync.worker  │
-                 │   - worker.sync.api  │
-                 │   - api.sync.dlq     │
-                 │   - worker.sync.dlq  │
-                 │                      │
-                 │  Consumers:          │
-                 │   - api-workers      │
-                 │   - worker-workers   │
-                 └──────────────────────┘
-                        │          │
-         ┌──────────────┘          └────────────┐
-         │                                      │
-         │ Subscribe to:                        │ Subscribe to:
-         │ worker.sync.api                      │ api.sync.worker
-         │                                      │
-┌────────▼────────┐                    ┌────────▼────────┐
-│  Consumer       │                    │  Consumer       │
-│  (Optional      │                    │  (Optional      │
-│   Inbox)        │                    │   Inbox)        │
-│                 │                    │                 │
-│  DLQ Handler    │                    │  DLQ Handler    │
-└─────────────────┘                    └─────────────────┘
+```mermaid
+flowchart LR
+  subgraph AppA["Application \"api\""]
+    api_pub["Publisher\n(Optional Outbox)"]
+    api_cons["Consumer\n(Optional Inbox)\nDLQ Handler"]
+  end
+
+  subgraph Stream["NATS JetStream\nStream: \"my-stream\""]
+    subjects["Subjects:\n- api.sync.worker\n- worker.sync.api\n- api.sync.dlq\n- worker.sync.dlq"]
+    consumers["Consumers:\n- api-workers\n- worker-workers"]
+  end
+
+  subgraph AppB["Application \"worker\""]
+    worker_pub["Publisher\n(Optional Outbox)"]
+    worker_cons["Consumer\n(Optional Inbox)\nDLQ Handler"]
+  end
+
+  api_pub -- "Publish: api.sync.worker" --> Stream
+  worker_pub -- "Publish: worker.sync.api" --> Stream
+  Stream -- "Subscribe: worker.sync.api" --> api_cons
+  Stream -- "Subscribe: api.sync.worker" --> worker_cons
 ```
 
 ---
@@ -216,19 +192,21 @@ Orchestrates stream and consumer provisioning:
 
 **One stream per application pair** (or shared stream for multiple apps):
 
-```markdown
-Stream: "jetstream-bridge-stream"
-├── Subjects:
-│   ├── api.sync.worker      (api publishes, worker consumes)
-│   ├── worker.sync.api      (worker publishes, api consumes)
-│   ├── api.sync.dlq         (api's dead letter queue)
-│   └── worker.sync.dlq      (worker's dead letter queue)
-│
-├── Retention: workqueue      (messages deleted after ack)
-├── Storage: file             (persistent on disk)
-└── Consumers:
-    ├── api-workers           (filters: worker.sync.api)
-    └── worker-workers        (filters: api.sync.worker)
+```mermaid
+flowchart TD
+  stream["Stream: jetstream-bridge-stream"]
+  stream --> retention["Retention: workqueue"]
+  stream --> storage["Storage: file"]
+
+  stream --> subjects["Subjects"]
+  subjects --> subj1["api.sync.worker\n(api publishes → worker consumes)"]
+  subjects --> subj2["worker.sync.api\n(worker publishes → api consumes)"]
+  subjects --> subj3["api.sync.dlq\n(api dead letter queue)"]
+  subjects --> subj4["worker.sync.dlq\n(worker dead letter queue)"]
+
+  stream --> consumers["Consumers"]
+  consumers --> c1["api-workers\n(filters worker.sync.api)"]
+  consumers --> c2["worker-workers\n(filters api.sync.worker)"]
 ```
 
 ### Subject Pattern
@@ -315,120 +293,31 @@ Overlap detection ensures messages route to exactly one stream.
 
 ### Publishing Flow
 
-```markdown
-┌──────────────────────────────────────────────────────────────┐
-│ 1. Application calls JetstreamBridge.publish(...)           │
-└──────────────────────┬───────────────────────────────────────┘
-                       │
-                       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ 2. Publisher builds envelope                                 │
-│    - Generate event_id (UUID)                                │
-│    - Extract resource_id from payload                        │
-│    - Add timestamps, producer, schema_version                │
-└──────────────────────┬───────────────────────────────────────┘
-                       │
-                       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ 3. [OPTIONAL] Outbox pattern                                 │
-│    - OutboxRepository.record_publish_attempt()               │
-│    - State: "publishing"                                     │
-│    - Database transaction commits                            │
-└──────────────────────┬───────────────────────────────────────┘
-                       │
-                       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ 4. Publish to NATS JetStream                                 │
-│    - Subject: {app_name}.sync.{destination_app}              │
-│    - Header: nats-msg-id = event_id (deduplication)          │
-│    - Retry with exponential backoff on transient errors      │
-└──────────────────────┬───────────────────────────────────────┘
-                       │
-                       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ 5. [OPTIONAL] Outbox update                                  │
-│    - Success: OutboxRepository.record_publish_success()      │
-│    - Failure: OutboxRepository.record_publish_failure()      │
-└──────────────────────┬───────────────────────────────────────┘
-                       │
-                       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ 6. Return PublishResult                                      │
-│    - success: true/false                                     │
-│    - event_id: UUID                                          │
-│    - duplicate: true/false (if seen before)                  │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+  p1["1. Application calls JetstreamBridge.publish(...)"]
+  p2["2. Publisher builds envelope\n- Generate event_id (UUID)\n- Extract resource_id from payload\n- Add timestamps, producer, schema_version"]
+  p3["3. Optional Outbox pattern\n- record_publish_attempt\n- State: \"publishing\"\n- Database transaction commits"]
+  p4["4. Publish to NATS JetStream\n- Subject: {app_name}.sync.{destination_app}\n- Header: nats-msg-id = event_id\n- Retry with exponential backoff"]
+  p5["5. Optional Outbox update\n- record_publish_success\n- record_publish_failure"]
+  p6["6. Return PublishResult\n- success flag\n- event_id\n- duplicate?"]
+  p1 --> p2 --> p3 --> p4 --> p5 --> p6
 ```
 
 ### Consuming Flow
 
-```markdown
-┌──────────────────────────────────────────────────────────────┐
-│ 1. Application creates Consumer.new { |event| ... }          │
-└──────────────────────┬───────────────────────────────────────┘
-                       │
-                       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ 2. SubscriptionManager ensures durable consumer              │
-│    - Consumer: {app_name}-workers                            │
-│    - Filter: {destination_app}.sync.{app_name}               │
-│    - Create if not exists (idempotent)                       │
-└──────────────────────┬───────────────────────────────────────┘
-                       │
-                       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ 3. Subscribe to consumer                                     │
-│    - Pull mode: $JS.API.CONSUMER.MSG.NEXT.{stream}.{durable}│
-│    - Push mode: {delivery_subject}                           │
-└──────────────────────┬───────────────────────────────────────┘
-                       │
-                       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ 4. Consumer.run! starts main loop                            │
-│    - Fetch batch of messages                                 │
-│    - Process each message sequentially                       │
-│    - Idle backoff when no messages (0.05s → 1.0s)            │
-└──────────────────────┬───────────────────────────────────────┘
-                       │
-                       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ 5. [OPTIONAL] Inbox deduplication check                      │
-│    - InboxRepository.find_or_build(event_id)                 │
-│    - If already processed → skip and ack                     │
-│    - If new → InboxRepository.persist_pre()                  │
-│    - State: "processing"                                     │
-└──────────────────────┬───────────────────────────────────────┘
-                       │
-                       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ 6. MessageProcessor.handle_message()                         │
-│    - Parse JSON envelope → Event object                      │
-│    - Run middleware chain                                    │
-│    - Call user handler block                                 │
-│    - Return ActionResult (:ack or :nak)                      │
-└──────────────────────┬───────────────────────────────────────┘
-                       │
-                       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ 7. Error handling                                            │
-│    - Unrecoverable (ArgumentError, TypeError) → DLQ + ack    │
-│    - Recoverable (StandardError) → nak with backoff          │
-│    - Malformed JSON → DLQ + ack                              │
-└──────────────────────┬───────────────────────────────────────┘
-                       │
-                       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ 8. [OPTIONAL] Inbox update                                   │
-│    - Success: InboxRepository.persist_post()                 │
-│    - Failure: InboxRepository.persist_failure()              │
-└──────────────────────┬───────────────────────────────────────┘
-                       │
-                       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ 9. Acknowledge message                                       │
-│    - :ack → msg.ack (removes from stream)                    │
-│    - :nak → msg.nak(delay: backoff) (requeue for retry)     │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+  c1["1. Application creates Consumer.new { |event| ... }"]
+  c2["2. SubscriptionManager ensures durable consumer\n- {app_name}-workers\n- Filter: {destination_app}.sync.{app_name}\n- Create if missing (idempotent)"]
+  c3["3. Subscribe to consumer\n- Pull: $JS.API.CONSUMER.MSG.NEXT.{stream}.{durable}\n- Push: {delivery_subject}"]
+  c4["4. Consumer.run! main loop\n- Fetch batch of messages\n- Process sequentially\n- Idle backoff 0.05s → 1.0s"]
+  c5["5. Optional inbox deduplication\n- find_or_build(event_id)\n- Skip if processed\n- persist_pre marks processing"]
+  c6["6. MessageProcessor.handle_message\n- Parse envelope → Event\n- Run middleware chain\n- Call user handler\n- Return :ack or :nak"]
+  c7["7. Error handling\n- Unrecoverable → DLQ + ack\n- Recoverable → nak with backoff\n- Malformed JSON → DLQ + ack"]
+  c8["8. Optional inbox update\n- persist_post\n- persist_failure"]
+  c9["9. Acknowledge message\n- :ack → msg.ack\n- :nak → msg.nak(delay: backoff)"]
+  c1 --> c2 --> c3 --> c4 --> c5 --> c6 --> c7 --> c8 --> c9
 ```
 
 ---
@@ -1067,8 +956,9 @@ end
 
 **Exponential backoff when no messages:**
 
-```markdown
-0.05s → 0.1s → 0.2s → 0.4s → 0.8s → 1.0s (max)
+```mermaid
+flowchart LR
+  t1["0.05s"] --> t2["0.1s"] --> t3["0.2s"] --> t4["0.4s"] --> t5["0.8s"] --> t6["1.0s (max)"]
 ```
 
 **Benefit:** Reduces CPU and network usage during idle periods
