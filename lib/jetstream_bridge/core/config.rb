@@ -114,6 +114,10 @@ module JetstreamBridge
     # Only used when consumer_mode is :push
     # @return [String, nil]
     attr_accessor :delivery_subject
+    # Queue group / deliver_group for push consumers (optional, defaults to durable_name or app_name)
+    # Only used when consumer_mode is :push. Determines how push consumers load-balance.
+    # @return [String, nil]
+    attr_accessor :push_consumer_group
 
     def initialize
       @nats_urls       = ENV['NATS_URLS'] || ENV['NATS_URL'] || 'nats://localhost:4222'
@@ -142,6 +146,7 @@ module JetstreamBridge
       # Consumer mode
       @consumer_mode = :pull
       @delivery_subject = nil
+      @push_consumer_group = nil
     end
 
     # Apply a configuration preset
@@ -223,11 +228,26 @@ module JetstreamBridge
       "#{destination_subject}.worker"
     end
 
+    # Queue group for push consumers. Controls deliver_group and queue subscription.
+    #
+    # @return [String] Queue group name
+    # @raise [InvalidSubjectError, MissingConfigurationError] If derived components invalid
+    def push_consumer_group_name
+      group = push_consumer_group
+      group = durable_name if group.to_s.strip.empty?
+      group = app_name if group.to_s.strip.empty?
+
+      validate_subject_component!(group, 'push_consumer_group')
+      group
+    end
+
     # Check if using pull consumer mode.
     #
     # @return [Boolean]
     def pull_consumer?
       consumer_mode.to_sym == :pull
+    rescue NoMethodError
+      false
     end
 
     # Check if using push consumer mode.
@@ -235,6 +255,8 @@ module JetstreamBridge
     # @return [Boolean]
     def push_consumer?
       consumer_mode.to_sym == :push
+    rescue NoMethodError
+      false
     end
 
     # Validate all configuration settings.
@@ -252,6 +274,7 @@ module JetstreamBridge
       validate_numeric_constraints!(errors)
       validate_backoff!(errors)
       validate_consumer_mode!(errors)
+      validate_push_consumer!(errors)
 
       raise ConfigurationError, "Configuration errors: #{errors.join(', ')}" if errors.any?
 
@@ -297,6 +320,14 @@ module JetstreamBridge
       return errors << 'consumer_mode must be :pull or :push' if consumer_mode.nil?
 
       errors << 'consumer_mode must be :pull or :push' unless [:pull, :push].include?(consumer_mode.to_sym)
+    end
+
+    def validate_push_consumer!(errors)
+      return unless push_consumer?
+
+      push_consumer_group_name
+    rescue ConfigurationError => e
+      errors << e.message
     end
   end
 end

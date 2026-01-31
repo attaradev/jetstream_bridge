@@ -44,6 +44,9 @@ module JetstreamBridge
     }.freeze
 
     VALID_NATS_SCHEMES = %w[nats nats+tls].freeze
+    REFRESH_RETRY_BASE_DELAY = 0.01
+    REFRESH_RETRY_MAX_DELAY = 30.0
+    REFRESH_RETRY_MAX_ATTEMPTS = 30
 
     # Class-level mutex for thread-safe connection initialization
     # Using class variable to avoid race condition in mutex creation
@@ -238,36 +241,10 @@ module JetstreamBridge
           tag: 'JetstreamBridge::Connection'
         )
 
-        # Retry JetStream context refresh with exponential backoff
-        max_attempts = 3
-        attempts = 0
-        success = false
-
-        while attempts < max_attempts && !success
-          attempts += 1
-          begin
-            refresh_jetstream_context
-            success = true
-          rescue StandardError => e
-            if attempts < max_attempts
-              delay = 0.5 * (2**(attempts - 1)) # 0.5s, 1s, 2s
-              Logging.warn(
-                "JetStream context refresh attempt #{attempts}/#{max_attempts} failed: #{e.message}. " \
-                "Retrying in #{delay}s...",
-                tag: 'JetstreamBridge::Connection'
-              )
-              sleep(delay)
-            else
-              Logging.error(
-                "Failed to refresh JetStream context after #{attempts} attempts. " \
-                'Will retry on next reconnect.',
-                tag: 'JetstreamBridge::Connection'
-              )
-            end
-          end
-        end
+        success = refresh_jetstream_with_retry?
 
         @reconnecting = false
+        start_refresh_retry_loop unless success
       end
 
       @nc.on_disconnect do |reason|
@@ -504,11 +481,95 @@ module JetstreamBridge
       raise
     end
 
+    def refresh_jetstream_with_retry?(max_attempts: 3, base_delay: 0.5)
+      attempts = 0
+      while attempts < max_attempts
+        attempts += 1
+        begin
+          refresh_jetstream_context
+          return true
+        rescue StandardError => e
+          if attempts < max_attempts
+            delay = refresh_retry_sleep_duration(attempts, base: base_delay)
+            Logging.warn(
+              "JetStream context refresh attempt #{attempts}/#{max_attempts} failed: #{e.message}. " \
+              "Retrying in #{delay}s...",
+              tag: 'JetstreamBridge::Connection'
+            )
+            sleep(delay)
+          else
+            Logging.error(
+              "Failed to refresh JetStream context after #{attempts} attempts. " \
+              'Starting background retry loop.',
+              tag: 'JetstreamBridge::Connection'
+            )
+          end
+        end
+      end
+
+      false
+    end
+
+    def start_refresh_retry_loop(initial_delay: REFRESH_RETRY_BASE_DELAY, max_attempts: REFRESH_RETRY_MAX_ATTEMPTS)
+      return if @refresh_retry_thread&.alive?
+      return unless @nc
+
+      @refresh_retry_thread = Thread.new do
+        Thread.current.report_on_exception = false
+        attempts = 0
+        delay = initial_delay
+
+        while @nc&.connected?
+          sleep(delay)
+          attempts += 1
+          break if max_attempts && attempts > max_attempts
+
+          begin
+            refresh_jetstream_context
+            Logging.info(
+              "JetStream context refreshed via background retry after #{attempts} attempt#{'s' if attempts != 1}",
+              tag: 'JetstreamBridge::Connection'
+            )
+            break
+          rescue StandardError => e
+            if defined?(RSpec::Mocks::ExpiredTestDoubleError) &&
+               e.is_a?(RSpec::Mocks::ExpiredTestDoubleError)
+              Logging.debug(
+                'Stopping background JetStream refresh due to expired test double',
+                tag: 'JetstreamBridge::Connection'
+              )
+              break
+            end
+            delay = refresh_retry_sleep_duration(attempts + 1)
+            Logging.warn(
+              "Background JetStream refresh attempt #{attempts} failed: #{e.message}. " \
+              "Retrying in #{delay}s...",
+              tag: 'JetstreamBridge::Connection'
+            )
+          end
+        end
+      ensure
+        @refresh_retry_thread = nil
+      end
+    rescue StandardError => e
+      Logging.debug(
+        "Could not start refresh retry loop: #{e.class} #{e.message}",
+        tag: 'JetstreamBridge::Connection'
+      )
+    end
+
+    def refresh_retry_sleep_duration(attempt, base: REFRESH_RETRY_BASE_DELAY)
+      [base * (2**(attempt - 1)), REFRESH_RETRY_MAX_DELAY].min
+    end
+
     # Expose for class-level helpers (not part of public API)
     attr_reader :nc
 
     def jetstream
-      @jts
+      return @jts if @jts
+
+      raise ConnectionNotEstablishedError,
+            'JetStream context unavailable (refresh pending or failed)'
     end
 
     # Mask credentials in NATS URLs:
@@ -537,6 +598,11 @@ module JetstreamBridge
       else
         # Clear JetStream context but keep NATS connection reference
         @jts = nil
+      end
+
+      if @refresh_retry_thread&.alive?
+        @refresh_retry_thread.kill
+        @refresh_retry_thread = nil
       end
 
       # Always invalidate health check cache

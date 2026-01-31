@@ -129,6 +129,7 @@ module JetstreamBridge
     def reset!
       @config = nil
       @connection_initialized = false
+      Consumer.reset_signal_handlers! if defined?(Consumer)
     end
 
     # Initialize the JetStream Bridge connection and topology

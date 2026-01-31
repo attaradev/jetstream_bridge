@@ -58,6 +58,83 @@ module JetstreamBridge
     TracingMiddleware = ConsumerMiddleware::TracingMiddleware
     TimeoutMiddleware = ConsumerMiddleware::TimeoutMiddleware
 
+    class << self
+      def register_consumer_for_signals(consumer)
+        signal_registry_mutex.synchronize do
+          signal_consumers << consumer
+          install_signal_handlers_once
+        end
+      end
+
+      def unregister_consumer_for_signals(consumer)
+        signal_registry_mutex.synchronize { signal_consumers.delete(consumer) }
+      end
+
+      def reset_signal_handlers!
+        signal_registry_mutex.synchronize { signal_consumers.clear }
+        @signal_handlers_installed = false
+        @previous_signal_handlers = {}
+      end
+
+      private
+
+      def signal_consumers
+        @signal_consumers ||= []
+      end
+
+      def signal_registry_mutex
+        @signal_registry_mutex ||= Mutex.new
+      end
+
+      def install_signal_handlers_once
+        return if @signal_handlers_installed
+
+        %w[INT TERM].each { |sig| install_signal_handler(sig) }
+        @signal_handlers_installed = true
+      end
+
+      def install_signal_handler(sig)
+        previous = nil
+        handler = nil
+        handler = proc do
+          broadcast_signal(sig)
+          invoke_previous_handler(previous, sig, handler)
+        rescue StandardError
+          # Trap contexts must stay minimal; swallow any unexpected errors
+        end
+        previous = Signal.trap(sig, &handler)
+        previous_signal_handlers[sig] = previous
+      rescue ArgumentError => e
+        Logging.debug("Could not set up signal handlers: #{e.message}", tag: 'JetstreamBridge::Consumer')
+      end
+
+      def broadcast_signal(sig)
+        consumers = nil
+        signal_registry_mutex.synchronize { consumers = signal_consumers.dup }
+        consumers.each do |consumer|
+          next unless consumer.respond_to?(:lifecycle_state)
+
+          consumer.lifecycle_state.signal!(sig)
+        end
+      rescue StandardError
+        # Trap safety: never raise
+      end
+
+      def invoke_previous_handler(previous, sig, current_handler = nil)
+        return if previous.nil? || previous == 'DEFAULT' || previous == 'SYSTEM_DEFAULT'
+        return if previous == 'IGNORE'
+        return if current_handler && previous.equal?(current_handler)
+
+        previous.call(sig) if previous.respond_to?(:call)
+      rescue StandardError
+        # Never bubble from trap context
+      end
+
+      def previous_signal_handlers
+        @previous_signal_handlers ||= {}
+      end
+    end
+
     # @return [String] Durable consumer name
     attr_reader :durable
     # @return [Integer] Batch size for message fetching
@@ -252,6 +329,8 @@ module JetstreamBridge
     #
     def stop!
       @lifecycle_state.stop!
+      # Allow other consumers to continue receiving signals without stale references
+      self.class.unregister_consumer_for_signals(self)
       Logging.info("Consumer #{@durable} shutdown requested", tag: 'JetstreamBridge::Consumer')
     end
 
@@ -394,15 +473,8 @@ module JetstreamBridge
     end
 
     def setup_signal_handlers
-      %w[INT TERM].each do |sig|
-        Signal.trap(sig) do
-          # CRITICAL: Only set flags in trap context, no I/O or mutex operations
-          # Logging and other operations are unsafe from signal handlers
-          @lifecycle_state.signal!(sig)
-        end
-      end
-    rescue ArgumentError => e
-      # Signal handlers may not be available in all environments (e.g., threads)
+      self.class.register_consumer_for_signals(self)
+    rescue StandardError => e
       Logging.debug("Could not set up signal handlers: #{e.message}", tag: 'JetstreamBridge::Consumer')
     end
 

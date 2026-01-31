@@ -87,6 +87,14 @@ RSpec.describe JetstreamBridge::Connection, :allow_real_connection do
       described_class.connect!
       expect(described_class.jetstream).to eq(mock_jts)
     end
+
+    it 'raises when JetStream context is unavailable' do
+      instance = described_class.instance
+      instance.instance_variable_set(:@jts, nil)
+      instance.instance_variable_set(:@state, described_class::State::FAILED)
+
+      expect { described_class.jetstream }.to raise_error(JetstreamBridge::ConnectionNotEstablishedError)
+    end
   end
 
   describe 'diagnostic accessors' do
@@ -401,9 +409,10 @@ RSpec.describe JetstreamBridge::Connection, :allow_real_connection do
     end
 
     context 'when refresh fails' do
-      it 'logs error without crashing' do
+      it 'logs error and schedules background retry without crashing' do
         allow(JetstreamBridge::Logging).to receive(:error)
         allow(JetstreamBridge::Logging).to receive(:warn)
+        allow(instance).to receive(:start_refresh_retry_loop)
 
         # First call to jetstream succeeds (during connect!)
         # Subsequent calls fail (during reconnect)
@@ -418,15 +427,40 @@ RSpec.describe JetstreamBridge::Connection, :allow_real_connection do
         instance.connect!
 
         expect { @reconnect_callback.call }.not_to raise_error
-        # With retry logic (3 attempts), we expect:
-        # - 3 errors from refresh_jetstream_context (one per attempt)
-        # - 1 final error from on_reconnect handler after all retries fail
-        # - 2 warnings from on_reconnect handler for attempts 1 and 2
         expect(JetstreamBridge::Logging).to have_received(:error).with(
           /Failed to refresh JetStream context/,
           tag: 'JetstreamBridge::Connection'
         ).at_least(:once)
+        expect(instance).to have_received(:start_refresh_retry_loop)
       end
+    end
+
+    it 'continues refreshing JetStream context in the background after repeated failures' do
+      allow(instance).to receive(:refresh_retry_sleep_duration).and_return(0.001)
+
+      attempts = 0
+      allow(instance).to receive(:refresh_jetstream_context) do
+        attempts += 1
+        if attempts <= 3
+          instance.instance_variable_set(:@jts, nil)
+          instance.instance_variable_set(:@state, described_class::State::FAILED)
+          raise StandardError, 'refresh failed'
+        else
+          instance.instance_variable_set(:@jts, mock_jts)
+          instance.instance_variable_set(:@state, described_class::State::CONNECTED)
+          instance.instance_variable_set(:@last_reconnect_error, nil)
+          instance.instance_variable_set(:@last_reconnect_error_at, nil)
+        end
+      end
+
+      instance.connect!
+      @reconnect_callback.call
+
+      sleep 0.02
+      instance.instance_variable_get(:@refresh_retry_thread)&.join(0.05)
+
+      expect(attempts).to be >= 4
+      expect(instance.state).to eq(described_class::State::CONNECTED)
     end
   end
 

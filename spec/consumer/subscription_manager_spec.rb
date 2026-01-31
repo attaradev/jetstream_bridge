@@ -150,13 +150,15 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
     before do
       allow(config).to receive(:push_consumer?).and_return(true)
       allow(config).to receive(:push_delivery_subject).and_return('dest_app.sync.test_app.worker')
+      allow(config).to receive(:push_consumer_group_name).and_return('test_app-workers')
       allow(manager).to receive(:resolve_nc).and_return(mock_nc)
     end
 
     context 'when NATS client is available' do
       it 'subscribes to the delivery subject' do
         allow(mock_nc).to receive(:respond_to?).with(:subscribe).and_return(true)
-        expect(mock_nc).to receive(:subscribe).with('dest_app.sync.test_app.worker').and_return(mock_subscription)
+        expect(mock_nc).to receive(:subscribe).with('dest_app.sync.test_app.worker', queue: 'test_app-workers')
+                                              .and_return(mock_subscription)
         manager.send(:subscribe_push!)
       end
 
@@ -175,7 +177,8 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
       end
 
       it 'uses JetStream subscribe fallback' do
-        expect(mock_jts).to receive(:subscribe).with('dest_app.sync.test_app.worker').and_return(mock_subscription)
+        expect(mock_jts).to receive(:subscribe).with('dest_app.sync.test_app.worker', queue: 'test_app-workers')
+                                               .and_return(mock_subscription)
         manager.send(:subscribe_push!)
       end
     end
@@ -198,11 +201,17 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
     before do
       allow(config).to receive(:push_consumer?).and_return(true)
       allow(config).to receive(:push_delivery_subject).and_return('dest_app.sync.test_app.worker')
+      allow(config).to receive(:push_consumer_group_name).and_return('test_app-workers')
     end
 
     it 'includes deliver_subject in consumer config' do
       manager_with_push = described_class.new(mock_jts, durable, config)
       expect(manager_with_push.desired_consumer_cfg[:deliver_subject]).to eq('dest_app.sync.test_app.worker')
+    end
+
+    it 'includes deliver_group in consumer config' do
+      manager_with_push = described_class.new(mock_jts, durable, config)
+      expect(manager_with_push.desired_consumer_cfg[:deliver_group]).to eq('test_app-workers')
     end
   end
 

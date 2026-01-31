@@ -65,22 +65,24 @@ module JetstreamBridge
       # Push consumers deliver messages directly to a subscription subject
       # No JetStream API calls needed - just subscribe to the delivery subject
       delivery_subject = @cfg.push_delivery_subject
+      queue_group = @cfg.push_consumer_group_name
 
       create_subscription_with_fallback(
-        description: "push subscription for consumer #{@durable} (stream=#{stream_name}, delivery=#{delivery_subject})",
+        description: "push subscription for consumer #{@durable} " \
+                     "(stream=#{stream_name}, delivery=#{delivery_subject}, queue=#{queue_group})",
         primary_check: ->(nc) { nc.respond_to?(:subscribe) },
         primary_action: lambda do |nc|
-          sub = nc.subscribe(delivery_subject)
+          sub = nc.subscribe(delivery_subject, queue: queue_group)
           Logging.info(
             "Created push subscription for consumer #{@durable} " \
-            "(stream=#{stream_name}, delivery=#{delivery_subject})",
+            "(stream=#{stream_name}, delivery=#{delivery_subject}, queue=#{queue_group})",
             tag: 'JetstreamBridge::Consumer'
           )
           sub
         end,
         fallback_name: :subscribe,
         fallback_available: -> { @jts.respond_to?(:subscribe) },
-        fallback_action: -> { @jts.subscribe(delivery_subject) }
+        fallback_action: -> { @jts.subscribe(delivery_subject, queue: queue_group) }
       )
     end
 
@@ -98,8 +100,11 @@ module JetstreamBridge
         backoff: Duration.normalize_list_to_seconds(JetstreamBridge.config.backoff)
       }
 
-      # Add deliver_subject for push consumers
-      config[:deliver_subject] = @cfg.push_delivery_subject if @cfg.push_consumer?
+      # Add deliver_subject and deliver_group for push consumers
+      if @cfg.push_consumer?
+        config[:deliver_subject] = @cfg.push_delivery_subject
+        config[:deliver_group] = @cfg.push_consumer_group_name
+      end
 
       config
     end

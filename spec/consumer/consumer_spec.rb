@@ -244,6 +244,37 @@ RSpec.describe JetstreamBridge::Consumer do
     end
   end
 
+  describe 'push consumer queue load balancing' do
+    let(:subscription_a) { double('subscription_a') }
+    let(:subscription_b) { double('subscription_b') }
+    let(:msg1) { double('msg1') }
+    let(:msg2) { double('msg2') }
+
+    before do
+      described_class.reset_signal_handlers!
+      JetstreamBridge.configure do |cfg|
+        cfg.consumer_mode = :push
+        cfg.destination_app = 'dest'
+      end
+      allow(JetstreamBridge.config).to receive(:push_consumer?).and_return(true)
+      allow(sub_mgr).to receive(:subscribe!).and_return(subscription_a, subscription_b)
+      allow(subscription_a).to receive(:next_msg).and_return(msg1, nil)
+      allow(subscription_b).to receive(:next_msg).and_return(msg2, nil)
+    end
+
+    it 'delivers each message to only one consumer when sharing a delivery subject' do
+      consumer_a = described_class.new { |*| nil }
+      consumer_b = described_class.new { |*| nil }
+
+      expect(processor).to receive(:handle_message).with(msg1).ordered
+      expect(processor).to receive(:handle_message).with(msg2).ordered
+
+      expect(consumer_a.send(:process_batch)).to eq(1)
+      expect(consumer_b.send(:process_batch)).to eq(1)
+      expect(sub_mgr).to have_received(:subscribe!).twice
+    end
+  end
+
   describe '#process_one' do
     subject(:consumer) { described_class.new { |*| nil } }
 
@@ -504,10 +535,15 @@ RSpec.describe JetstreamBridge::Consumer do
   describe '#setup_signal_handlers' do
     subject(:consumer) { described_class.new { |*| nil } }
 
-    it 'traps INT and TERM signals' do
-      # Allow Signal.trap to be called (it will be called twice - once for each signal)
-      allow(Signal).to receive(:trap).and_call_original
-      expect { consumer.send(:setup_signal_handlers) }.not_to raise_error
+    it 'registers shared traps only once' do
+      allow(Signal).to receive(:trap)
+
+      consumer # install handlers during initialization
+      consumer.send(:setup_signal_handlers) # should not install again
+
+      expect(Signal).to have_received(:trap).with('INT').once
+      expect(Signal).to have_received(:trap).with('TERM').once
+      expect(Signal).to have_received(:trap).twice
     end
 
     it 'sets flags when INT signal is received' do
@@ -517,7 +553,7 @@ RSpec.describe JetstreamBridge::Consumer do
         handler_block = block if sig == 'INT'
       end
 
-      consumer.send(:setup_signal_handlers)
+      consumer
 
       # Execute the handler to simulate receiving INT signal
       # Should only set flags, no logging or other operations (trap-safe)
@@ -534,7 +570,7 @@ RSpec.describe JetstreamBridge::Consumer do
         handler_block = block if sig == 'TERM'
       end
 
-      consumer.send(:setup_signal_handlers)
+      consumer
 
       # Execute the handler to simulate receiving TERM signal
       # Should only set flags, no logging or other operations (trap-safe)
@@ -551,11 +587,30 @@ RSpec.describe JetstreamBridge::Consumer do
         handler_block = block if sig == 'INT'
       end
 
-      consumer.send(:setup_signal_handlers)
+      consumer
 
       # Logging should not be called from the signal handler (trap context)
       expect(JetstreamBridge::Logging).not_to receive(:info)
       handler_block&.call
+    end
+
+    it 'broadcasts to multiple consumers without dropping existing handlers' do
+      trap_blocks = {}
+      call_order = []
+      allow(Signal).to receive(:trap) do |sig, &block|
+        trap_blocks[sig] = block if block
+        proc { |*| call_order << :"prev_#{sig}" }
+      end
+
+      consumer_a = described_class.new { |*| nil }
+      consumer_b = described_class.new { |*| nil }
+
+      trap_blocks['INT']&.call
+
+      expect(consumer_a.lifecycle_state.shutdown_requested).to be true
+      expect(consumer_b.lifecycle_state.shutdown_requested).to be true
+      expect(call_order).to include(:prev_INT)
+      expect(Signal).to have_received(:trap).with('INT').once
     end
 
     it 'handles ArgumentError when signal handlers unavailable' do

@@ -425,6 +425,32 @@ RSpec.describe JetstreamBridge::Config do
       end
     end
 
+    describe '#push_consumer_group_name' do
+      before do
+        config.app_name = 'api'
+        config.destination_app = 'worker'
+      end
+
+      it 'returns custom group when set' do
+        config.push_consumer_group = 'custom-group'
+        expect(config.push_consumer_group_name).to eq('custom-group')
+      end
+
+      it 'defaults to durable_name when not set' do
+        expect(config.push_consumer_group_name).to eq('api-workers')
+      end
+
+      it 'falls back to app_name when durable is empty' do
+        allow(config).to receive(:durable_name).and_return('')
+        expect(config.push_consumer_group_name).to eq('api')
+      end
+
+      it 'raises for invalid group names' do
+        config.push_consumer_group = 'bad.*group'
+        expect { config.push_consumer_group_name }.to raise_error(JetstreamBridge::InvalidSubjectError)
+      end
+    end
+
     describe '#validate! with consumer_mode' do
       before do
         config.destination_app = 'other_app'
@@ -451,6 +477,15 @@ RSpec.describe JetstreamBridge::Config do
       it 'accepts string "push" consumer_mode' do
         config.consumer_mode = 'push'
         expect { config.validate! }.not_to raise_error
+      end
+
+      it 'validates push consumer group when using push mode' do
+        config.consumer_mode = :push
+        config.push_consumer_group = 'bad.*group'
+
+        expect do
+          config.validate!
+        end.to raise_error(JetstreamBridge::ConfigurationError, /bad.*group/)
       end
 
       it 'rejects invalid consumer_mode' do
