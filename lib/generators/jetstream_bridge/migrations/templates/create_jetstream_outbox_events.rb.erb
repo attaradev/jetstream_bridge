@@ -2,7 +2,7 @@
 
 class CreateJetstreamOutboxEvents < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
   def change
-    create_table :jetstream_outbox_events do |t|
+    create_table :jetstream_bridge_outbox_events do |t|
       t.string  :event_id, null: false
       t.string  :subject,  null: false
       t.jsonb   :payload,  null: false, default: {}
@@ -15,7 +15,7 @@ class CreateJetstreamOutboxEvents < ActiveRecord::Migration[<%= ActiveRecord::Mi
       t.timestamps
     end
 
-    add_index :jetstream_outbox_events, :event_id, unique: true
-    add_index :jetstream_outbox_events, :status
+    add_index :jetstream_bridge_outbox_events, :event_id, unique: true
+    add_index :jetstream_bridge_outbox_events, :status
   end
 end

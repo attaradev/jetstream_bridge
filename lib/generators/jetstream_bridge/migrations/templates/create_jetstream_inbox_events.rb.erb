@@ -2,7 +2,7 @@
 
 class CreateJetstreamInboxEvents < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
   def change
-    create_table :jetstream_inbox_events do |t|
+    create_table :jetstream_bridge_inbox_events do |t|
       # Event identification and deduplication
       t.string   :event_id,        null: false           # unique event identifier for deduplication
       t.string   :event_type,      null: false           # type of event (e.g., 'created', 'updated')
@@ -32,9 +32,9 @@ class CreateJetstreamInboxEvents < ActiveRecord::Migration[<%= ActiveRecord::Mig
     end
 
     # Indexes for efficient querying and deduplication
-    add_index :jetstream_inbox_events, :event_id, unique: true
-    add_index :jetstream_inbox_events, :status
-    add_index :jetstream_inbox_events, :created_at
-    add_index :jetstream_inbox_events, [:stream, :stream_seq], unique: true, where: 'stream IS NOT NULL AND stream_seq IS NOT NULL'
+    add_index :jetstream_bridge_inbox_events, :event_id, unique: true
+    add_index :jetstream_bridge_inbox_events, :status
+    add_index :jetstream_bridge_inbox_events, :created_at
+    add_index :jetstream_bridge_inbox_events, [:stream, :stream_seq], unique: true, where: 'stream IS NOT NULL AND stream_seq IS NOT NULL'
   end
 end
