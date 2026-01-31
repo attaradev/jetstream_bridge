@@ -68,6 +68,18 @@ RSpec.describe JetstreamBridge::ConfigHelpers do
       expect(config.consumer_mode).to eq(:push)
     end
 
+    it 'prefers explicit consumer_mode override over env' do
+      with_env('CONSUMER_MODE' => 'push') do
+        described_class.configure_bidirectional(
+          app_name: 'system_a',
+          destination_app: 'system_b',
+          consumer_mode: :pull
+        )
+      end
+
+      expect(config.consumer_mode).to eq(:pull)
+    end
+
     it 'uses per-app consumer mode from CONSUMER_MODES map when no override' do
       with_env('CONSUMER_MODES' => 'system_a:push,system_b:pull') do
         described_class.configure_bidirectional(
