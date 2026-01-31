@@ -28,21 +28,26 @@ module JetstreamBridge
 
       # -- Rails::Generators::Migration plumbing --
       def self.next_migration_number(dirname)
-        if timestamped_migrations?
-          Time.now.utc.strftime('%Y%m%d%H%M%S')
-        else
-          format('%.3d', current_migration_number(dirname) + 1)
-        end
+        return format('%.3d', current_migration_number(dirname) + 1) unless timestamped_migrations?
+
+        current_timestamp = Time.now.utc.strftime('%Y%m%d%H%M%S').to_i
+        last_migration = current_migration_number(dirname) + 1
+
+        [current_timestamp, last_migration].max.to_s
       end
 
       def self.timestamped_migrations?
-        if ActiveRecord::Base.respond_to?(:timestamped_migrations)
-          ActiveRecord::Base.timestamped_migrations
-        elsif ActiveRecord::Migration.respond_to?(:timestamped_migrations)
-          ActiveRecord::Migration.timestamped_migrations
-        else
-          true
+        # Prefer the Rails application configuration which is available
+        # without hitting ActiveRecord's dynamic matchers (that would raise
+        # when no connection is established).
+        if defined?(Rails) &&
+           Rails.application &&
+           Rails.application.config.respond_to?(:active_record)
+          ar_config = Rails.application.config.active_record
+          return ar_config.timestamped_migrations if ar_config.respond_to?(:timestamped_migrations)
         end
+
+        true
       end
 
       private
