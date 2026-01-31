@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 require_relative 'core/logging'
 require_relative 'core/config'
 require_relative 'core/consumer_mode_resolver'

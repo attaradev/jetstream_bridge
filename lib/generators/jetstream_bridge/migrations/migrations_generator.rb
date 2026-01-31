@@ -28,10 +28,20 @@ module JetstreamBridge
 
       # -- Rails::Generators::Migration plumbing --
       def self.next_migration_number(dirname)
-        if ActiveRecord::Base.timestamped_migrations
+        if timestamped_migrations?
           Time.now.utc.strftime('%Y%m%d%H%M%S')
         else
           format('%.3d', current_migration_number(dirname) + 1)
+        end
+      end
+
+      def self.timestamped_migrations?
+        if ActiveRecord::Base.respond_to?(:timestamped_migrations)
+          ActiveRecord::Base.timestamped_migrations
+        elsif ActiveRecord::Migration.respond_to?(:timestamped_migrations)
+          ActiveRecord::Migration.timestamped_migrations
+        else
+          true
         end
       end
 
