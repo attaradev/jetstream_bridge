@@ -256,6 +256,16 @@ RSpec.describe JetstreamBridge::Provisioner do
     let(:provisioner_a) { instance_double(described_class, provision!: true) }
     let(:provisioner_b) { instance_double(described_class, provision!: true) }
     let(:configs) { [] }
+    def with_env(env)
+      old = {}
+      env.each_key { |k| old[k] = ENV.fetch(k, nil) }
+      env.each { |k, v| ENV[k] = v }
+      yield
+    ensure
+      env.each_key do |k|
+        old[k].nil? ? ENV.delete(k) : ENV[k] = old[k]
+      end
+    end
 
     before do
       allow(described_class).to receive(:new).and_return(provisioner_a, provisioner_b)
@@ -294,6 +304,84 @@ RSpec.describe JetstreamBridge::Provisioner do
       expect(configs.map(&:ack_wait)).to all(eq('10s'))
       expect(configs.map(&:backoff)).to all(eq(%w[1s 2s]))
       expect(configs.map(&:nats_urls)).to all(eq('nats://example:4222'))
+    end
+
+    it 'applies per-app consumer modes when provided' do
+      described_class.provision_bidirectional!(
+        app_a: 'system_a',
+        app_b: 'system_b',
+        consumer_modes: { 'system_a' => :push, 'system_b' => :pull }
+      )
+
+      expect(configs.map(&:consumer_mode)).to eq([:push, :pull])
+    end
+
+    it 'falls back to shared consumer_mode when per-app map absent' do
+      described_class.provision_bidirectional!(
+        app_a: 'system_a',
+        app_b: 'system_b',
+        consumer_mode: :push
+      )
+
+      expect(configs.map(&:consumer_mode)).to eq([:push, :push])
+    end
+
+    it 'ignores consumer_mode in shared_config to preserve per-app mode' do
+      described_class.provision_bidirectional!(
+        app_a: 'system_a',
+        app_b: 'system_b',
+        consumer_modes: { 'system_a' => :pull, 'system_b' => :push },
+        consumer_mode: :pull, # shared fallback
+        max_deliver: 5,       # arbitrary shared config to ensure merge still works
+        backoff: %w[1s]       # arbitrary
+      )
+
+      expect(configs.map(&:consumer_mode)).to eq([:pull, :push])
+      expect(configs.map(&:backoff)).to all(eq(%w[1s]))
+    end
+
+    it 'defaults missing per-app entry to shared consumer_mode' do
+      described_class.provision_bidirectional!(
+        app_a: 'system_a',
+        app_b: 'system_b',
+        consumer_modes: { 'system_a' => :push },
+        consumer_mode: :pull
+      )
+
+      expect(configs.map(&:consumer_mode)).to eq([:push, :pull])
+    end
+
+    it 'derives per-app modes from CONSUMER_MODES env when not provided explicitly' do
+      with_env('CONSUMER_MODES' => 'system_a:push,system_b:pull', 'CONSUMER_MODE' => 'pull') do
+        described_class.provision_bidirectional!(
+          app_a: 'system_a',
+          app_b: 'system_b'
+        )
+      end
+
+      expect(configs.map(&:consumer_mode)).to eq([:push, :pull])
+    end
+
+    it 'falls back to shared CONSUMER_MODE env when map missing' do
+      with_env('CONSUMER_MODE' => 'push') do
+        described_class.provision_bidirectional!(
+          app_a: 'system_a',
+          app_b: 'system_b'
+        )
+      end
+
+      expect(configs.map(&:consumer_mode)).to eq([:push, :push])
+    end
+
+    it 'normalizes consumer_modes hash values given as strings and symbols' do
+      described_class.provision_bidirectional!(
+        app_a: 'system_a',
+        app_b: 'system_b',
+        consumer_modes: { system_a: 'push' },
+        consumer_mode: 'pull'
+      )
+
+      expect(configs.map(&:consumer_mode)).to eq([:push, :pull])
     end
   end
 end

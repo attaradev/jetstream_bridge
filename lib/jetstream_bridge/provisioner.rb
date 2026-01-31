@@ -6,6 +6,7 @@ require_relative 'consumer/subscription_manager'
 require_relative 'core/logging'
 require_relative 'core/config'
 require_relative 'core/connection'
+require_relative 'core/consumer_mode_resolver'
 
 module JetstreamBridge
   # Dedicated provisioning orchestrator to keep connection concerns separate.
@@ -23,6 +24,8 @@ module JetstreamBridge
       # @param nats_url [String] NATS connection URL
       # @param logger [Logger] Logger used for progress output
       # @param shared_config [Hash] Additional config applied to both directions
+      # @param consumer_modes [Hash,nil] Per-app consumer modes { 'system_a' => :pull, 'system_b' => :push }
+      # @param consumer_mode [Symbol] Legacy/shared consumer mode for both directions (overridden by consumer_modes)
       #
       # @return [void]
       def provision_bidirectional!(
@@ -31,14 +34,26 @@ module JetstreamBridge
         stream_name: 'sync-stream',
         nats_url: ENV.fetch('NATS_URL', 'nats://nats:4222'),
         logger: Logger.new($stdout),
+        consumer_modes: nil,
+        consumer_mode: :pull,
         **shared_config
       )
+        modes = build_consumer_mode_map(app_a, app_b, consumer_modes, consumer_mode)
+
         [
           { app_name: app_a, destination_app: app_b },
           { app_name: app_b, destination_app: app_a }
         ].each do |direction|
+          direction_mode = modes[direction[:app_name]] || consumer_mode
           logger&.info "Provisioning #{direction[:app_name]} -> #{direction[:destination_app]}"
-          configure_direction(direction, stream_name, nats_url, logger, shared_config)
+          configure_direction(
+            direction,
+            stream_name: stream_name,
+            nats_url: nats_url,
+            logger: logger,
+            consumer_mode: direction_mode,
+            shared_config: shared_config
+          )
 
           begin
             JetstreamBridge.startup!
@@ -49,7 +64,28 @@ module JetstreamBridge
         end
       end
 
-      def configure_direction(direction, stream_name, nats_url, logger, shared_config)
+      def build_consumer_mode_map(app_a, app_b, consumer_modes, fallback_mode)
+        app_a_key = app_a.to_s
+        app_b_key = app_b.to_s
+        normalized_fallback = ConsumerModeResolver.normalize(fallback_mode)
+
+        if consumer_modes
+          normalized = consumer_modes.transform_keys(&:to_s).transform_values do |v|
+            ConsumerModeResolver.normalize(v)
+          end
+          normalized[app_a_key] ||= normalized_fallback
+          normalized[app_b_key] ||= normalized_fallback
+          return normalized
+        end
+
+        {
+          app_a_key => ConsumerModeResolver.resolve(app_name: app_a_key, fallback: normalized_fallback),
+          app_b_key => ConsumerModeResolver.resolve(app_name: app_b_key, fallback: normalized_fallback)
+        }
+      end
+      private :build_consumer_mode_map
+
+      def configure_direction(direction, stream_name:, nats_url:, logger:, consumer_mode:, shared_config:)
         JetstreamBridge.configure do |cfg|
           cfg.nats_urls = nats_url
           cfg.app_name = direction[:app_name]
@@ -59,8 +95,11 @@ module JetstreamBridge
           cfg.use_outbox = false
           cfg.use_inbox = false
           cfg.logger = logger if logger
+          cfg.consumer_mode = consumer_mode
 
           shared_config.each do |key, value|
+            next if key.to_sym == :consumer_mode
+
             setter = "#{key}="
             cfg.public_send(setter, value) if cfg.respond_to?(setter)
           end

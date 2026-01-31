@@ -28,7 +28,8 @@ begin
     logger: logger,
     max_deliver: 5,
     ack_wait: '30s',
-    backoff: %w[1s 5s 15s 30s 60s]
+    backoff: %w[1s 5s 15s 30s 60s],
+    consumer_mode: ENV.fetch('CONSUMER_MODE', 'pull').to_sym
   )
 
   logger.info '=' * 70

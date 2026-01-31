@@ -166,6 +166,27 @@ docker-compose up -d  # Provisioner runs first, then apps
 
 [Full Documentation →](restrictive/README.md)
 
+### Push Consumer Mode (restricted credentials)
+
+Push mode is available in the **restrictive** example for environments where runtime credentials cannot call JetStream APIs.
+
+```bash
+cd examples/restrictive
+CONSUMER_MODE=push docker-compose up -d   # provisioner creates push consumers
+./test_sync.sh                            # same end-to-end test
+```
+
+What changes:
+
+- Provisioner creates **push** consumers with `deliver_subject`/`deliver_group`
+- Apps subscribe to the delivery subject directly (no `$JS.API.*` or `_INBOX.>` needed)
+- Use the same business subjects for publishing/consuming; DLQ unchanged
+- Publish paths stay identical: producer subjects don’t depend on consumer mode, so events are delivered whether consumers are pull, push, or mixed.
+
+#### Mixed modes
+
+Nothing extra is required: the library/provisioner keep provisioning and runtime in sync for each app. Default is pull for both; set `CONSUMER_MODE=push` if you want push everywhere. If you change a single app’s `consumer_mode` in its config, provisioning will automatically match that without additional env wiring.
+
 ## Prerequisites
 
 Both examples require:

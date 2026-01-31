@@ -140,6 +140,13 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
         expect(manager).to receive(:subscribe_push!)
         manager.subscribe!
       end
+
+      it 'falls back to pull subscription when push fails' do
+        allow(manager).to receive(:subscribe_push!).and_raise(JetstreamBridge::ConnectionError, 'fail')
+        expect(manager).to receive(:subscribe_without_verification!)
+
+        manager.subscribe!
+      end
     end
   end
 
@@ -294,6 +301,22 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
           manager_instance.send(:subscribe_without_verification!)
         end.to raise_error(JetstreamBridge::ConnectionError, /Unable to create .*subscription/)
       end
+    end
+  end
+
+  describe 'fallback between push and pull' do
+    let(:manager_instance) { described_class.new(mock_jts, durable, config) }
+
+    it 'falls back to push when pull subscribe fails' do
+      allow(manager_instance).to receive(:subscribe_without_verification!).and_raise(JetstreamBridge::ConnectionError, 'fail')
+      expect(manager_instance).to receive(:subscribe_push!)
+      manager_instance.send(:subscribe_pull_with_fallback)
+    end
+
+    it 'falls back to pull when push subscribe fails' do
+      allow(manager_instance).to receive(:subscribe_push!).and_raise(JetstreamBridge::ConnectionError, 'fail')
+      expect(manager_instance).to receive(:subscribe_without_verification!)
+      manager_instance.send(:subscribe_push_with_fallback)
     end
   end
 end

@@ -2,6 +2,8 @@
 
 require_relative 'core/logging'
 require_relative 'core/config'
+require_relative 'core/consumer_mode_resolver'
+require_relative 'config_helpers/lifecycle'
 
 module JetstreamBridge
   # Convenience helpers to keep example configuration lean and consistent.
@@ -52,28 +54,8 @@ module JetstreamBridge
     end
 
     # Wire JetstreamBridge lifecycle into Rails boot/shutdown.
-    #
-    # Safe to call multiple times; startup! is idempotent.
-    #
-    # @param logger [Logger,nil] Logger to use for lifecycle messages
-    # @return [void]
     def setup_rails_lifecycle(logger: nil, rails_app: nil)
-      app = rails_app
-      app ||= Rails.application if defined?(Rails) && Rails.respond_to?(:application)
-
-      # Gracefully no-op when Rails isn't available (e.g., non-Rails runtimes or early boot)
-      return unless app
-
-      effective_logger = logger || default_rails_logger(app)
-
-      app.config.after_initialize do
-        JetstreamBridge.startup!
-        effective_logger&.info('JetStream Bridge connected successfully')
-      rescue StandardError => e
-        effective_logger&.error("Failed to connect to JetStream: #{e.message}")
-      end
-
-      Kernel.at_exit { JetstreamBridge.shutdown! }
+      Lifecycle.setup(logger: logger, rails_app: rails_app)
     end
 
     def restrictive?(mode)
@@ -90,9 +72,30 @@ module JetstreamBridge
       config.auto_provision = !restrictive?(mode)
       config.use_outbox = use_outbox
       config.use_inbox = use_inbox
-      config.consumer_mode = overrides.fetch(:consumer_mode, config.consumer_mode || :pull)
+      config.consumer_mode = resolve_consumer_mode(app_name, overrides)
     end
     private_class_method :apply_base_settings
+
+    # Resolve consumer_mode with priority:
+    # 1) explicit override passed to configure_bidirectional
+    # 2) per-app env via CONSUMER_MODES map or CONSUMER_MODE_<APP_NAME>
+    # 3) shared env CONSUMER_MODE
+    # 4) existing config value or :pull
+    def resolve_consumer_mode(app_name, overrides)
+      explicit = overrides[:consumer_mode] if overrides.key?(:consumer_mode)
+      config_default = begin
+        JetstreamBridge.config&.consumer_mode
+      rescue StandardError
+        nil
+      end
+
+      ConsumerModeResolver.resolve(
+        app_name: app_name,
+        override: explicit,
+        fallback: config_default || :pull
+      )
+    end
+    private_class_method :resolve_consumer_mode
 
     def apply_reliability_defaults(config, overrides)
       config.max_deliver = overrides.fetch(:max_deliver, DEFAULT_MAX_DELIVER)
@@ -111,12 +114,5 @@ module JetstreamBridge
       end
     end
     private_class_method :apply_overrides
-
-    def default_rails_logger(app = nil)
-      return app.logger if app.respond_to?(:logger)
-
-      defined?(Rails) && Rails.respond_to?(:logger) ? Rails.logger : nil
-    end
-    private_class_method :default_rails_logger
   end
 end

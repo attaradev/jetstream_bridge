@@ -70,6 +70,7 @@ services:
     environment:
       NATS_URL: nats://nats:4222
       STREAM_NAME: sync-stream
+      CONSUMER_MODE: ${CONSUMER_MODE:-pull}
     depends_on:
       nats:
         condition: service_healthy
@@ -94,6 +95,7 @@ services:
       DB_PASSWORD: postgres
       NATS_URL: nats://nats:4222
       STREAM_NAME: sync-stream
+      CONSUMER_MODE: ${CONSUMER_MODE:-pull}
       PORT: 3000
     depends_on:
       nats:
@@ -131,6 +133,7 @@ services:
       DB_PASSWORD: postgres
       NATS_URL: nats://nats:4222
       STREAM_NAME: sync-stream
+      CONSUMER_MODE: ${CONSUMER_MODE:-pull}
     depends_on:
       nats:
         condition: service_healthy
@@ -164,6 +167,7 @@ services:
       DB_PASSWORD: postgres
       NATS_URL: nats://nats:4222
       STREAM_NAME: sync-stream
+      CONSUMER_MODE: ${CONSUMER_MODE:-pull}
       PORT: 3001
     depends_on:
       nats:
@@ -203,6 +207,7 @@ services:
       DB_PASSWORD: postgres
       NATS_URL: nats://nats:4222
       STREAM_NAME: sync-stream
+      CONSUMER_MODE: ${CONSUMER_MODE:-pull}
     depends_on:
       nats:
         condition: service_healthy

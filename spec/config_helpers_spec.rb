@@ -5,6 +5,17 @@ require 'logger'
 require 'jetstream_bridge/config_helpers'
 
 RSpec.describe JetstreamBridge::ConfigHelpers do
+  def with_env(env)
+    old = {}
+    env.each_key { |k| old[k] = ENV.fetch(k, nil) }
+    env.each { |k, v| ENV[k] = v }
+    yield
+  ensure
+    env.each_key do |k|
+      old[k].nil? ? ENV.delete(k) : ENV[k] = old[k]
+    end
+  end
+
   describe '.configure_bidirectional' do
     let(:config) { JetstreamBridge::Config.new }
     let(:logger) { instance_double(Logger) }
@@ -55,6 +66,36 @@ RSpec.describe JetstreamBridge::ConfigHelpers do
       expect(config.ack_wait).to eq('10s')
       expect(config.backoff).to eq(%w[1s 2s])
       expect(config.consumer_mode).to eq(:push)
+    end
+
+    it 'uses per-app consumer mode from CONSUMER_MODES map when no override' do
+      with_env('CONSUMER_MODES' => 'system_a:push,system_b:pull') do
+        described_class.configure_bidirectional(
+          app_name: 'system_a',
+          destination_app: 'system_b'
+        )
+        expect(config.consumer_mode).to eq(:push)
+      end
+    end
+
+    it 'falls back to app-specific env when map missing' do
+      with_env('CONSUMER_MODE_SYSTEM_A' => 'push') do
+        described_class.configure_bidirectional(
+          app_name: 'system_a',
+          destination_app: 'system_b'
+        )
+        expect(config.consumer_mode).to eq(:push)
+      end
+    end
+
+    it 'falls back to shared CONSUMER_MODE when nothing else set' do
+      with_env('CONSUMER_MODE' => 'push') do
+        described_class.configure_bidirectional(
+          app_name: 'system_a',
+          destination_app: 'system_b'
+        )
+        expect(config.consumer_mode).to eq(:push)
+      end
     end
   end
 

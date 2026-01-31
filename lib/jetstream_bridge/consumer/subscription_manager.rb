@@ -41,10 +41,9 @@ module JetstreamBridge
     # Bind a subscriber to the existing durable consumer.
     def subscribe!
       if @cfg.push_consumer?
-        subscribe_push!
+        subscribe_push_with_fallback
       else
-        # Always bypass consumer_info to avoid requiring JetStream API permissions at runtime.
-        subscribe_without_verification!
+        subscribe_pull_with_fallback
       end
     end
 
@@ -84,6 +83,26 @@ module JetstreamBridge
         fallback_available: -> { @jts.respond_to?(:subscribe) },
         fallback_action: -> { @jts.subscribe(delivery_subject, queue: queue_group) }
       )
+    end
+
+    def subscribe_push_with_fallback
+      subscribe_push!
+    rescue JetstreamBridge::ConnectionError, StandardError => e
+      Logging.warn(
+        "Push subscription failed (#{e.class}: #{e.message}); falling back to pull subscription for #{@durable}",
+        tag: 'JetstreamBridge::Consumer'
+      )
+      subscribe_without_verification!
+    end
+
+    def subscribe_pull_with_fallback
+      subscribe_without_verification!
+    rescue JetstreamBridge::ConnectionError, StandardError => e
+      Logging.warn(
+        "Pull subscription failed (#{e.class}: #{e.message}); falling back to push subscription for #{@durable}",
+        tag: 'JetstreamBridge::Consumer'
+      )
+      subscribe_push!
     end
 
     private

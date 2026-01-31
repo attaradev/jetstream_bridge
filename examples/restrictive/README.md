@@ -130,6 +130,28 @@ docker-compose logs system_a system_b_consumer
 
 This creates organizations and users in System A, then verifies they sync to System B.
 
+### Push Consumer Mode (no JetStream API perms at runtime)
+
+If your runtime NATS user cannot call `$JS.API.*`, run the example in **push** mode:
+
+```bash
+cd examples/restrictive
+CONSUMER_MODE=push docker-compose up -d
+./test_sync.sh
+```
+
+What this does:
+- Provisioner creates push consumers (with `deliver_subject` + `deliver_group`) instead of pull consumers.
+- Apps subscribe to the delivery subject directly; no `$JS.API.*` or `_INBOX.>` permissions needed at runtime.
+- Publishing subjects and DLQ remain the same.
+- Publishing is unchanged: events go to the same stream/subjects regardless of whether consumers are pull, push, or mixed, so delivery still succeeds.
+
+#### Mixed modes (per app)
+
+No extra envs are needed. Default is pull for both apps. If you set `CONSUMER_MODE=push`, everything runs in push. If you change an individual app’s `consumer_mode` in its config, the provisioner will create the matching consumer and the app will bind correctly—no additional wiring required. The library keeps provisioning and runtime aligned.
+
+See [docs/RESTRICTED_PERMISSIONS.md](../../docs/RESTRICTED_PERMISSIONS.md) for the full permission matrix and CLI commands.
+
 ## Manual Testing
 
 ### Create Organization
