@@ -37,8 +37,9 @@ ENV BUNDLE_JOBS=4 BUNDLE_RETRY=3
 RUN bundle config set path /usr/local/bundle
 
 # Install dependencies using download cache but persist gems into the image
-RUN --mount=type=cache,target=/usr/local/bundle/cache \
-    --mount=type=cache,target=/root/.bundle/cache \
+# Use locked cache mounts so parallel builds (system_a + consumer) don't corrupt Bundler's compact index
+RUN --mount=type=cache,target=/usr/local/bundle/cache,id=non_restrictive-system_a-bundle,sharing=locked \
+    --mount=type=cache,target=/root/.bundle/cache,id=non_restrictive-system_a-bundle-root,sharing=locked \
     bundle install
 
 # Create tmp/pids directory for Puma

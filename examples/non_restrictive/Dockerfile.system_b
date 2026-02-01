@@ -36,8 +36,8 @@ RUN chmod +x /usr/local/bin/wait-for-db.sh
 # Install dependencies (cached between builds)
 ENV BUNDLE_JOBS=4 BUNDLE_RETRY=3
 RUN bundle config set path /usr/local/bundle
-RUN --mount=type=cache,target=/usr/local/bundle/cache \
-    --mount=type=cache,target=/root/.bundle/cache \
+RUN --mount=type=cache,target=/usr/local/bundle/cache,id=non_restrictive-system_b-bundle,sharing=locked \
+    --mount=type=cache,target=/root/.bundle/cache,id=non_restrictive-system_b-bundle-root,sharing=locked \
     bundle install
 
 # Create tmp/pids directory for Puma
