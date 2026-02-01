@@ -28,14 +28,96 @@ module JetstreamBridge
       @desired_cfg
     end
 
-    def ensure_consumer!(force: false)
-      # Runtime path: never hit JetStream management APIs to avoid admin permissions.
-      unless force || @cfg.auto_provision
-        log_runtime_skip
+    # Ensure consumer exists, auto-creating if missing.
+    #
+    # @param force [Boolean] Kept for backward compatibility but no longer used.
+    #   Consumers are always auto-created regardless of this parameter.
+    def ensure_consumer!(**_options)
+      # Always auto-create consumer if it doesn't exist, regardless of auto_provision setting.
+      # auto_provision only controls stream topology creation, not consumer creation.
+      create_consumer_if_missing!
+    end
+
+    # Check if stream exists.
+    #
+    # @return [Boolean] true if stream exists, false otherwise
+    def stream_exists?
+      @jts.stream_info(stream_name)
+      true
+    rescue StandardError => e
+      msg = e.message.to_s.downcase
+      return false if msg.include?('not found') || msg.include?('does not exist') || msg.include?('no responders')
+
+      # Re-raise unexpected errors
+      raise unless msg.include?('stream')
+
+      false
+    end
+
+    # Check if consumer exists in the stream.
+    #
+    # @return [Boolean] true if consumer exists, false otherwise
+    def consumer_exists?
+      @jts.consumer_info(stream_name, @durable)
+      true
+    rescue StandardError => e
+      msg = e.message.to_s.downcase
+      return false if msg.include?('not found') || msg.include?('does not exist') || msg.include?('no responders')
+
+      # Re-raise unexpected errors
+      raise unless msg.include?('consumer')
+
+      false
+    end
+
+    # Create consumer only if it doesn't already exist.
+    #
+    # Fails if the stream doesn't exist - streams must be provisioned separately.
+    #
+    # This is a safer alternative to create_consumer! that won't fail
+    # if the consumer was already created by another process.
+    #
+    # @raise [StreamNotFoundError] if the stream doesn't exist
+    def create_consumer_if_missing!
+      # First, verify stream exists - fail fast with clear error if not
+      unless stream_exists?
+        raise StreamNotFoundError,
+              "Stream '#{stream_name}' does not exist. " \
+              'Streams must be provisioned separately ' \
+              '(use auto_provision=true or run provisioning with admin credentials).'
+      end
+
+      if consumer_exists?
+        Logging.info(
+          "Consumer #{@durable} already exists (stream=#{stream_name})",
+          tag: 'JetstreamBridge::Consumer'
+        )
         return
       end
 
+      Logging.info(
+        "Consumer #{@durable} not found, auto-creating on stream #{stream_name}...",
+        tag: 'JetstreamBridge::Consumer'
+      )
       create_consumer!
+    rescue StreamNotFoundError
+      raise
+    rescue StandardError => e
+      # If creation fails due to consumer already existing (race condition), that's OK
+      msg = e.message.to_s.downcase
+      if msg.include?('already') || msg.include?('exists')
+        Logging.info(
+          "Consumer #{@durable} was created by another process",
+          tag: 'JetstreamBridge::Consumer'
+        )
+        return
+      end
+
+      Logging.error(
+        "Failed to auto-create consumer #{@durable}: #{e.class} #{e.message}",
+        tag: 'JetstreamBridge::Consumer'
+      )
+      raise
     end
 
     # Bind a subscriber to the existing durable consumer.
@@ -132,14 +214,6 @@ module JetstreamBridge
       @jts.add_consumer(stream_name, **desired_consumer_cfg)
       Logging.info(
         "Created consumer #{@durable} (filter=#{filter_subject})",
-        tag: 'JetstreamBridge::Consumer'
-      )
-    end
-
-    def log_runtime_skip
-      Logging.info(
-        "Skipping consumer provisioning/verification for #{@durable} at runtime to avoid JetStream API usage. " \
-        'Ensure it is pre-created via provisioning.',
         tag: 'JetstreamBridge::Consumer'
       )
     end

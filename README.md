@@ -26,16 +26,16 @@
 
 - Transactional outbox and idempotent inbox (optional) for exactly-once pipelines.
 - Durable pull (default) or push consumers with retries, backoff, and DLQ routing.
-- Auto stream/consumer provisioning with overlap protection.
+- Auto stream provisioning with overlap protection; consumers auto-created on subscription.
 - Rails-native: generators, migrations, health check, and eager-loading safety.
-- Least-privilege friendly: run with `auto_provision=false` plus pre-created consumers.
+- Least-privilege friendly: run with `auto_provision=false` (stream must exist; consumers are auto-created).
 - Mock NATS for fast, no-infra testing.
 
 ## Quick Start
 
 ```ruby
 # Gemfile
-gem "jetstream_bridge", "~> 7.0"
+gem "jetstream_bridge", "~> 7.1"
 ```
 
 ```bash

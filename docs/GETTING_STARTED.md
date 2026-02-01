@@ -6,7 +6,7 @@ This guide covers installation, Rails setup, configuration, and basic publish/co
 
 ```ruby
 # Gemfile
-gem "jetstream_bridge", "~> 7.0"
+gem "jetstream_bridge", "~> 7.1"
 ```
 
 ```bash
@@ -109,6 +109,12 @@ JetstreamBridge.configure do |config|
   config.max_deliver = 5
   config.ack_wait    = "30s"
   config.backoff     = %w[1s 5s 15s 30s 60s]
+
+  # Provisioning (default: true)
+  # - When true: auto-creates stream on startup
+  # - When false: stream must exist (provision separately with admin credentials)
+  # Note: Consumers are always auto-created on subscription regardless of this setting
+  config.auto_provision = true
 end
 
 # Note: `configure` only sets options; it does not connect. Rails will start
@@ -118,6 +124,8 @@ end
 ```
 
 Rails autostart runs after initialization (including in console). You can opt out for rake tasks or other tooling with `config.lazy_connect = true` or `JETSTREAM_BRIDGE_DISABLE_AUTOSTART=1`; it will then connect on first publish/subscribe.
+
+**Important:** When `auto_provision=false`, the stream must exist before subscribing. Consumers are automatically created when they don't exist, but attempting to create a consumer on a missing stream will raise `StreamNotFoundError`.
 
 ### Push consumer mode (restricted credentials)
 

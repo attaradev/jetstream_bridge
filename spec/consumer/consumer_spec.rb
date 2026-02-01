@@ -20,6 +20,7 @@ RSpec.describe JetstreamBridge::Consumer do
     allow(JetstreamBridge::MessageProcessor).to receive(:new).and_return(processor)
     allow(sub_mgr).to receive(:ensure_consumer!)
     allow(sub_mgr).to receive(:subscribe!).and_return(subscription)
+    allow(sub_mgr).to receive(:create_consumer_if_missing!)
     allow(processor).to receive(:handle_message)
   end
 
@@ -95,6 +96,8 @@ RSpec.describe JetstreamBridge::Consumer do
       expect(consumer.send(:process_batch)).to eq(0)
       expect(sub_mgr).to have_received(:ensure_consumer!).twice
       expect(sub_mgr).to have_received(:subscribe!).twice
+      # Auto-creates consumer when consumer not found error is detected
+      expect(sub_mgr).to have_received(:create_consumer_if_missing!).once
     end
 
     it 'handles non-recoverable JetStream errors' do
@@ -644,6 +647,8 @@ RSpec.describe JetstreamBridge::Consumer do
     it 'attempts recovery for recoverable errors' do
       error = NATS::JetStream::Error.new('consumer not found')
       expect(consumer).to receive(:recoverable_consumer_error?).with(error).and_return(true)
+      allow(consumer).to receive(:consumer_not_found_error?).and_return(true)
+      allow(consumer).to receive(:auto_create_consumer_on_error)
       expect(sub_mgr).to receive(:ensure_consumer!)
       expect(sub_mgr).to receive(:subscribe!).and_return(subscription)
 
@@ -657,6 +662,77 @@ RSpec.describe JetstreamBridge::Consumer do
 
       result = consumer.send(:handle_js_error, error)
       expect(result).to eq(0)
+    end
+
+    it 'attempts to auto-create consumer when consumer not found' do
+      error = NATS::JetStream::Error.new('consumer not found')
+      allow(consumer).to receive(:recoverable_consumer_error?).and_return(true)
+      allow(consumer).to receive(:consumer_not_found_error?).and_return(true)
+      expect(consumer).to receive(:auto_create_consumer_on_error).with(error)
+      allow(sub_mgr).to receive(:ensure_consumer!)
+      allow(sub_mgr).to receive(:subscribe!).and_return(subscription)
+
+      consumer.send(:handle_js_error, error)
+    end
+  end
+
+  describe '#consumer_not_found_error?' do
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    it 'returns true for "consumer not found" error' do
+      error = StandardError.new('consumer not found')
+      expect(consumer.send(:consumer_not_found_error?, error)).to be true
+    end
+
+    it 'returns true for "consumer does not exist" error' do
+      error = StandardError.new('consumer does not exist')
+      expect(consumer.send(:consumer_not_found_error?, error)).to be true
+    end
+
+    it 'returns true for "no responders" error' do
+      error = StandardError.new('no responders available')
+      expect(consumer.send(:consumer_not_found_error?, error)).to be true
+    end
+
+    it 'returns false for other errors' do
+      error = StandardError.new('permission denied')
+      expect(consumer.send(:consumer_not_found_error?, error)).to be false
+    end
+
+    it 'returns false for stream errors' do
+      error = StandardError.new('stream not found')
+      expect(consumer.send(:consumer_not_found_error?, error)).to be false
+    end
+  end
+
+  describe '#auto_create_consumer_on_error' do
+    subject(:consumer) { described_class.new { |*| nil } }
+
+    let(:error) { StandardError.new('consumer not found') }
+
+    it 'calls create_consumer_if_missing! on subscription manager' do
+      expect(sub_mgr).to receive(:create_consumer_if_missing!)
+      consumer.send(:auto_create_consumer_on_error, error)
+    end
+
+    it 'logs info message' do
+      allow(sub_mgr).to receive(:create_consumer_if_missing!)
+      expect(JetstreamBridge::Logging).to receive(:info).with(
+        /Consumer not found error detected/,
+        hash_including(tag: 'JetstreamBridge::Consumer')
+      )
+      consumer.send(:auto_create_consumer_on_error, error)
+    end
+
+    context 'when create_consumer_if_missing! fails' do
+      it 'logs warning but does not raise' do
+        allow(sub_mgr).to receive(:create_consumer_if_missing!).and_raise(StandardError, 'permission denied')
+        expect(JetstreamBridge::Logging).to receive(:warn).with(
+          /Auto-create consumer failed/,
+          hash_including(tag: 'JetstreamBridge::Consumer')
+        )
+        expect { consumer.send(:auto_create_consumer_on_error, error) }.not_to raise_error
+      end
     end
   end
 

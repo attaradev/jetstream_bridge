@@ -1,5 +1,12 @@
 name: Release JetstreamBridge
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     tags:
@@ -8,6 +15,7 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
       packages: write
@@ -19,7 +27,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
 
@@ -39,7 +47,7 @@ jobs:
 
       # Install Ruby and run tests BEFORE any release-specific changes
       - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@8d27f39a5e7ad39aebbcbd1324f7af020229645c # v1.287.0
         with:
           ruby-version: "3.2"
           bundler-cache: true
@@ -73,6 +81,23 @@ jobs:
           echo "Patching version.rb from '${{ steps.file.outputs.file_version }}' to '${{ steps.ver.outputs.version }}' for this build…"
           sed -i "s/VERSION\\s*=\\s*['\"][^'\"]\\+['\"]/VERSION = '${{ steps.ver.outputs.version }}'/" lib/jetstream_bridge/version.rb
           grep VERSION lib/jetstream_bridge/version.rb
+
+      - name: Ensure only version.rb changed after patch
+        if: ${{ steps.ver.outputs.version != steps.file.outputs.file_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHANGED=$(git diff --name-only -- lib/jetstream_bridge/version.rb | wc -l | tr -d ' ')
+          EXTRA=$(git diff --name-only -- . ':!lib/jetstream_bridge/version.rb' | wc -l | tr -d ' ')
+          if [[ "$CHANGED" -eq 0 ]]; then
+            echo "version.rb did not change as expected"
+            exit 1
+          fi
+          if [[ "$EXTRA" -ne 0 ]]; then
+            echo "Unexpected files changed after patch:"
+            git diff --name-only -- . ':!lib/jetstream_bridge/version.rb'
+            exit 1
+          fi
 
       - name: Add platforms to Gemfile.lock
         run: |
@@ -124,7 +149,7 @@ jobs:
           echo "prev_tag=${PREV_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Create/Update GitHub Release and upload .gem
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           tag_name: ${{ github.ref_name }}
           name: "JetstreamBridge ${{ github.ref_name }}"
@@ -137,13 +162,14 @@ jobs:
           prerelease: ${{ contains(steps.ver.outputs.version, '-') }}
 
       - name: Configure RubyGems credentials with OIDC
-        uses: rubygems/configure-rubygems-credentials@v1.0.0
+        uses: rubygems/configure-rubygems-credentials@bc6dd217f8a4f919d6835fcfefd470ef821f5c44 # v1.0.0
 
       - name: Push gem to RubyGems
         run: gem push ${{ steps.build.outputs.gemfile }}
 
   cleanup-failed-release:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: release
     if: failure()
     permissions:
@@ -151,11 +177,11 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Delete GitHub Release and Tag
         continue-on-error: true
-        uses: dev-drprasad/delete-tag-and-release@v1.1
+        uses: dev-drprasad/delete-tag-and-release@82600feb9527126eca69833f07bafe53279bd9b4 # v1.1
         with:
           tag_name: ${{ github.ref_name }}
           github_token: ${{ secrets.GITHUB_TOKEN }}

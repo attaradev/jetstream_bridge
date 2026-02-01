@@ -40,7 +40,7 @@ JetstreamBridge.configure do |config|
   config.backoff      = ["1s", "5s", "15s", "30s", "60s"]
 
   # Provisioning
-  config.auto_provision = true  # Auto-create stream/consumer on startup
+  config.auto_provision = true  # Auto-create stream on startup (consumers are always auto-created)
 
   # Connection behavior
   config.lazy_connect = false  # Set true to skip autostart
@@ -224,6 +224,28 @@ provisioner.provision_stream!
 provisioner.provision_consumer!
 ```
 
+### `JetstreamBridge::SubscriptionManager`
+
+Manages consumer lifecycle during subscription. Used internally by `Consumer`, but also available for advanced use cases.
+
+```ruby
+# Create subscription manager
+sub_mgr = JetstreamBridge::SubscriptionManager.new(jetstream_context, "my-durable")
+
+# Check if stream exists
+sub_mgr.stream_exists?  # => true/false
+
+# Check if consumer exists
+sub_mgr.consumer_exists?  # => true/false
+
+# Create consumer if missing (raises StreamNotFoundError if stream doesn't exist)
+sub_mgr.create_consumer_if_missing!
+```
+
+**Note:** Consumers are automatically created when subscribing, regardless of the `auto_provision` setting. The `auto_provision` setting only controls stream topology creation.
+
+**Raises:** `JetstreamBridge::StreamNotFoundError` if the stream doesn't exist when calling `create_consumer_if_missing!`
+
 ## Health & Diagnostics
 
 ### `JetstreamBridge.health_check`
@@ -344,6 +366,20 @@ rescue JetstreamBridge::PublishError => e
   logger.error("Publish failed: #{e.message}")
   logger.error("Event ID: #{e.event_id}")
   logger.error("Subject: #{e.subject}")
+end
+```
+
+### `JetstreamBridge::StreamNotFoundError`
+
+Raised when attempting to create a consumer on a stream that doesn't exist.
+
+```ruby
+begin
+  consumer = JetstreamBridge::Consumer.new { |event| process(event) }
+  consumer.run!
+rescue JetstreamBridge::StreamNotFoundError => e
+  logger.error("Stream not found: #{e.message}")
+  # Stream must be provisioned separately (use auto_provision=true or run provisioning with admin credentials)
 end
 ```
 

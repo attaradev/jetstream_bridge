@@ -36,13 +36,15 @@ When you cannot modify NATS server permissions, you have **two options**:
 
 For both options, you need to:
 
-0. **Turn off runtime provisioning** so the app never calls `$JS.API.*`:
+0. **Turn off runtime provisioning** so the app never calls `$JS.API.*` for stream creation:
    - Set `config.auto_provision = false`
-   - Provision stream + consumer once with admin credentials (CLI below or `bundle exec rake jetstream_bridge:provision`)
-1. **Pre-create the consumer** using a privileged NATS account
-2. **Ensure the consumer configuration matches** what your app expects
+   - Provision the **stream** once with admin credentials (CLI below or `bundle exec rake jetstream_bridge:provision`)
+1. **Ensure the stream exists** - consumers are auto-created when subscribing, but the stream must be provisioned separately
+2. **Optionally pre-create the consumer** using a privileged NATS account (consumers are auto-created if missing)
 
-> Tip: When `auto_provision=false`, the app still connects/publishes/consumes but skips JetStream management APIs (account_info, stream_info, consumer_info). Health checks will report basic connectivity only.
+> **Note (v7.1.0+):** Consumers are now auto-created on subscription regardless of the `auto_provision` setting. The `auto_provision` setting only controls stream topology creation. If the stream doesn't exist, subscription will fail with `StreamNotFoundError`.
+
+> Tip: When `auto_provision=false`, the app still connects/publishes/consumes but skips JetStream management APIs (account_info, stream_info) for stream creation. Health checks will report basic connectivity only.
 
 ---
 
@@ -543,19 +545,21 @@ nats stream info pwas-heavyworth-sync
 
 Check if the issue is:
 
-1. **Consumer doesn't exist** - Pre-create it with NATS CLI
+1. **Stream doesn't exist** - Provision it with NATS CLI or admin credentials (consumers are auto-created)
 2. **Filter subject mismatch** - Verify with `nats consumer info`
 3. **Permissions still insufficient** - User needs subscribe permissions on the filtered subject
 4. **Wrong stream name** - Ensure stream name matches your configured `config.stream_name`
+
+**Note (v7.1.0+):** Consumers are auto-created if they don't exist, so "consumer doesn't exist" is no longer a common cause. However, the **stream must exist** or you'll see `StreamNotFoundError`.
 
 ---
 
 ## Security Considerations
 
-1. **Consumer pre-creation requires privileged access** - Keep admin credentials secure
+1. **Stream pre-creation requires privileged access** - Keep admin credentials secure
 2. **Configuration drift risk** - If app config doesn't match consumer config, message delivery may fail silently
-3. **No automatic recovery** - If consumer is deleted, it won't be recreated automatically
-4. **Consider automation** - Use infrastructure-as-code (Terraform, Ansible) to manage consumer creation
+3. **Automatic consumer recovery (v7.1.0+)** - If consumer is deleted, it will be auto-recreated on subscription. Stream must exist.
+4. **Consider automation** - Use infrastructure-as-code (Terraform, Ansible) to manage stream creation
 
 ---
 

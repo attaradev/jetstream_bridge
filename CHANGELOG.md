@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.1.0] - 2026-02-01
+
+### Added
+
+- **Auto-create consumer on subscription** - Consumers are now automatically created if they don't exist when subscribing, regardless of the `auto_provision` setting. This eliminates the need for manual consumer provisioning while `auto_provision` continues to control only stream topology creation.
+- `SubscriptionManager#stream_exists?` - Public method to check if a stream exists.
+- `SubscriptionManager#consumer_exists?` - Public method to check if a consumer exists in the stream.
+- `SubscriptionManager#create_consumer_if_missing!` - Public method to create a consumer only if it doesn't already exist (race-condition safe). Raises `StreamNotFoundError` if the stream doesn't exist.
+
+### Changed
+
+- `ensure_consumer!` now always auto-creates the consumer if it doesn't exist. The `auto_provision` setting only controls stream topology (stream creation), not consumer creation.
+- Consumer recovery automatically attempts to create the consumer when a "consumer not found" error is detected.
+- **Stream must exist** - Auto-create consumer fails fast with `StreamNotFoundError` if the stream doesn't exist. Streams must be provisioned separately via `auto_provision=true` or manual provisioning.
+
 ## [7.0.0] - 2026-01-30
 
 ### Added

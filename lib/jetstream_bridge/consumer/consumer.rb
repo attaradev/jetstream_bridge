@@ -429,6 +429,9 @@ module JetstreamBridge
           tag: 'JetstreamBridge::Consumer'
         )
 
+        # If this looks like a consumer-not-found error, try to auto-create it
+        auto_create_consumer_on_error(error) if consumer_not_found_error?(error)
+
         sleep(backoff_secs)
         ensure_subscription!
 
@@ -438,6 +441,27 @@ module JetstreamBridge
         Logging.error("Fetch failed (non-recoverable): #{error.class} #{error.message}", tag: 'JetstreamBridge::Consumer')
       end
       0
+    end
+
+    def consumer_not_found_error?(error)
+      msg = error.message.to_s.downcase
+      (msg.include?('consumer') && (msg.include?('not found') || msg.include?('does not exist'))) ||
+        msg.include?('no responders')
+    end
+
+    def auto_create_consumer_on_error(_error)
+      Logging.info(
+        "Consumer not found error detected, attempting auto-creation for #{@durable}...",
+        tag: 'JetstreamBridge::Consumer'
+      )
+
+      @sub_mgr.create_consumer_if_missing!
+    rescue StandardError => e
+      Logging.warn(
+        "Auto-create consumer failed: #{e.class} #{e.message}",
+        tag: 'JetstreamBridge::Consumer'
+      )
+      # Don't re-raise - let the normal recovery flow continue
     end
 
     def calculate_reconnect_backoff(attempt)
