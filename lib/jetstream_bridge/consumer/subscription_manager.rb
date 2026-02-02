@@ -79,6 +79,15 @@ module JetstreamBridge
     #
     # @raise [StreamNotFoundError] if the stream doesn't exist
     def create_consumer_if_missing!
+      # In restricted environments (push + auto_provision=false), we still want fail-fast semantics.
+      # Attempt creation and raise a clear error so operators know the consumer must be pre-provisioned
+      # or the account must allow the minimal $JS.API consumer permissions.
+      if skip_consumer_management?
+        raise JetstreamBridge::ConsumerProvisioningError,
+              "Consumer '#{@durable}' not ensured because auto_provision=false and push mode is enabled. " \
+              'Provision the consumer with admin credentials or grant minimal consumer create/info permissions.'
+      end
+
       # First, verify stream exists - fail fast with clear error if not
       unless stream_exists?
         raise StreamNotFoundError,
@@ -103,6 +112,8 @@ module JetstreamBridge
     rescue StreamNotFoundError
       raise
     rescue StandardError => e
+      raise ConsumerProvisioningError, permission_error_message(e) if permission_denied?(e)
+
       # If creation fails due to consumer already existing (race condition), that's OK
       msg = e.message.to_s.downcase
       if msg.include?('already') || msg.include?('exists')
@@ -208,6 +219,21 @@ module JetstreamBridge
       end
 
       config
+    end
+
+    def skip_consumer_management?
+      @cfg.push_consumer? && !@cfg.auto_provision
+    end
+
+    def permission_denied?(error)
+      msg = error.message.to_s.downcase
+      msg.include?('permission') || msg.include?('permissions violation')
+    end
+
+    def permission_error_message(error)
+      "Consumer '#{@durable}' could not be ensured due to permissions: #{error.message}. " \
+        'Grant $JS.API.STREAM.INFO/$JS.API.CONSUMER.INFO/$JS.API.CONSUMER.CREATE for the stream, ' \
+        'or pre-provision the consumer with an admin account.'
     end
 
     def create_consumer!

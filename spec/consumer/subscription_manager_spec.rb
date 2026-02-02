@@ -151,6 +151,21 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
   end
 
   describe '#create_consumer_if_missing!' do
+    context 'when push mode and auto_provision=false' do
+      before do
+        allow(config).to receive(:push_consumer?).and_return(true)
+        allow(config).to receive(:auto_provision).and_return(false)
+      end
+
+      it 'raises ConsumerProvisioningError without calling JS APIs' do
+        expect(mock_jts).not_to receive(:stream_info)
+        expect(mock_jts).not_to receive(:consumer_info)
+        expect(mock_jts).not_to receive(:add_consumer)
+
+        expect { manager.create_consumer_if_missing! }.to raise_error(JetstreamBridge::ConsumerProvisioningError)
+      end
+    end
+
     context 'when stream does not exist' do
       before do
         allow(mock_jts).to receive(:stream_info).and_raise(StandardError, 'stream not found')
@@ -216,13 +231,25 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
         allow(mock_jts).to receive(:add_consumer).and_raise(StandardError, 'permission denied')
       end
 
-      it 'raises the error' do
-        expect { manager.create_consumer_if_missing! }.to raise_error(StandardError, 'permission denied')
+      it 'raises ConsumerProvisioningError for permission issues' do
+        expect { manager.create_consumer_if_missing! }.to raise_error(JetstreamBridge::ConsumerProvisioningError, /permission denied/i)
       end
     end
   end
 
   describe '#ensure_consumer!' do
+    context 'when push mode and auto_provision=false' do
+      before do
+        allow(config).to receive(:push_consumer?).and_return(true)
+        allow(config).to receive(:auto_provision).and_return(false)
+      end
+
+      it 'raises ConsumerProvisioningError' do
+        expect(mock_jts).not_to receive(:stream_info)
+        expect { manager.ensure_consumer! }.to raise_error(JetstreamBridge::ConsumerProvisioningError)
+      end
+    end
+
     context 'when stream exists' do
       before do
         allow(mock_jts).to receive(:stream_info).and_return({ name: config.stream_name })

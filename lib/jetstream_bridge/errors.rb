@@ -67,6 +67,7 @@ module JetstreamBridge
 
   # Topology errors
   class TopologyError < Error; end
+  class ConsumerProvisioningError < TopologyError; end
   class StreamNotFoundError < TopologyError; end
   class SubjectOverlapError < TopologyError; end
   class StreamCreationFailedError < TopologyError; end

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.1.1] - 2026-02-02
+
+### Changed
+
+- Fail-fast consumer provisioning: when running in push mode with `auto_provision=false`, the bridge now raises `ConsumerProvisioningError` instead of silently skipping consumer setup, preventing idle workers when the durable is missing.
+- Permission-aware creation: consumer creation now surfaces `ConsumerProvisioningError` on permissions violations (pull or push mode), guiding operators to grant the minimal `$JS.API` rights or pre-provision the durable.
+
+### Added
+
+- New `ConsumerProvisioningError` topology error for clearer operator feedback when consumer setup cannot proceed.
+
 ## [7.1.0] - 2026-02-01
 
 ### Added

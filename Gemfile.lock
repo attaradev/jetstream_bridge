@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    jetstream_bridge (7.1.0)
+    jetstream_bridge (7.1.1)
       activerecord (>= 7.1.5.2, < 8.0)
       activesupport (>= 7.1.5.2, < 8.0)
       mutex_m
