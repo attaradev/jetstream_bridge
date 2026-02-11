@@ -28,13 +28,13 @@ module JetstreamBridge
       @desired_cfg
     end
 
-    # Ensure consumer exists, auto-creating if missing.
-    #
-    # @param force [Boolean] Kept for backward compatibility but no longer used.
-    #   Consumers are always auto-created regardless of this parameter.
+    # Ensure consumer exists; skips all JS.API calls when auto_provision is false.
     def ensure_consumer!(**_options)
-      # Always auto-create consumer if it doesn't exist, regardless of auto_provision setting.
-      # auto_provision only controls stream topology creation, not consumer creation.
+      unless @cfg.auto_provision
+        Logging.info("Skipping consumer validation (auto_provision=false); assuming '#{@durable}' exists.",
+                     tag: 'JetstreamBridge::Consumer')
+        return
+      end
       create_consumer_if_missing!
     end
 
@@ -70,13 +70,7 @@ module JetstreamBridge
       false
     end
 
-    # Create consumer only if it doesn't already exist.
-    #
-    # Fails if the stream doesn't exist - streams must be provisioned separately.
-    #
-    # This is a safer alternative to create_consumer! that won't fail
-    # if the consumer was already created by another process.
-    #
+    # Create consumer only if it doesn't already exist. Fails if stream is missing.
     # @raise [StreamNotFoundError] if the stream doesn't exist
     def create_consumer_if_missing!
       # In restricted environments (push + auto_provision=false), we still want fail-fast semantics.

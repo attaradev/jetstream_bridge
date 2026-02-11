@@ -238,79 +238,96 @@ RSpec.describe JetstreamBridge::SubscriptionManager do
   end
 
   describe '#ensure_consumer!' do
-    context 'when push mode and auto_provision=false' do
+    context 'when auto_provision=false' do
       before do
-        allow(config).to receive(:push_consumer?).and_return(true)
         allow(config).to receive(:auto_provision).and_return(false)
       end
 
-      it 'raises ConsumerProvisioningError' do
+      it 'skips all JS.API calls and does not raise' do
         expect(mock_jts).not_to receive(:stream_info)
-        expect { manager.ensure_consumer! }.to raise_error(JetstreamBridge::ConsumerProvisioningError)
+        expect(mock_jts).not_to receive(:consumer_info)
+        expect(mock_jts).not_to receive(:add_consumer)
+
+        expect { manager.ensure_consumer! }.not_to raise_error
+      end
+
+      it 'logs that validation was skipped' do
+        expect(JetstreamBridge::Logging).to receive(:info).with(
+          /Skipping consumer validation.*auto_provision=false.*#{durable}/,
+          hash_including(tag: 'JetstreamBridge::Consumer')
+        )
+
+        manager.ensure_consumer!
+      end
+
+      it 'skips validation in pull mode as well' do
+        allow(config).to receive(:push_consumer?).and_return(false)
+
+        expect(mock_jts).not_to receive(:stream_info)
+        expect(mock_jts).not_to receive(:consumer_info)
+        expect(mock_jts).not_to receive(:add_consumer)
+
+        expect { manager.ensure_consumer! }.not_to raise_error
       end
     end
 
-    context 'when stream exists' do
-      before do
-        allow(mock_jts).to receive(:stream_info).and_return({ name: config.stream_name })
+    context 'when auto_provision=true (default)' do
+      context 'when stream exists' do
+        before do
+          allow(mock_jts).to receive(:stream_info).and_return({ name: config.stream_name })
+        end
+
+        context 'when consumer does not exist' do
+          before do
+            allow(mock_jts).to receive(:consumer_info).and_raise(StandardError, 'consumer not found')
+            allow(mock_jts).to receive(:add_consumer)
+          end
+
+          it 'auto-creates the consumer' do
+            expect(mock_jts).to receive(:add_consumer).with(
+              config.stream_name,
+              hash_including(durable_name: durable)
+            )
+            manager.ensure_consumer!
+          end
+        end
+
+        context 'when consumer already exists' do
+          before do
+            allow(mock_jts).to receive(:consumer_info).and_return({ name: durable })
+          end
+
+          it 'does not create the consumer' do
+            expect(mock_jts).not_to receive(:add_consumer)
+            manager.ensure_consumer!
+          end
+        end
       end
 
-      context 'when consumer does not exist' do
+      context 'when stream does not exist' do
         before do
+          allow(mock_jts).to receive(:stream_info).and_raise(StandardError, 'stream not found')
+        end
+
+        it 'raises StreamNotFoundError' do
+          expect { manager.ensure_consumer! }.to raise_error(JetstreamBridge::StreamNotFoundError)
+        end
+      end
+
+      context 'when forced (provisioning)' do
+        before do
+          allow(mock_jts).to receive(:stream_info).and_return({ name: config.stream_name })
           allow(mock_jts).to receive(:consumer_info).and_raise(StandardError, 'consumer not found')
           allow(mock_jts).to receive(:add_consumer)
         end
 
-        it 'auto-creates the consumer' do
+        it 'creates the consumer' do
           expect(mock_jts).to receive(:add_consumer).with(
             config.stream_name,
             hash_including(durable_name: durable)
           )
-          manager.ensure_consumer!
+          manager.ensure_consumer!(force: true)
         end
-
-        it 'auto-creates consumer even when auto_provision is false' do
-          allow(config).to receive(:auto_provision).and_return(false)
-          expect(mock_jts).to receive(:add_consumer)
-          manager.ensure_consumer!
-        end
-      end
-
-      context 'when consumer already exists' do
-        before do
-          allow(mock_jts).to receive(:consumer_info).and_return({ name: durable })
-        end
-
-        it 'does not create the consumer' do
-          expect(mock_jts).not_to receive(:add_consumer)
-          manager.ensure_consumer!
-        end
-      end
-    end
-
-    context 'when stream does not exist' do
-      before do
-        allow(mock_jts).to receive(:stream_info).and_raise(StandardError, 'stream not found')
-      end
-
-      it 'raises StreamNotFoundError' do
-        expect { manager.ensure_consumer! }.to raise_error(JetstreamBridge::StreamNotFoundError)
-      end
-    end
-
-    context 'when forced (provisioning)' do
-      before do
-        allow(mock_jts).to receive(:stream_info).and_return({ name: config.stream_name })
-        allow(mock_jts).to receive(:consumer_info).and_raise(StandardError, 'consumer not found')
-        allow(mock_jts).to receive(:add_consumer)
-      end
-
-      it 'creates the consumer' do
-        expect(mock_jts).to receive(:add_consumer).with(
-          config.stream_name,
-          hash_including(durable_name: durable)
-        )
-        manager.ensure_consumer!(force: true)
       end
     end
   end

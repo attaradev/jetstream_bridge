@@ -450,6 +450,14 @@ module JetstreamBridge
     end
 
     def auto_create_consumer_on_error(_error)
+      unless JetstreamBridge.config.auto_provision
+        Logging.info(
+          "Skipping consumer auto-creation (auto_provision=false) for #{@durable}",
+          tag: 'JetstreamBridge::Consumer'
+        )
+        return
+      end
+
       Logging.info(
         "Consumer not found error detected, attempting auto-creation for #{@durable}...",
         tag: 'JetstreamBridge::Consumer'

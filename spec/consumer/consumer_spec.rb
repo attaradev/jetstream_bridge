@@ -734,6 +734,25 @@ RSpec.describe JetstreamBridge::Consumer do
         expect { consumer.send(:auto_create_consumer_on_error, error) }.not_to raise_error
       end
     end
+
+    context 'when auto_provision=false' do
+      before do
+        allow(JetstreamBridge.config).to receive(:auto_provision).and_return(false)
+      end
+
+      it 'skips consumer auto-creation without calling create_consumer_if_missing!' do
+        expect(sub_mgr).not_to receive(:create_consumer_if_missing!)
+        consumer.send(:auto_create_consumer_on_error, error)
+      end
+
+      it 'logs that auto-creation was skipped' do
+        expect(JetstreamBridge::Logging).to receive(:info).with(
+          /Skipping consumer auto-creation.*auto_provision=false/,
+          hash_including(tag: 'JetstreamBridge::Consumer')
+        )
+        consumer.send(:auto_create_consumer_on_error, error)
+      end
+    end
   end
 
   describe 'integration: full message processing flow' do
