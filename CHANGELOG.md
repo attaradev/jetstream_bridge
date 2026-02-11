@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.1.2] - 2026-02-11
+
+### Fixed
+
+- **Skip all JS.API calls when `auto_provision=false`** - `ensure_consumer!` and `auto_create_consumer_on_error` no longer issue `stream_info`, `consumer_info`, or `add_consumer` calls when `auto_provision=false`. This fixes failures in restricted NATS accounts where `$JS.API` permissions are not granted and the stream/consumer are pre-provisioned by an admin.
+
+### Changed
+
+- **Restricted permissions docs** - Added missing `$JS.ACK.{stream}.{consumer}.>` publish permissions to all permission examples. Without this permission, consumers cannot acknowledge messages and they are redelivered until `max_deliver` is exhausted.
+
 ## [7.1.1] - 2026-02-02
 
 ### Changed
