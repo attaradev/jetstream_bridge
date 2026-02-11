@@ -31,7 +31,7 @@ When you cannot modify NATS server permissions, you have **two options**:
 
 - **No JetStream API permissions required** at runtime
 - Messages delivered automatically to a subscription subject
-- Simpler permission model: only needs subscribe permission on delivery subject
+- Simpler permission model: only needs subscribe on delivery subject + publish on `$JS.ACK` for acks
 - Best for restricted permission environments
 
 For both options, you need to:
@@ -82,7 +82,8 @@ end
 # NATS user permissions (e.g., pwas user)
 publish: {
   allow: [
-    "pwas.>",  # Your business subjects only
+    "pwas.>",                                                    # Your business subjects
+    "$JS.ACK.pwas-heavyworth-sync.pwas-workers.>",              # Ack/nak messages (required)
   ]
 }
 subscribe: {
@@ -92,7 +93,7 @@ subscribe: {
 }
 ```
 
-**No `$JS.API.*` or `_INBOX.>` permissions needed!**
+**No `$JS.API.*` or `_INBOX.>` permissions needed!** However, `$JS.ACK` publish permission is required for the consumer to acknowledge messages. Without it, messages will be redelivered until `max_deliver` is exhausted.
 
 ### Provisioning Push Consumers
 
@@ -122,11 +123,11 @@ nats consumer add pwas-heavyworth-sync pwas-workers \
 - Topology: **one shared stream per app pair**, with one durable consumer per app (each filters the opposite direction). Pre-provision via `bundle exec rake jetstream_bridge:provision` or NATS CLI.
 - NATS permissions for runtime creds:
   - **Pull consumers** (default):
-    - publish allow: `">"` (or narrowed to your business subjects) and `$JS.API.CONSUMER.MSG.NEXT.{stream_name}.{app_name}-workers`
-    - subscribe allow: `">"` (or narrowed) and `_INBOX.>` (responses for pull consumers)
+    - publish allow: `{app_name}.>`, `$JS.API.CONSUMER.MSG.NEXT.{stream_name}.{app_name}-workers`, and `$JS.ACK.{stream_name}.{app_name}-workers.>`
+    - subscribe allow: `{destination_app}.>` and `_INBOX.>` (responses for pull consumers)
   - **Push consumers** (recommended for restricted environments):
-    - publish allow: `">"` (or narrowed to your business subjects only - e.g., `pwas.>`)
-    - subscribe allow: `">"` (or narrowed to your business subjects only - e.g., `heavyworth.>`)
+    - publish allow: `{app_name}.>` and `$JS.ACK.{stream_name}.{app_name}-workers.>` (ack/nak)
+    - subscribe allow: `{destination_app}.>` (includes delivery subject)
     - No `$JS.API.*` or `_INBOX.>` permissions needed
 - Health check will only report connectivity (stream info skipped).
 
@@ -643,15 +644,15 @@ end
 
 ```conf
 # pwas user
-publish: { allow: ["pwas.>"] }
+publish: { allow: ["pwas.>", "$JS.ACK.pwas-heavyworth-sync.pwas-workers.>"] }
 subscribe: { allow: ["heavyworth.>"] }
 
 # heavyworth user
-publish: { allow: ["heavyworth.>"] }
+publish: { allow: ["heavyworth.>", "$JS.ACK.pwas-heavyworth-sync.heavyworth-workers.>"] }
 subscribe: { allow: ["pwas.>"] }
 ```
 
-**Note:** With push consumers, no `$JS.API.*` or `_INBOX.>` permissions are required.
+**Note:** With push consumers, no `$JS.API.*` or `_INBOX.>` permissions are required. The `$JS.ACK` permission is needed so the consumer can acknowledge (ack/nak) delivered messages.
 
 ---
 
@@ -664,16 +665,17 @@ If you have any influence over NATS permissions, you have two options:
 Request minimal JetStream API permissions:
 
 ```conf
-# Minimal permissions needed for pull consumer
+# Minimal permissions needed for pull consumer (e.g., pwas user)
 publish: {
   allow: [
-    ">",                                   # Your app subjects (narrow if desired)
-    "$JS.API.CONSUMER.MSG.NEXT.{stream_name}.{app_name}-workers",  # Fetch messages (required)
+    "pwas.>",                                                          # Your app subjects
+    "$JS.API.CONSUMER.MSG.NEXT.pwas-heavyworth-sync.pwas-workers",    # Fetch messages (required)
+    "$JS.ACK.pwas-heavyworth-sync.pwas-workers.>",                    # Ack/nak messages (required)
   ]
 }
 subscribe: {
   allow: [
-    ">",                                   # Your app subjects (narrow if desired)
+    "heavyworth.>",                        # Destination app subjects
     "_INBOX.>",                            # Request-reply responses (required)
   ]
 }
@@ -683,16 +685,16 @@ These are read-only operations and don't allow creating/modifying streams or con
 
 ### Option 2: Push Consumers (Recommended)
 
-Use push consumers with business subject permissions only:
+Use push consumers with business subject permissions plus ack:
 
 ```conf
 # For pwas app
-publish: { allow: ["pwas.>"] }
+publish: { allow: ["pwas.>", "$JS.ACK.pwas-heavyworth-sync.pwas-workers.>"] }
 subscribe: { allow: ["heavyworth.>"] }
 
 # For heavyworth app
-publish: { allow: ["heavyworth.>"] }
+publish: { allow: ["heavyworth.>", "$JS.ACK.pwas-heavyworth-sync.heavyworth-workers.>"] }
 subscribe: { allow: ["pwas.>"] }
 ```
 
-**No `$JS.API.*` or `_INBOX.>` permissions required!** This is the simplest and most restrictive permission model.
+**No `$JS.API.*` or `_INBOX.>` permissions required!** The only extra permission beyond business subjects is `$JS.ACK` for acknowledging messages.
