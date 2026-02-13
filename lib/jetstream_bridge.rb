@@ -322,10 +322,21 @@ module JetstreamBridge
     #     logger.error("Publish failed: #{result.error}")
     #   end
     def publish(event_or_hash = nil, resource_type: nil, event_type: nil, payload: nil, subject: nil, **)
-      connect_if_needed!
-      publisher = Publisher.new
-      publisher.publish(event_or_hash, resource_type: resource_type, event_type: event_type, payload: payload,
-                                       subject: subject, **)
+      retried_after_reconnect = false
+      begin
+        connect_if_needed!
+        publisher = Publisher.new
+        publisher.publish(event_or_hash, resource_type: resource_type, event_type: event_type, payload: payload,
+                                         subject: subject, **)
+      rescue ConnectionNotEstablishedError => e
+        raise if retried_after_reconnect
+
+        retried_after_reconnect = true
+        Logging.warn("JetStream context unavailable during publish: #{e.message}. Reconnecting and retrying once.",
+                     tag: 'JetstreamBridge')
+        reconnect!
+        retry
+      end
     end
 
     # Publish variant that raises on error

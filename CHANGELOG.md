@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.1.3] - 2026-02-13
+
+### Fixed
+
+- **Publish recovery for transient JetStream context loss** - `JetstreamBridge.publish` now catches `ConnectionNotEstablishedError`, performs a reconnect, and retries once so publish calls no longer fail immediately during brief JetStream context refresh windows.
+- **Initialized-but-stale connection recovery** - Internal `connect_if_needed!` now validates that a JetStream context is actually available (not just that startup previously ran) and triggers reconnect when context refresh is pending or failed.
+
 ## [7.1.2] - 2026-02-11
 
 ### Fixed

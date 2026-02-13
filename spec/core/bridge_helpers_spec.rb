@@ -8,11 +8,50 @@ RSpec.describe JetstreamBridge::Core::BridgeHelpers do
   before do
     JetstreamBridge.instance_variable_set(:@last_uncached_health_check, nil)
     JetstreamBridge.instance_variable_set(:@health_check_mutex, nil)
+    @original_connection_initialized = JetstreamBridge.instance_variable_get(:@connection_initialized)
   end
 
   after do
     JetstreamBridge.instance_variable_set(:@last_uncached_health_check, nil)
     JetstreamBridge.instance_variable_set(:@health_check_mutex, nil)
+    JetstreamBridge.instance_variable_set(:@connection_initialized, @original_connection_initialized)
+  end
+
+  describe '#connect_if_needed!' do
+    it 'starts up when connection has not been initialized' do
+      JetstreamBridge.instance_variable_set(:@connection_initialized, false)
+
+      expect(JetstreamBridge).to receive(:startup!)
+
+      JetstreamBridge.send(:connect_if_needed!)
+    end
+
+    it 'does not reconnect when already initialized and healthy' do
+      JetstreamBridge.instance_variable_set(:@connection_initialized, true)
+      allow(JetstreamBridge::Connection).to receive(:jetstream).and_return(double('jetstream'))
+
+      expect(JetstreamBridge).not_to receive(:reconnect!)
+
+      JetstreamBridge.send(:connect_if_needed!)
+    end
+
+    it 'reconnects when initialized but connection health is false' do
+      JetstreamBridge.instance_variable_set(:@connection_initialized, true)
+      allow(JetstreamBridge::Connection).to receive(:jetstream).and_raise(
+        JetstreamBridge::ConnectionNotEstablishedError,
+        'JetStream context unavailable (refresh pending or failed)'
+      )
+      allow(JetstreamBridge::Logging).to receive(:warn)
+
+      expect(JetstreamBridge).to receive(:reconnect!)
+
+      JetstreamBridge.send(:connect_if_needed!)
+
+      expect(JetstreamBridge::Logging).to have_received(:warn).with(
+        'JetStream context unavailable on initialized connection. Attempting reconnect before operation.',
+        tag: 'JetstreamBridge'
+      )
+    end
   end
 
   describe '#enforce_health_check_rate_limit!' do

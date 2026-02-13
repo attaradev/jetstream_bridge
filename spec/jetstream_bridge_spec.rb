@@ -107,6 +107,28 @@ RSpec.describe JetstreamBridge do
       expect(result).to be_a(JetstreamBridge::Models::PublishResult)
       expect(result.success?).to be(true)
     end
+
+    it 'reconnects and retries once when JetStream context is temporarily unavailable' do
+      allow(described_class).to receive(:connect_if_needed!).and_return(true)
+      jetstream_calls = 0
+      allow(JetstreamBridge::Connection).to receive(:jetstream) do
+        jetstream_calls += 1
+        if jetstream_calls == 1
+          raise JetstreamBridge::ConnectionNotEstablishedError,
+                'JetStream context unavailable (refresh pending or failed)'
+        end
+
+        jts
+      end
+      allow(JetstreamBridge::Logging).to receive(:warn)
+      allow(described_class).to receive(:reconnect!)
+
+      expect(described_class).to receive(:reconnect!).once
+
+      result = described_class.publish(event_type: 'user.created', payload: { id: 1 })
+      expect(result).to be_a(JetstreamBridge::Models::PublishResult)
+      expect(result.success?).to be(true)
+    end
   end
 
   describe '.subscribe' do

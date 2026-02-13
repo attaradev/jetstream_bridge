@@ -14,9 +14,24 @@ module JetstreamBridge
       # Automatically connects on first use if not already connected
       # Thread-safe and idempotent
       def connect_if_needed!
-        return if @connection_initialized
+        unless @connection_initialized
+          startup!
+          return
+        end
 
-        startup!
+        return if Connection.jetstream
+
+        Logging.warn(
+          'JetStream context unavailable on initialized connection. Attempting reconnect before operation.',
+          tag: 'JetstreamBridge'
+        )
+        reconnect!
+      rescue ConnectionNotEstablishedError
+        Logging.warn(
+          'JetStream context unavailable on initialized connection. Attempting reconnect before operation.',
+          tag: 'JetstreamBridge'
+        )
+        reconnect!
       end
 
       # Enforce rate limit on uncached health checks to prevent abuse
