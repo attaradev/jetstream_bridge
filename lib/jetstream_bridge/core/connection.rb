@@ -60,22 +60,33 @@ module JetstreamBridge
       #
       # Safe to call from multiple threads - uses class-level mutex for synchronization.
       #
-      # @return [NATS::JetStream::JS] JetStream context
+      # @return [NATS::JetStream] JetStream context
       def connect!(verify_js: nil)
         @@connection_lock.synchronize { instance.connect!(verify_js: verify_js) }
       end
 
-      # Optional accessors if callers need raw handles
+      # Returns the raw NATS client from the singleton instance.
+      #
+      # @return [NATS::IO::Client, nil] The underlying NATS connection
       def nc
         instance.__send__(:nc)
       end
 
+      # Returns the JetStream context from the singleton instance.
+      #
+      # @return [NATS::JetStream, nil] JetStream context
+      # @raise [ConnectionNotEstablishedError] If JetStream context is unavailable
       def jetstream
         instance.__send__(:jetstream)
       end
     end
 
     # Idempotent: returns an existing, healthy JetStream context or establishes one.
+    #
+    # @param verify_js [Boolean, nil] Whether to verify JetStream availability via account_info.
+    #   Defaults to the value of {Config#auto_provision}.
+    # @return [NATS::JetStream] JetStream context
+    # @raise [ConnectionError] If unable to connect to NATS or JetStream
     def connect!(verify_js: nil)
       verify_js = config_auto_provision if verify_js.nil?
       # Check if already connected without acquiring mutex (for performance)

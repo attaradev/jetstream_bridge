@@ -49,10 +49,10 @@ module JetstreamBridge
       PROCESSED = 'processed'
     end
 
-    # NATS server URL(s), comma-separated for multiple servers
+    # Destination application name for subject routing
     # @return [String]
     attr_accessor :destination_app
-    # NATS server URL(s)
+    # NATS server URL(s), comma-separated for multiple servers
     # @return [String]
     attr_accessor :nats_urls
     # JetStream stream name (required)
@@ -119,6 +119,12 @@ module JetstreamBridge
     # @return [String, nil]
     attr_accessor :push_consumer_group
 
+    # Initialize a new Config with sensible defaults.
+    #
+    # Reads initial values from environment variables when available
+    # (NATS_URLS, NATS_URL, JETSTREAM_STREAM_NAME, APP_NAME, DESTINATION_APP).
+    #
+    # @return [Config]
     def initialize
       @nats_urls       = ENV['NATS_URLS'] || ENV['NATS_URL'] || 'nats://localhost:4222'
       @stream_name     = ENV['JETSTREAM_STREAM_NAME'] || 'jetstream-bridge-stream'

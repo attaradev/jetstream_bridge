@@ -68,12 +68,11 @@ Thread-safe singleton managing NATS connections:
 
 **Key Methods:**
 
-- `Connection.instance` - Get singleton connection
-- `connection.connect!` - Establish NATS connection
-- `connection.nats` - Access raw NATS client
-- `connection.jetstream` - Access JetStream context
-- `connection.healthy?` - Check connection health
-- `connection.reconnect!` - Force reconnection
+- `Connection.connect!` - Thread-safe connection establishment (class-level)
+- `Connection.nc` - Access raw NATS client (class-level)
+- `Connection.jetstream` - Access JetStream context (class-level)
+- `connection.connected?` - Check connection health (cached, 30s TTL)
+- `connection.state` - Get current state (:disconnected, :connecting, :connected, :reconnecting, :failed)
 
 ### Publisher (`lib/jetstream_bridge/publisher/publisher.rb`)
 
@@ -104,9 +103,9 @@ JetstreamBridge.publish(
   "resource_type": "user",
   "resource_id": "1",
   "payload": { "id": 1, "email": "user@example.com" },
-  "produced_at": "2024-01-01T00:00:00Z",
+  "occurred_at": "2024-01-01T00:00:00Z",
   "producer": "api",
-  "schema_version": "1.0",
+  "schema_version": 1,
   "trace_id": "trace-uuid"
 }
 ```
@@ -836,16 +835,16 @@ end
 
 ```ruby
 class CustomErrorHandler
-  def call(event, next_middleware)
-    next_middleware.call(event)
+  def call(event)
+    yield
   rescue CustomRetryableError => e
-    # Return ActionResult with custom delay
-    JetstreamBridge::Consumer::ActionResult.new(:nak, delay: 10)
+    # Re-raise to let the consumer NAK with backoff
+    raise
   rescue CustomPermanentError => e
     # Log and move to DLQ
     logger.error("Permanent error: #{e.message}")
     publish_to_custom_dlq(event, e)
-    JetstreamBridge::Consumer::ActionResult.new(:ack)
+    # Don't re-raise — consumer will ACK
   end
 end
 
@@ -858,19 +857,27 @@ consumer.use(CustomErrorHandler.new)
 
 ### Connection Singleton
 
-**Thread-safe initialization:**
+**Thread-safe initialization (Singleton + class-level mutex):**
 
 ```ruby
-@@connection_lock = Mutex.new
+class Connection
+  include Singleton
 
-def self.instance
-  return @@connection if @@connection
+  @@connection_lock = Mutex.new
 
-  @@connection_lock.synchronize do
-    @@connection ||= new
+  class << self
+    def connect!(verify_js: nil)
+      @@connection_lock.synchronize { instance.connect!(verify_js: verify_js) }
+    end
+
+    def nc
+      instance.__send__(:nc)
+    end
+
+    def jetstream
+      instance.__send__(:jetstream)
+    end
   end
-
-  @@connection
 end
 ```
 
@@ -991,28 +998,30 @@ health = JetstreamBridge.health_check(skip_cache: false)
 {
   healthy: true,
   connection: {
-    status: "connected",
-    servers: ["nats://localhost:4222"],
-    connected_at: "2024-01-01T00:00:00Z"
+    state: :connected,
+    connected: true,
+    connected_at: "2025-01-01T00:00:00Z"
   },
-  jetstream: {
-    streams: 1,
-    consumers: 2,
-    memory_bytes: 104857600,
-    storage_bytes: 1073741824
+  stream: {
+    exists: true,
+    name: "jetstream-bridge-stream",
+    subjects: ["app.sync.worker"],
+    messages: 1523
+  },
+  performance: {
+    nats_rtt_ms: 2.5,
+    health_check_duration_ms: 45.2
   },
   config: {
-    stream_name: "jetstream-bridge-stream",
     app_name: "api",
     destination_app: "worker",
+    stream_name: "jetstream-bridge-stream",
+    auto_provision: true,
     use_outbox: true,
     use_inbox: true,
     use_dlq: true
   },
-  performance: {
-    message_processing_time_ms: 45.2,
-    last_health_check_ms: 12.5
-  }
+  version: "7.0.0"
 }
 ```
 
@@ -1046,15 +1055,13 @@ ERROR [JetstreamBridge::Consumer] Unrecoverable error: ArgumentError
 
 ```ruby
 class MetricsMiddleware
-  def call(event, next_middleware)
+  def call(event)
     start = Time.now
-    result = next_middleware.call(event)
+    yield
     duration = Time.now - start
 
     StatsD.increment('jetstream.messages.processed')
     StatsD.histogram('jetstream.processing_time', duration)
-
-    result
   rescue => e
     StatsD.increment('jetstream.messages.failed', tags: ["error:#{e.class}"])
     raise

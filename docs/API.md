@@ -34,7 +34,6 @@ JetstreamBridge.configure do |config|
   config.use_dlq    = true   # Dead letter queue for poison messages
 
   # Consumer settings
-  config.durable_name = "#{app_name}-workers"
   config.max_deliver  = 5     # Max delivery attempts
   config.ack_wait     = "30s" # Time to wait for ACK
   config.backoff      = ["1s", "5s", "15s", "30s", "60s"]
@@ -51,7 +50,7 @@ end
 
 ### `JetstreamBridge.config`
 
-Returns the current configuration object (read-only).
+Returns the current configuration object, creating a default instance if needed.
 
 ```ruby
 stream_name = JetstreamBridge.config.stream_name
@@ -67,6 +66,8 @@ Explicitly start the connection and provision topology (if `auto_provision=true`
 JetstreamBridge.startup!
 ```
 
+**Raises:** `ConfigurationError`, `ConnectionError`
+
 **Note:** Rails applications auto-start after initialization. Non-Rails apps should call this manually or rely on auto-connect on first publish/subscribe.
 
 ### `JetstreamBridge.shutdown!`
@@ -79,7 +80,7 @@ JetstreamBridge.shutdown!
 
 ### `JetstreamBridge.reset!`
 
-Reset all internal state (for testing).
+Reset all internal state (for testing). Also resets consumer signal handlers.
 
 ```ruby
 JetstreamBridge.reset!
@@ -95,14 +96,12 @@ Publish an event to the destination app.
 JetstreamBridge.publish(
   event_type: "user.created",     # Required
   resource_type: "user",          # Required
-  resource_id: user.id,           # Optional
   payload: { id: user.id, email: user.email },
-  headers: { correlation_id: "..." },  # Optional
   event_id: "custom-uuid"         # Optional (auto-generated)
 )
 ```
 
-**Returns:** `JetstreamBridge::PublishResult`
+**Returns:** `Models::PublishResult`
 
 **With Outbox:**
 
@@ -131,11 +130,11 @@ Publish multiple events efficiently.
 ```ruby
 results = JetstreamBridge.publish_batch do |batch|
   users.each do |user|
-    batch.publish(event_type: "user.created", resource_type: "user", payload: user)
+    batch.add(event_type: "user.created", resource_type: "user", payload: user)
   end
 end
 
-puts "Published: #{results.success_count}, Failed: #{results.failure_count}"
+puts "Published: #{results.successful_count}, Failed: #{results.failed_count}"
 ```
 
 ## Consuming
@@ -155,8 +154,8 @@ end
 
 ```ruby
 consumer = JetstreamBridge::Consumer.new(
-  batch_size: 10,           # Process up to 10 messages at once
-  error_handler: ->(error, event) { logger.error(error) }
+  durable_name: "my-consumer",  # Override default durable name
+  batch_size: 10                # Process up to 10 messages at once
 ) do |event|
   # ...
 end
@@ -184,14 +183,13 @@ The event object passed to your handler:
 
 ```ruby
 event.event_id       # => "evt_123"
-event.event_type     # => "user.created"
+event.type           # => "user.created"
 event.resource_type  # => "user"
 event.resource_id    # => "456"
-event.payload        # => { "id" => 456, "email" => "..." }
-event.headers        # => { "correlation_id" => "..." }
+event.payload        # => PayloadAccessor (supports method-style: event.payload.email)
 event.subject        # => "source_app.sync.my_app"
 event.stream         # => "jetstream-bridge-stream"
-event.seq            # => 123
+event.sequence       # => 123
 event.deliveries     # => 1
 ```
 
@@ -255,13 +253,18 @@ Get comprehensive health status.
 ```ruby
 health = JetstreamBridge.health_check
 
-health[:status]           # => "healthy" | "unhealthy"
-health[:connected]        # => true/false
-health[:stream_exists]    # => true/false
-health[:messages]         # => 123
-health[:consumers]        # => 2
-health[:nats_rtt_ms]      # => 1.2
-health[:version]          # => "7.0.0"
+health[:healthy]                            # => true/false
+health[:connection][:state]                 # => :connected
+health[:connection][:connected]             # => true/false
+health[:connection][:connected_at]          # => "2025-01-01T00:00:00Z"
+health[:stream][:exists]                    # => true/false
+health[:stream][:name]                      # => "jetstream-bridge-stream"
+health[:stream][:subjects]                  # => ["app.sync.worker"]
+health[:stream][:messages]                  # => 123
+health[:performance][:nats_rtt_ms]          # => 1.2
+health[:performance][:health_check_duration_ms] # => 45.2
+health[:config]                             # => { app_name:, stream_name:, ... }
+health[:version]                            # => "7.0.0"
 ```
 
 ### `JetstreamBridge.stream_info`
@@ -278,18 +281,6 @@ info[:bytes]              # => 204800
 info[:first_seq]          # => 1
 info[:last_seq]           # => 1000
 info[:consumer_count]     # => 2
-```
-
-### `JetstreamBridge.connection_info`
-
-Get NATS connection details.
-
-```ruby
-info = JetstreamBridge.connection_info
-
-info[:connected]          # => true
-info[:servers]            # => ["nats://localhost:4222"]
-info[:connected_at]       # => 2024-01-29 12:00:00 UTC
 ```
 
 ## Models
@@ -383,17 +374,23 @@ rescue JetstreamBridge::StreamNotFoundError => e
 end
 ```
 
-### Custom Error Handler
+### Custom Error Handling (Middleware)
 
 ```ruby
-consumer = JetstreamBridge::Consumer.new(
-  error_handler: lambda { |error, event|
-    logger.error("Failed to process event #{event.event_id}: #{error.message}")
-    Sentry.capture_exception(error, extra: { event_id: event.event_id })
-  }
-) do |event|
+class SentryErrorMiddleware
+  def call(event)
+    yield
+  rescue StandardError => e
+    logger.error("Failed to process event #{event.event_id}: #{e.message}")
+    Sentry.capture_exception(e, extra: { event_id: event.event_id })
+    raise  # Re-raise so the consumer can NAK/DLQ as appropriate
+  end
+end
+
+consumer = JetstreamBridge::Consumer.new do |event|
   # Process event
 end
+consumer.use(SentryErrorMiddleware.new)
 ```
 
 ## Testing

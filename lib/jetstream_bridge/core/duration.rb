@@ -9,17 +9,20 @@ module JetstreamBridge
   # seconds, >=1000 as milliseconds. Strings with unit suffixes are supported
   # (e.g., "30s", "500ms", "1h").
   #
-  # Examples:
+  # @example Integer with auto-detection
   #   Duration.to_millis(2)                         #=> 2000 (auto: seconds)
   #   Duration.to_millis(1500)                      #=> 1500 (auto: milliseconds)
+  #
+  # @example Explicit units
   #   Duration.to_millis(30, default_unit: :s)      #=> 30000
-  #   Duration.to_millis("30s")                     #=> 30000
-  #   Duration.to_millis("500ms")                   #=> 500
-  #   Duration.to_millis("250us")                   #=> 0
-  #   Duration.to_millis("1h")                      #=> 3_600_000
   #   Duration.to_millis(1_500_000_000, default_unit: :ns) #=> 1500
   #
-  # Also:
+  # @example String with suffix
+  #   Duration.to_millis("30s")                     #=> 30000
+  #   Duration.to_millis("500ms")                   #=> 500
+  #   Duration.to_millis("1h")                      #=> 3_600_000
+  #
+  # @example Normalizing a list
   #   Duration.normalize_list_to_millis(%w[1s 5s 15s]) #=> [1000, 5000, 15000]
   module Duration
     # multipliers to convert 1 unit into milliseconds
@@ -39,10 +42,14 @@ module JetstreamBridge
 
     module_function
 
-    # default_unit:
-    #   :auto (default: heuristic - <1000 => seconds, >=1000 => milliseconds)
-    #   :ms (explicit milliseconds)
-    #   :ns, :us, :s, :m, :h, :d (explicit units)
+    # Convert a duration value to milliseconds.
+    #
+    # @param val [Integer, Float, String] Duration value to convert
+    # @param default_unit [Symbol] Unit for bare numbers.
+    #   :auto (heuristic: <1000 => seconds, >=1000 => ms),
+    #   :ms, :ns, :us, :s, :m, :h, :d
+    # @return [Integer] Duration in milliseconds
+    # @raise [ArgumentError] If the value cannot be parsed
     def to_millis(val, default_unit: :auto)
       case val
       when Integer then int_to_ms(val, default_unit: default_unit)
@@ -57,6 +64,10 @@ module JetstreamBridge
     end
 
     # Normalize an array of durations into integer milliseconds.
+    #
+    # @param values [Array<Integer, Float, String>] Duration values
+    # @param default_unit [Symbol] Default unit for bare numbers
+    # @return [Array<Integer>] Durations in milliseconds
     def normalize_list_to_millis(values, default_unit: :auto)
       vals = Array(values)
       return [] if vals.empty?
@@ -69,6 +80,10 @@ module JetstreamBridge
     # Retains the nanosecond heuristic used in SubscriptionManager:
     # extremely large integers (>= 1_000_000_000) are treated as nanoseconds
     # when default_unit is :auto.
+    #
+    # @param val [Integer, Float, String, nil] Duration value (returns nil if nil)
+    # @param default_unit [Symbol] Default unit for bare numbers
+    # @return [Integer, nil] Duration in seconds (minimum 1), or nil if val is nil
     def to_seconds(val, default_unit: :auto)
       return nil if val.nil?
 
@@ -82,6 +97,10 @@ module JetstreamBridge
     end
 
     # Normalize an array of durations into integer seconds.
+    #
+    # @param values [Array<Integer, Float, String>] Duration values
+    # @param default_unit [Symbol] Default unit for bare numbers
+    # @return [Array<Integer>] Durations in seconds
     def normalize_list_to_seconds(values, default_unit: :auto)
       vals = Array(values)
       return [] if vals.empty?

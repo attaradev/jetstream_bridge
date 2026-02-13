@@ -7,8 +7,14 @@ require_relative '../errors'
 require_relative 'pull_subscription_builder'
 
 module JetstreamBridge
-  # Encapsulates durable ensure + subscribe for a pull consumer.
+  # Manages durable consumer provisioning and subscription lifecycle.
+  #
+  # Encapsulates the ensure-consumer + subscribe flow for both pull and push
+  # consumer modes, with automatic fallback between modes.
   class SubscriptionManager
+    # @param jts [NATS::JetStream] JetStream context
+    # @param durable [String] Durable consumer name
+    # @param cfg [Config] Configuration instance
     def initialize(jts, durable, cfg = JetstreamBridge.config)
       @jts     = jts
       @durable = durable
@@ -28,7 +34,14 @@ module JetstreamBridge
       @desired_cfg
     end
 
-    # Ensure consumer exists; skips all JS.API calls when auto_provision is false.
+    # Ensure the durable consumer exists on the server.
+    #
+    # Skips all JetStream API calls when +auto_provision+ is false, assuming
+    # the consumer was pre-provisioned externally.
+    #
+    # @return [void]
+    # @raise [StreamNotFoundError] If the stream does not exist
+    # @raise [ConsumerProvisioningError] If consumer creation fails due to permissions
     def ensure_consumer!(**_options)
       unless @cfg.auto_provision
         Logging.info("Skipping consumer validation (auto_provision=false); assuming '#{@durable}' exists.",
@@ -126,6 +139,12 @@ module JetstreamBridge
     end
 
     # Bind a subscriber to the existing durable consumer.
+    #
+    # Automatically selects pull or push mode based on configuration, with
+    # fallback to the opposite mode if the primary subscription fails.
+    #
+    # @return [Object] NATS subscription handle (pull or push)
+    # @raise [ConnectionError] If neither subscription mode succeeds
     def subscribe!
       if @cfg.push_consumer?
         subscribe_push_with_fallback

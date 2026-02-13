@@ -96,6 +96,8 @@ module JetstreamBridge
       alias to_hash to_h
     end
 
+    # @param publisher [Publisher, nil] Publisher instance to use for each event.
+    #   Defaults to a new {Publisher} instance.
     def initialize(publisher = nil)
       @publisher = publisher || Publisher.new
       @events = []
@@ -156,6 +158,9 @@ module JetstreamBridge
     alias count size
     alias length size
 
+    # Whether the batch has no queued events.
+    #
+    # @return [Boolean]
     def empty?
       @events.empty?
     end

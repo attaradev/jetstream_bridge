@@ -5,13 +5,37 @@ require 'time'
 
 module JetstreamBridge
   module Models
-    # Value object representing an event envelope
+    # Immutable value object representing an event envelope.
+    #
+    # Encapsulates all fields of a JetStream Bridge event and freezes itself
+    # (including the payload) after construction for thread-safety.
     class EventEnvelope
+      # Current envelope schema version
       SCHEMA_VERSION = 1
 
+      # @return [String] Unique event identifier (UUID)
+      # @return [Integer] Envelope schema version
+      # @return [String] Event type (e.g. "created", "updated")
+      # @return [String] Name of the producing application
+      # @return [String] Resource type (e.g. "user", "order")
+      # @return [String] Resource identifier extracted from payload
+      # @return [Time] When the event occurred
+      # @return [String] Distributed trace identifier
+      # @return [Hash] Frozen event payload
       attr_reader :event_id, :schema_version, :event_type, :producer,
                   :resource_type, :resource_id, :occurred_at, :trace_id, :payload
 
+      # Build a new EventEnvelope.
+      #
+      # @param resource_type [String] Resource type (e.g. "user")
+      # @param event_type [String] Event type (e.g. "created")
+      # @param payload [Hash] Event payload data
+      # @param event_id [String, nil] Custom event ID (auto-generated UUID if nil)
+      # @param occurred_at [Time, String, nil] Event timestamp (defaults to now)
+      # @param trace_id [String, nil] Distributed trace ID (auto-generated if nil)
+      # @param producer [String, nil] Producer app name (defaults to config.app_name)
+      # @param resource_id [String, nil] Resource ID (extracted from payload if nil)
+      # @raise [ArgumentError] If required fields are blank
       def initialize(
         resource_type:,
         event_type:,
@@ -36,7 +60,9 @@ module JetstreamBridge
         freeze
       end
 
-      # Convert to hash for serialization
+      # Convert to hash for serialization.
+      #
+      # @return [Hash] Envelope fields as a symbol-keyed hash
       def to_h
         hash = {
           event_id: @event_id,
@@ -55,7 +81,10 @@ module JetstreamBridge
         hash
       end
 
-      # Create from hash
+      # Reconstruct an EventEnvelope from a hash (e.g. deserialized JSON).
+      #
+      # @param hash [Hash] String- or symbol-keyed envelope data
+      # @return [EventEnvelope]
       def self.from_h(hash)
         new(
           event_id: hash['event_id'] || hash[:event_id],

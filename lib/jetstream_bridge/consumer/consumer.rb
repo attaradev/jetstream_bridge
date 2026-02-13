@@ -59,6 +59,10 @@ module JetstreamBridge
     TimeoutMiddleware = ConsumerMiddleware::TimeoutMiddleware
 
     class << self
+      # Register a consumer instance to receive OS signal notifications (INT, TERM).
+      #
+      # @param consumer [Consumer] Consumer to register
+      # @return [void]
       def register_consumer_for_signals(consumer)
         signal_registry_mutex.synchronize do
           signal_consumers << consumer
@@ -66,10 +70,17 @@ module JetstreamBridge
         end
       end
 
+      # Remove a consumer from the signal registry.
+      #
+      # @param consumer [Consumer] Consumer to unregister
+      # @return [void]
       def unregister_consumer_for_signals(consumer)
         signal_registry_mutex.synchronize { signal_consumers.delete(consumer) }
       end
 
+      # Clear all registered consumers and reset signal handler state.
+      #
+      # @return [void]
       def reset_signal_handlers!
         signal_registry_mutex.synchronize { signal_consumers.clear }
         @signal_handlers_installed = false
@@ -141,13 +152,17 @@ module JetstreamBridge
     attr_reader :batch_size
     # @return [MiddlewareChain] Middleware chain for processing
     attr_reader :middleware_chain
-    # Expose grouped state objects for observability/testing
-    attr_reader :processing_state, :lifecycle_state, :connection_state
+    # @return [ProcessingState] Processing counters and backoff state
+    attr_reader :processing_state
+    # @return [LifecycleState] Lifecycle flags and timing
+    attr_reader :lifecycle_state
+    # @return [ConnectionState] Reconnection attempts and health check timing
+    attr_reader :connection_state
 
     # Initialize a new Consumer instance.
     #
     # @param handler [Proc, #call, nil] Message handler that processes events.
-    #   Must respond to #call(event) or #call(event, subject, deliveries).
+    #   Must respond to #call(event).
     # @param durable_name [String, nil] Optional durable consumer name override.
     #   Defaults to config.durable_name.
     # @param batch_size [Integer, nil] Number of messages to fetch per batch.

@@ -76,11 +76,11 @@ module JetstreamBridge
     #   - occurred_at [Time, String] Event timestamp (defaults to current time)
     #
     # @return [Models::PublishResult] Result object containing:
-    #   - success [Boolean] Whether publish succeeded
+    #   - success? [Boolean] Whether publish succeeded
     #   - event_id [String] The published event ID
     #   - subject [String] NATS subject used
     #   - error [Exception, nil] Error if publish failed
-    #   - duplicate [Boolean] Whether NATS detected as duplicate
+    #   - duplicate? [Boolean] Whether NATS detected as duplicate
     #
     # @raise [ArgumentError] If required parameters are missing or invalid
     #

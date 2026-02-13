@@ -117,11 +117,6 @@ Optimize consumer configuration based on your workload:
 
 ```ruby
 JetstreamBridge.configure do |config|
-  # Adjust batch size based on message processing time
-  # Larger = better throughput, smaller = lower latency
-  # Default: 25
-  config.batch_size = 50
-
   # Increase max_deliver for critical messages
   # Default: 5
   config.max_deliver = 10
@@ -134,6 +129,9 @@ JetstreamBridge.configure do |config|
   # Default: [1s, 5s, 15s, 30s, 60s]
   config.backoff = %w[2s 10s 30s 60s 120s]
 end
+
+# batch_size is a Consumer.new parameter, not a config attribute:
+consumer = JetstreamBridge::Consumer.new(handler, batch_size: 50)
 ```
 
 ### Consumer Best Practices

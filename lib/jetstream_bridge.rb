@@ -68,6 +68,9 @@ module JetstreamBridge
   class << self
     include Core::BridgeHelpers
 
+    # Returns the current configuration, creating a default instance if needed.
+    #
+    # @return [Config] The current configuration object
     def config
       @config ||= Config.new
     end
@@ -90,6 +93,7 @@ module JetstreamBridge
     #   JetstreamBridge.configure(app_name: 'my_app')
     #
     # @param overrides [Hash] Configuration key-value pairs to set
+    # @param extra_overrides [Hash] Additional keyword arguments merged into overrides
     # @yield [Config] Configuration object for block-based configuration
     # @return [Config] The configured instance
     def configure(overrides = {}, **extra_overrides)
@@ -126,6 +130,12 @@ module JetstreamBridge
       end
     end
 
+    # Reset all configuration and connection state.
+    #
+    # Clears the config singleton and marks the connection as uninitialized.
+    # Primarily used in tests to restore a clean slate between examples.
+    #
+    # @return [void]
     def reset!
       @config = nil
       @connection_initialized = false
@@ -137,6 +147,8 @@ module JetstreamBridge
     # This method can be called explicitly if needed. It's idempotent and safe to call multiple times.
     #
     # @return [void]
+    # @raise [ConfigurationError] If configuration validation fails
+    # @raise [ConnectionError] If unable to connect to NATS
     def startup!
       return if @connection_initialized
 
@@ -186,14 +198,23 @@ module JetstreamBridge
       end
     end
 
+    # Whether the transactional outbox pattern is enabled.
+    #
+    # @return [Boolean]
     def use_outbox?
       config.use_outbox
     end
 
+    # Whether the idempotent inbox pattern is enabled.
+    #
+    # @return [Boolean]
     def use_inbox?
       config.use_inbox
     end
 
+    # Whether the dead letter queue is enabled.
+    #
+    # @return [Boolean]
     def use_dlq?
       config.use_dlq
     end
@@ -311,7 +332,8 @@ module JetstreamBridge
     # @param event_type [String, nil] Event type (e.g., 'created', 'updated', 'user.created')
     # @param payload [Hash, nil] Event payload data
     # @param subject [String, nil] Optional subject override
-    # @param options [Hash] Additional options (event_id, occurred_at, trace_id)
+    # @param kwargs [Hash] Additional keyword arguments forwarded to Publisher#publish
+    #   (event_id, occurred_at, trace_id)
     # @return [Models::PublishResult] Result object with success status and metadata
     #
     # @example Check result status

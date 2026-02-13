@@ -8,11 +8,28 @@ require_relative 'dlq_publisher'
 require_relative 'middleware'
 
 module JetstreamBridge
-  # Immutable per-message metadata.
+  # Immutable per-message metadata extracted from a NATS message.
+  #
+  # @!attribute [r] event_id
+  #   @return [String] Event identifier (from nats-msg-id header or generated UUID)
+  # @!attribute [r] deliveries
+  #   @return [Integer] Number of delivery attempts
+  # @!attribute [r] subject
+  #   @return [String] NATS subject the message arrived on
+  # @!attribute [r] seq
+  #   @return [Integer, nil] Stream sequence number
+  # @!attribute [r] consumer
+  #   @return [String, nil] Consumer name
+  # @!attribute [r] stream
+  #   @return [String, nil] Stream name
   MessageContext = Struct.new(
     :event_id, :deliveries, :subject, :seq, :consumer, :stream,
     keyword_init: true
   ) do
+    # Build a MessageContext from a raw NATS message.
+    #
+    # @param msg [NATS::Msg] Raw NATS message
+    # @return [MessageContext]
     def self.build(msg)
       new(
         event_id: msg.header&.[]('nats-msg-id') || SecureRandom.uuid,
@@ -26,13 +43,21 @@ module JetstreamBridge
   end
 
   # Simple exponential backoff strategy for transient failures.
+  #
+  # Produces a bounded delay in seconds based on delivery count and error type.
+  # Transient errors (Timeout, IO) use a lower base for faster retries.
   class BackoffStrategy
+    # Error types considered transient (faster backoff)
     TRANSIENT_ERRORS = [Timeout::Error, IOError].freeze
     MAX_EXPONENT     = 6
     MAX_DELAY        = 60
     MIN_DELAY        = 1
 
-    # Returns a bounded delay in seconds
+    # Calculate delay for the next retry attempt.
+    #
+    # @param deliveries [Integer] Current delivery attempt number
+    # @param error [Exception] The error that triggered the retry
+    # @return [Integer] Delay in seconds, clamped between MIN_DELAY and MAX_DELAY
     def delay(deliveries, error)
       base = transient?(error) ? 0.5 : 2.0
       power = [deliveries - 1, MAX_EXPONENT].min
@@ -47,13 +72,35 @@ module JetstreamBridge
     end
   end
 
-  # Orchestrates parse → handler → ack/nak → DLQ
+  # Orchestrates the parse -> handler -> ack/nak -> DLQ pipeline for each message.
+  #
+  # Responsible for deserializing incoming NATS messages, running them through
+  # the middleware chain and handler, and deciding whether to ACK, NAK, or
+  # route to the dead letter queue.
   class MessageProcessor
+    # Error types that skip retry and go straight to DLQ
     UNRECOVERABLE_ERRORS = [ArgumentError, TypeError].freeze
+
+    # Result of processing a single message.
+    #
+    # @!attribute [r] action
+    #   @return [Symbol] :ack or :nak
+    # @!attribute [r] ctx
+    #   @return [MessageContext] Per-message metadata
+    # @!attribute [r] error
+    #   @return [Exception, nil] Error if processing failed
+    # @!attribute [r] delay
+    #   @return [Integer, nil] NAK delay in seconds
     ActionResult = Struct.new(:action, :ctx, :error, :delay, keyword_init: true)
 
+    # @return [ConsumerMiddleware::MiddlewareChain] Middleware chain
     attr_reader :middleware_chain
 
+    # @param jts [NATS::JetStream] JetStream context
+    # @param handler [#call] User-provided event handler
+    # @param dlq [DlqPublisher, nil] DLQ publisher (auto-created if nil)
+    # @param backoff [BackoffStrategy, nil] Backoff strategy (auto-created if nil)
+    # @param middleware_chain [ConsumerMiddleware::MiddlewareChain, nil] Middleware chain
     def initialize(jts, handler, dlq: nil, backoff: nil, middleware_chain: nil)
       @jts              = jts
       @handler          = handler
@@ -62,6 +109,11 @@ module JetstreamBridge
       @middleware_chain = middleware_chain || ConsumerMiddleware::MiddlewareChain.new
     end
 
+    # Process a single NATS message through the full pipeline.
+    #
+    # @param msg [NATS::Msg] Raw NATS message
+    # @param auto_ack [Boolean] Whether to automatically ACK/NAK the message
+    # @return [ActionResult] Result indicating the action taken
     def handle_message(msg, auto_ack: true)
       ctx = MessageContext.build(msg)
       event, early_action = parse_message(msg, ctx)

@@ -15,7 +15,23 @@ module JetstreamBridge
     #     puts event.metadata.trace_id # "abc123"
     #   end
     class Event
-      # Metadata associated with message delivery
+      # Metadata associated with message delivery.
+      #
+      # Contains NATS-level delivery information such as the subject,
+      # delivery count, stream name, and sequence number.
+      #
+      # @!attribute [r] subject
+      #   @return [String] NATS subject the message was received on
+      # @!attribute [r] deliveries
+      #   @return [Integer] Number of delivery attempts
+      # @!attribute [r] stream
+      #   @return [String, nil] Stream name
+      # @!attribute [r] sequence
+      #   @return [Integer, nil] Message sequence number in the stream
+      # @!attribute [r] consumer
+      #   @return [String, nil] Consumer name
+      # @!attribute [r] timestamp
+      #   @return [Time] When the metadata was captured
       Metadata = Struct.new(
         :subject,
         :deliveries,
@@ -37,8 +53,15 @@ module JetstreamBridge
         end
       end
 
-      # Payload accessor with method-style access
+      # Wraps a Hash payload to allow method-style access to its keys.
+      #
+      # @example
+      #   accessor = PayloadAccessor.new("user_id" => 42)
+      #   accessor.user_id  #=> 42
+      #   accessor["user_id"]  #=> 42
+      #   accessor.to_h  #=> {"user_id" => 42}
       class PayloadAccessor
+        # @param payload [Hash] Raw payload hash
         def initialize(payload)
           @payload = payload.is_a?(Hash) ? payload.transform_keys(&:to_s) : {}
         end
@@ -68,6 +91,15 @@ module JetstreamBridge
         alias to_hash to_h
       end
 
+      # @return [String] Unique event identifier
+      # @return [String] Event type (e.g. "user.created")
+      # @return [String] Resource type (e.g. "user")
+      # @return [String] Resource identifier
+      # @return [String] Name of the producing application
+      # @return [Time, nil] When the event occurred
+      # @return [String] Distributed trace identifier
+      # @return [Integer] Envelope schema version
+      # @return [Metadata] Message delivery metadata
       attr_reader :event_id, :type, :resource_type, :resource_id,
                   :producer, :occurred_at, :trace_id, :schema_version,
                   :metadata
